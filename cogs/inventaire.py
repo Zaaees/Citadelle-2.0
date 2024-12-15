@@ -8,6 +8,7 @@ from googleapiclient.discovery import build
 import io
 from dotenv import load_dotenv
 load_dotenv()
+import gspread
 
 class Inventory(commands.Cog):
     def __init__(self, bot):
@@ -16,94 +17,55 @@ class Inventory(commands.Cog):
         self.MESSAGE_ID = 1230199030412218398
         self.ALERT_CHANNEL_ID = 1085300906981085366
         
-        # Configuration Google Drive
-        self.SCOPES = ['https://www.googleapis.com/auth/drive.file']
-        self.FILE_NAME = 'inventaire.json'
-        
-        # Initialisation du service Drive
-        self.drive_service = self.get_drive_service()
-        self.FILE_ID = self.find_or_create_file()
+        # Configuration Google Sheets
+        self.SCOPES = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive'
+        ]
+        self.client = self.get_sheets_client()
+        self.spreadsheet = self.client.open_by_key(os.getenv('GOOGLE_SHEET_ID_INVENTAIRE'))
+        self.sheet = self.spreadsheet.get_worksheet(0)  # Première feuille
 
-    def get_drive_service(self):
+    def get_sheets_client(self):
         try:
-            # Récupération des credentials depuis une variable d'environnement
-            if os.getenv('SERVICE_ACCOUNT_JSON'):
-                import json
-                import tempfile
-                
-                # Créer un fichier temporaire avec les credentials
-                with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
-                    json.dump(json.loads(os.getenv('SERVICE_ACCOUNT_JSON')), temp_file)
-                    temp_file_path = temp_file.name
-
-                credentials = service_account.Credentials.from_service_account_file(
-                    temp_file_path, scopes=self.SCOPES)
-                
-                # Supprimer le fichier temporaire
-                os.unlink(temp_file_path)
-            else:
-                # Fallback pour le développement local
-                credentials = service_account.Credentials.from_service_account_file(
-                    'service-account.json', scopes=self.SCOPES)
-            
-            return build('drive', 'v3', credentials=credentials)
-        
+            creds = Credentials.from_service_account_info(
+                eval(os.getenv('SERVICE_ACCOUNT_JSON')), 
+                scopes=self.SCOPES
+            )
+            return gspread.authorize(creds)
         except Exception as e:
-            print(f"Erreur d'authentification Google Drive : {e}")
+            print(f"Erreur d'authentification Google Sheets : {e}")
             return None
-
-    def find_or_create_file(self):
-        # Trouver ou créer le fichier sur Google Drive
-        results = self.drive_service.files().list(
-            q=f"name='{self.FILE_NAME}'", 
-            spaces='drive',
-            fields="files(id)"
-        ).execute()
-        files = results.get('files', [])
-
-        if files:
-            return files[0]['id']
-        
-        # Créer le fichier s'il n'existe pas
-        file_metadata = {
-            'name': self.FILE_NAME,
-            'mimeType': 'application/json'
-        }
-        file = self.drive_service.files().create(
-            body=file_metadata, 
-            fields='id'
-        ).execute()
-        
-        # Initialiser avec un JSON vide
-        self.update_file_content({})
-        return file['id']
 
     def load_students(self):
         try:
-            # Télécharger le contenu du fichier depuis Google Drive
-            request = self.drive_service.files().get_media(fileId=self.FILE_ID)
-            file_content = request.execute().decode('utf-8')
-            return json.loads(file_content or '{}')
+            # Récupère toutes les valeurs du tableau
+            data = self.sheet.get_all_values()
+            
+            # Convertit en dictionnaire, en supposant la structure Nom | Médailles
+            students = {}
+            for row in data[1:]:  # Ignore la première ligne (en-têtes)
+                if len(row) >= 2:
+                    students[row[0]] = float(row[1]) if row[1] else 0
+            return students
         except Exception as e:
             print(f"Erreur lors du chargement des étudiants : {e}")
             return {}
 
-    def update_file_content(self, content):
-        try:
-            # Mettre à jour le contenu du fichier sur Google Drive
-            file_content = json.dumps(content, ensure_ascii=False, indent=2)
-            media = io.BytesIO(file_content.encode('utf-8'))
-            
-            self.drive_service.files().update(
-                fileId=self.FILE_ID,
-                media_body=media,
-                fields='id'
-            ).execute()
-        except Exception as e:
-            print(f"Erreur lors de la mise à jour du fichier : {e}")
-
     def save_students(self, students):
-        self.update_file_content(students)
+        try:
+            # Efface le contenu actuel
+            self.sheet.clear()
+            
+            # Réécrit les en-têtes
+            self.sheet.append_row(['Nom', 'Médailles'])
+            
+            # Ajoute les étudiants triés
+            sorted_students = sorted(students.items(), key=lambda x: x[1], reverse=True)
+            for name, medals in sorted_students:
+                self.sheet.append_row([name, medals])
+        except Exception as e:
+            print(f"Erreur lors de la sauvegarde des étudiants : {e}")
 
     def format_student_list(self, students):
         def get_year(medals):
