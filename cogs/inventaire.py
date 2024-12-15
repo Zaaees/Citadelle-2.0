@@ -48,12 +48,13 @@ class Inventory(commands.Cog):
             # Convertit en dictionnaire, en supposant la structure Nom | Médailles
             students = {}
             for row in data[1:]:  # Ignore la première ligne (en-têtes)
-                if len(row) >= 2 and row[0].strip():  # Ensure row has at least 2 columns and name is not empty
+                if len(row) >= 2 and row[0].strip():
                     try:
+                        # Convertir les médailles, avec une valeur par défaut de 0
                         medals = float(row[1]) if row[1].strip() else 0
                         students[row[0].strip()] = medals
                     except ValueError:
-                        print(f"Could not convert medals for {row[0]}: {row[1]}")
+                        print(f"Impossible de convertir les médailles pour {row[0]}: {row[1]}")
             
             return students
         except Exception as e:
@@ -62,38 +63,26 @@ class Inventory(commands.Cog):
 
     def save_students(self, students):
         try:
-            # Fetch existing data
+            # Récupérer les données existantes
             existing_data = self.sheet.get_all_values()
-            headers = existing_data[0] if existing_data else ['Nom', 'Médailles']
-
-            # Clear the sheet
+            
+            # Effacer complètement la feuille
             self.sheet.clear()
-
-            # Rewrite headers
-            self.sheet.append_row(headers)
-
-            # Append or update students
+            
+            # Réécrire les en-têtes
+            self.sheet.append_row(['Nom', 'Médailles'])
+            
+            # Trier les étudiants par nombre de médailles (décroissant)
             sorted_students = sorted(students.items(), key=lambda x: x[1], reverse=True)
+            
+            # Ajouter chaque étudiant
             for name, medals in sorted_students:
-                # Check if student already exists
-                existing_row = None
-                for i, row in enumerate(existing_data[1:], start=1):
-                    if row[0] == name:
-                        existing_row = i
-                        break
-
-                if existing_row is not None:
-                    # Update existing student's medals
-                    self.sheet.update_cell(existing_row + 1, 2, medals)
-                else:
-                    # Add new student
-                    self.sheet.append_row([name, medals])
+                self.sheet.append_row([name, str(medals)])
+        
         except Exception as e:
             print(f"Erreur lors de la sauvegarde des étudiants : {e}")
 
     def format_student_list(self, students):
-        # Add a print statement to debug
-        print(f"Students loaded: {students}")
         def get_year(medals):
             if 0 <= medals < 7:
                 return "Première années"
@@ -104,13 +93,23 @@ class Inventory(commands.Cog):
             else:
                 return "Quatrième années"
 
+        # Trier les étudiants par nombre de médailles
         sorted_students = sorted(students.items(), key=lambda x: x[1], reverse=True)
-        years = {"Quatrième années": [], "Troisième années": [], "Deuxième années": [], "Première années": []}
+        
+        # Préparer les années
+        years = {
+            "Quatrième années": [], 
+            "Troisième années": [], 
+            "Deuxième années": [], 
+            "Première années": []
+        }
 
+        # Répartir les étudiants par année
         for name, medals in sorted_students:
             year = get_year(medals)
             years[year].append(f"  - ***{name} :** {medals} médailles*")
 
+        # Construire le message
         message = "## ✮ Liste des personnages et leurs médailles ✮\n** **\n"  
         for i, (year, students_list) in enumerate(years.items()):
             if students_list:
