@@ -8,7 +8,7 @@ class CustomBot(commands.Bot):
 
     async def setup_hook(self):
         # Load cogs
-        await self.load_extension('inventoraire_cog')
+        await self.load_extension('inventaire_cog')
         
         # Sync commands
         await self.tree.sync()

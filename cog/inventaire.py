@@ -6,6 +6,8 @@ import json
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import io
+from dotenv import load_dotenv
+load_dotenv()
 
 class Inventory(commands.Cog):
     def __init__(self, bot):
