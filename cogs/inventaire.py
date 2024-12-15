@@ -9,6 +9,7 @@ import io
 from dotenv import load_dotenv
 load_dotenv()
 import gspread
+from google.oauth2.service_account import Credentials as ServiceAccountCredentials
 
 class Inventory(commands.Cog):
     def __init__(self, bot):
@@ -25,10 +26,10 @@ class Inventory(commands.Cog):
         self.client = self.get_sheets_client()
         self.spreadsheet = self.client.open_by_key(os.getenv('GOOGLE_SHEET_ID_INVENTAIRE'))
         self.sheet = self.spreadsheet.get_worksheet(0)  # Première feuille
-
+    
     def get_sheets_client(self):
         try:
-            creds = Credentials.from_service_account_info(
+            creds = ServiceAccountCredentials.from_service_account_info(
                 eval(os.getenv('SERVICE_ACCOUNT_JSON')), 
                 scopes=self.SCOPES
             )
