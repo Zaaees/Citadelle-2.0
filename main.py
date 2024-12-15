@@ -7,39 +7,35 @@ class CustomBot(commands.Bot):
         super().__init__(*args, **kwargs)
 
     async def setup_hook(self):
-        # Load cogs
-        await self.load_extension('inventaire_cog')
+        # Charger les cogs
+        await self.load_extension('cogs.inventaire')
         
-        # Sync commands
+        # Synchroniser les commandes
         await self.tree.sync()
 
+    def check_role(self, interaction):
+        # Implémentez votre logique de vérification de rôle ici
+        return True
+
 def main():
-    # Bot configuration
+    # Configuration du bot
     intents = discord.Intents.default()
     intents.message_content = True
     intents.members = True
 
-    # Create bot instance
+    # Créer une instance du bot
     bot = CustomBot(
         command_prefix='!', 
         intents=intents
     )
 
-    # Bot events
+    # Événements du bot
     @bot.event
     async def on_ready():
-        print(f'Logged in as {bot.user.name}')
-        print(f'Bot ID: {bot.user.id}')
+        print(f'Connecté en tant que {bot.user.name}')
+        print(f'ID du bot : {bot.user.id}')
 
-    # Custom role check method
-    def check_role(interaction):
-        # Implement your role checking logic
-        # This is a placeholder - replace with your actual role check
-        return True
-    
-    bot.check_role = check_role
-
-    # Run the bot
+    # Exécuter le bot
     bot.run(os.getenv('DISCORD_TOKEN'))
 
 if __name__ == '__main__':
