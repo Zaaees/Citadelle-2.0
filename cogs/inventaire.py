@@ -66,19 +66,31 @@ class Inventory(commands.Cog):
             # Récupérer les données existantes
             existing_data = self.sheet.get_all_values()
             
-            # Effacer complètement la feuille
-            self.sheet.clear()
+            # Créer un dictionnaire pour suivre les mises à jour
+            updated_students = {}
             
-            # Réécrire les en-têtes
-            self.sheet.append_row(['Nom', 'Médailles'])
+            # Parcourir les données existantes
+            for row in existing_data[1:]:  # Ignorer l'en-tête
+                if len(row) >= 2:
+                    name = row[0].strip()
+                    
+                    # Si l'étudiant est dans la nouvelle liste et a des médailles
+                    if name in students and students[name] > 0:
+                        updated_students[name] = students[name]
+                        # Mettre à jour la cellule avec le nouveau nombre de médailles
+                        cell = self.sheet.find(name)
+                        self.sheet.update_cell(cell.row, 2, students[name])
+                    
+                    # Si l'étudiant a été supprimé (0 médailles), supprimer la ligne
+                    elif name in students and students[name] <= 0:
+                        cell = self.sheet.find(name)
+                        self.sheet.delete_row(cell.row)
             
-            # Trier les étudiants par nombre de médailles (décroissant)
-            sorted_students = sorted(students.items(), key=lambda x: x[1], reverse=True)
+            # Ajouter les nouveaux étudiants qui n'étaient pas dans la feuille
+            for name, medals in students.items():
+                if name not in updated_students and medals > 0:
+                    self.sheet.append_row([name, medals])
             
-            # Ajouter chaque étudiant
-            for name, medals in sorted_students:
-                self.sheet.append_row([name, str(medals)])
-        
         except Exception as e:
             print(f"Erreur lors de la sauvegarde des étudiants : {e}")
 
