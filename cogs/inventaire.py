@@ -7,9 +7,11 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import io
 from dotenv import load_dotenv
-load_dotenv()
 import gspread
 from google.oauth2.service_account import Credentials as ServiceAccountCredentials
+
+
+load_dotenv()
 
 class Inventory(commands.Cog):
     def __init__(self, bot):
@@ -46,8 +48,13 @@ class Inventory(commands.Cog):
             # Convertit en dictionnaire, en supposant la structure Nom | Médailles
             students = {}
             for row in data[1:]:  # Ignore la première ligne (en-têtes)
-                if len(row) >= 2:
-                    students[row[0]] = float(row[1]) if row[1] else 0
+                if len(row) >= 2 and row[0].strip():  # Ensure row has at least 2 columns and name is not empty
+                    try:
+                        medals = float(row[1]) if row[1].strip() else 0
+                        students[row[0].strip()] = medals
+                    except ValueError:
+                        print(f"Could not convert medals for {row[0]}: {row[1]}")
+            
             return students
         except Exception as e:
             print(f"Erreur lors du chargement des étudiants : {e}")
@@ -55,20 +62,38 @@ class Inventory(commands.Cog):
 
     def save_students(self, students):
         try:
-            # Efface le contenu actuel
+            # Fetch existing data
+            existing_data = self.sheet.get_all_values()
+            headers = existing_data[0] if existing_data else ['Nom', 'Médailles']
+
+            # Clear the sheet
             self.sheet.clear()
-            
-            # Réécrit les en-têtes
-            self.sheet.append_row(['Nom', 'Médailles'])
-            
-            # Ajoute les étudiants triés
+
+            # Rewrite headers
+            self.sheet.append_row(headers)
+
+            # Append or update students
             sorted_students = sorted(students.items(), key=lambda x: x[1], reverse=True)
             for name, medals in sorted_students:
-                self.sheet.append_row([name, medals])
+                # Check if student already exists
+                existing_row = None
+                for i, row in enumerate(existing_data[1:], start=1):
+                    if row[0] == name:
+                        existing_row = i
+                        break
+
+                if existing_row is not None:
+                    # Update existing student's medals
+                    self.sheet.update_cell(existing_row + 1, 2, medals)
+                else:
+                    # Add new student
+                    self.sheet.append_row([name, medals])
         except Exception as e:
             print(f"Erreur lors de la sauvegarde des étudiants : {e}")
 
     def format_student_list(self, students):
+        # Add a print statement to debug
+        print(f"Students loaded: {students}")
         def get_year(medals):
             if 0 <= medals < 7:
                 return "Première années"
