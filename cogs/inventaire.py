@@ -9,7 +9,7 @@ import io
 from dotenv import load_dotenv
 import gspread
 from google.oauth2.service_account import Credentials as ServiceAccountCredentials
-
+from gspread.exceptions import CellNotFound
 
 load_dotenv()
 
@@ -84,7 +84,7 @@ class Inventory(commands.Cog):
                     # Si l'étudiant a été supprimé (0 médailles), supprimer la ligne
                     elif name in students and students[name] <= 0:
                         cell = self.sheet.find(name)
-                        self.sheet.delete_row(cell.row)
+                        self.sheet.delete_rows(cell.row) 
             
             # Ajouter les nouveaux étudiants qui n'étaient pas dans la feuille
             for name, medals in students.items():
