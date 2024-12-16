@@ -185,42 +185,63 @@ class Inventory(commands.Cog):
 
     @app_commands.command(name="unmedaille", description="Retirer des médailles à un ou plusieurs élèves")
     async def remove_medal(self, interaction: discord.Interaction, noms: str, montant: float):
-        await interaction.response.defer()
+        await interaction.response.defer()  # Défer l'interaction pour éviter un timeout
+        
+        # Vérification des permissions
         if not self.bot.check_role(interaction):
             await interaction.response.send_message("Vous n'avez pas la permission d'utiliser cette commande.", ephemeral=True)
             return
 
+        # Charger les étudiants existants
         students = self.load_students()
         noms_list = [nom.strip() for nom in noms.split(',')]
-    
+        
         embeds = []
 
         for nom in noms_list:
             if nom in students:
+                old_medals = students[nom]
                 students[nom] -= montant
-            
+                
                 if students[nom] <= 0:
-                    del students[nom]
-                    embed = discord.Embed(
-                        title=nom,
-                        description=f"**{montant}** médailles retirées. {nom} a été retiré de la liste car son total est de 0 ou moins.",
-                        color=0xFF0000
-                    )
+                    # Supprimer directement la ligne de Google Sheets
+                    try:
+                        cell = self.sheet.find(nom)
+                        self.sheet.delete_row(cell.row)  # Suppression de la ligne
+                        del students[nom]  # Supprimer également de la liste locale
+                        embed = discord.Embed(
+                            title=nom,
+                            description=f"**{montant}** médailles retirées. {nom} a été supprimé de la liste car son total est de 0 ou moins.",
+                            color=0xFF0000
+                        )
+                    except gspread.exceptions.CellNotFound:
+                        embed = discord.Embed(
+                            title="Erreur",
+                            description=f"Impossible de trouver {nom} dans la feuille pour suppression.",
+                            color=0xFF0000
+                        )
                 else:
+                    # Mettre à jour le nombre de médailles si > 0
+                    self.sheet.update_cell(self.sheet.find(nom).row, 2, students[nom])
                     embed = discord.Embed(
                         title=nom,
                         description=f"**{montant}** médailles retirées. Total actuel : **{students[nom]}** médailles.",
                         color=0x8543f7
                     )
             else:
-                embed = discord.Embed(title="Erreur", description=f"{nom} n'est pas dans la liste des élèves.", color=0xFF0000)
-        
+                # Si l'élève n'est pas trouvé dans la liste
+                embed = discord.Embed(
+                    title="Erreur",
+                    description=f"{nom} n'est pas dans la liste des élèves.",
+                    color=0xFF0000
+                )
+            
             embeds.append(embed)
 
-        self.save_students(students)
+        # Mettre à jour l'inventaire après toutes les modifications
         await self.update_medal_inventory()
 
-        # Use followup instead of response
+        # Envoyer les résultats sous forme d'embed
         await interaction.followup.send(embeds=embeds)
 
     async def update_medal_inventory(self):
