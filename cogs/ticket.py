@@ -116,7 +116,13 @@ class Ticket(commands.Cog):
             processed = 0
             total_processed = 0
             
-            for channel in interaction.guild.text_channels:
+            # Filtrer uniquement les salons qui n'ont pas de catégorie
+            channels_to_check = [
+                channel for channel in interaction.guild.text_channels 
+                if channel.category is None
+            ]
+            
+            for channel in channels_to_check:
                 try:
                     if await self.process_ticket(channel):
                         processed += 1
