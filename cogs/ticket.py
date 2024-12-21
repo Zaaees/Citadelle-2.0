@@ -57,12 +57,13 @@ class Ticket(commands.Cog):
                 return False
 
             print(f"C'est un ticket: {channel.name}")
-            # Déplacer le ticket dans la catégorie cible si nécessaire
+            
+            # Déplacement du ticket
             target_category = self.bot.get_channel(self.target_category_id)
-            if target_category and channel.category_id != self.target_category_id:
+            if target_category and channel.category != target_category:  # Changement ici
                 try:
-                    print(f"Déplacement du salon {channel.name}")
-                    await channel.move(category=target_category, sync_permissions=True)
+                    print(f"Déplacement du salon {channel.name} vers {target_category.name}")
+                    await channel.edit(category=target_category)  # Utilisation de edit au lieu de move
                     await asyncio.sleep(self.CHANNEL_EDIT_DELAY)
                 except Exception as e:
                     print(f"Erreur lors du déplacement: {str(e)}")
