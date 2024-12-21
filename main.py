@@ -12,7 +12,8 @@ class CustomBot(commands.Bot):
     async def setup_hook(self):
         # Charger les cogs
         await self.load_extension('cogs.inventaire')
-        
+        await self.load_extension('cogs.RPTracker')
+
         # Synchroniser les commandes
         await self.tree.sync()
 
