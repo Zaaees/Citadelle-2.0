@@ -7,19 +7,15 @@ class Ticket(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.target_category_id = 1020827427888435210
+        self.CHANNEL_EDIT_DELAY = 2  # Délai en secondes entre chaque modification de salon
 
     async def is_ticket_channel(self, channel):
         try:
             async for message in channel.history(limit=10):
-                # Vérifie les embeds du message
                 for embed in message.embeds:
-                    # Vérifie que c'est bien un ticket TicketTool
-                    if (embed.footer and "TicketTool.xyz" in embed.footer.text 
-                        and embed.author  # Vérifie qu'il y a un auteur
-                        and " (" in embed.author.name):  # Format typique "@User (Info | Info)"
-                        print(f"Ticket trouvé: {channel.name}")
+                    if embed.footer and "TicketTool.xyz" in embed.footer.text:
                         return True
-                return False
+            return False
         except Exception as e:
             print(f"Erreur lors de la vérification du ticket {channel.name}: {str(e)}")
             return False
@@ -32,9 +28,7 @@ class Ticket(commands.Cog):
                         lines = embed.description.split('\n')
                         for i, line in enumerate(lines):
                             if question_text in line and i + 1 < len(lines):
-                                answer = lines[i + 1].strip()
-                                print(f"Réponse trouvée pour {question_text}: {answer}")
-                                return answer
+                                return lines[i + 1].strip()
             return None
         except Exception as e:
             print(f"Erreur lors de la recherche de réponse: {str(e)}")
@@ -46,61 +40,55 @@ class Ticket(commands.Cog):
 
     async def process_ticket(self, channel):
         try:
-            print(f"Traitement du salon: {channel.name}")
-
-            # Vérifie d'abord si c'est un ticket
             if not await self.is_ticket_channel(channel):
-                print(f"Ce n'est pas un ticket: {channel.name}")
                 return
 
-            # Obtenir la catégorie cible
+            # Déplacer d'abord le ticket dans la bonne catégorie
             target_category = self.bot.get_channel(self.target_category_id)
-            if not target_category:
-                print("Catégorie cible non trouvée")
-                return
-
-            # Déplacer d'abord le ticket dans la bonne catégorie s'il n'y est pas déjà
-            if channel.category_id != self.target_category_id:
-                print(f"Déplacement du salon {channel.name} vers la catégorie cible")
-                await channel.move(category=target_category, sync_permissions=True)
-                # Attendre un court instant pour s'assurer que le déplacement est terminé
-                await asyncio.sleep(1)
+            if target_category and channel.category_id != self.target_category_id:
+                try:
+                    await channel.move(category=target_category, sync_permissions=True)
+                    await asyncio.sleep(self.CHANNEL_EDIT_DELAY)
+                except discord.errors.HTTPException as e:
+                    if e.status == 429:  # Rate limit
+                        await asyncio.sleep(e.retry_after)
+                        await channel.move(category=target_category, sync_permissions=True)
+                    else:
+                        print(f"Erreur lors du déplacement du salon {channel.name}: {e}")
+                except Exception as e:
+                    print(f"Erreur inattendue lors du déplacement du salon {channel.name}: {e}")
 
             # Rechercher et traiter les réponses pour le renommage
-            name_answer = await self.find_tickettool_answer(channel, "Quel est le nom de votre personnage ?")
-            if name_answer:
-                print(f"Renommage en tant que fiche: {name_answer}")
-                await channel.edit(name=name_answer)
-                return
+            new_name = None
+            
+            for question, response in [
+                ("Quel est le nom de votre personnage ?", None),
+                ("Quel est le sous-élément ?", None),
+                ("Quel est le nom de la magie unique", None),
+                ("Quelle est votre demande ?", lambda x: self.get_first_four_words(x))
+            ]:
+                answer = await self.find_tickettool_answer(channel, question)
+                if answer:
+                    new_name = await response(answer) if response else answer
+                    break
 
-            sub_element = await self.find_tickettool_answer(channel, "Quel est le sous-élément ?")
-            if sub_element:
-                print(f"Renommage en tant que sous-élément: {sub_element}")
-                await channel.edit(name=sub_element)
-                return
+            if new_name and new_name != channel.name:
+                try:
+                    await channel.edit(name=new_name)
+                    await asyncio.sleep(self.CHANNEL_EDIT_DELAY)
+                except discord.errors.HTTPException as e:
+                    if e.status == 429:
+                        await asyncio.sleep(e.retry_after)
+                        await channel.edit(name=new_name)
+                except Exception as e:
+                    print(f"Erreur lors du renommage du salon {channel.name}: {e}")
 
-            magic_name = await self.find_tickettool_answer(channel, "Quel est le nom de la magie unique")
-            if magic_name:
-                print(f"Renommage en tant que magie unique: {magic_name}")
-                await channel.edit(name=magic_name)
-                return
-
-            request = await self.find_tickettool_answer(channel, "Quelle est votre demande ?")
-            if request:
-                new_name = await self.get_first_four_words(request)
-                print(f"Renommage en tant que demande: {new_name}")
-                await channel.edit(name=new_name)
-                return
-
-        except discord.Forbidden:
-            print(f"Permissions insuffisantes pour le salon {channel.name}")
         except Exception as e:
             print(f"Erreur lors du traitement du ticket {channel.name}: {str(e)}")
 
     @commands.Cog.listener()
     async def on_guild_channel_create(self, channel):
         if isinstance(channel, discord.TextChannel):
-            # Attendre que TicketTool finisse d'initialiser le ticket
             await asyncio.sleep(2)
             await self.process_ticket(channel)
 
@@ -108,14 +96,15 @@ class Ticket(commands.Cog):
     @discord.app_commands.default_permissions(administrator=True)
     async def process_tickets(self, interaction: discord.Interaction):
         await interaction.response.defer()
-
         processed = 0
+        
         for channel in interaction.guild.text_channels:
-            # Traiter tous les canaux textuels, qu'ils soient dans une catégorie ou non
-            if await self.is_ticket_channel(channel):
+            try:
                 await self.process_ticket(channel)
                 processed += 1
-                print(f"Ticket traité: {channel.name}")
+                await asyncio.sleep(self.CHANNEL_EDIT_DELAY)
+            except Exception as e:
+                print(f"Erreur lors du traitement du ticket {channel.name}: {e}")
 
         await interaction.followup.send(f"Traitement terminé. {processed} tickets ont été traités.")
 
