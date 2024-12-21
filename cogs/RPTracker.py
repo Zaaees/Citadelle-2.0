@@ -23,30 +23,57 @@ class RPTracker(commands.Cog):
         self.gc = gspread.authorize(self.credentials)
         self.sheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_ACTIVITE')).sheet1
         
-        self.update_loop.start()  # On utilise update_loop au lieu de update_task
+        self.update_loop.start()
 
     @tasks.loop(hours=1)
-    async def update_loop(self):  # Renommé en update_loop
-        await self.check_and_update()
+    async def update_loop(self):
+        print("Exécution de la boucle de mise à jour")
+        try:
+            await self.check_and_update()
+            print("Mise à jour terminée avec succès")
+        except Exception as e:
+            print(f"Erreur dans la boucle de mise à jour: {e}")
 
-    @update_loop.before_loop  # Modifié pour correspondre au nouveau nom
-    async def before_update_loop(self):  # Modifié pour correspondre au nouveau nom
+    @update_loop.before_loop
+    async def before_update_loop(self):
         await self.bot.wait_until_ready()
         await asyncio.sleep(60)
 
+    async def cog_load(self):
+        print("Cog RPTracker en cours de chargement")
+        await self.initial_setup()
+
+    async def initial_setup(self):
+        print("Début du setup initial")
+        await self.check_and_update()
+        print("Setup initial terminé")
+
+    async def check_and_update(self):
+        print("Début de check_and_update")
+        await self.perform_update()
+        print("Fin de check_and_update")
+
     async def update_sheet_timestamp(self):
-        now = datetime.now(self.paris_tz)
-        # Mettre à jour la dernière mise à jour dans Google Sheets
-        self.sheet.update('A1', [['last_update', now.isoformat()]])
+        try:
+            now = datetime.now(self.paris_tz)
+            print(f"Tentative de mise à jour du sheet avec timestamp: {now.isoformat()}")
+            self.sheet.update('A1', [['last_update', now.isoformat()]])
+            print("Mise à jour du sheet réussie")
+        except Exception as e:
+            print(f"Erreur lors de la mise à jour du sheet: {e}")
 
     async def perform_update(self):
+        print("Début de perform_update")
         channel = self.bot.get_channel(self.channel_id)
         if not channel:
+            print("Canal non trouvé")
             return
 
         try:
             message = await channel.fetch_message(self.message_id)
+            print("Message trouvé")
         except discord.NotFound:
+            print("Message non trouvé")
             return
 
         recent_channels, old_channels = await self.get_active_channels()
@@ -86,7 +113,6 @@ class RPTracker(commands.Cog):
                                 if last_message:
                                     self.add_channel_to_list(channel, last_message, now, recent_channels, old_channels)
                             
-                            # Vérifier les fils de discussion du canal texte
                                 for thread in channel.threads:
                                     thread_last_message = await asyncio.wait_for(self.get_last_message(thread), timeout=10.0)
                                     if thread_last_message:
@@ -149,4 +175,4 @@ class RPTracker(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(RPTracker(bot))
-    print("cog activite chargé avec succès")
+    print("Cog RPTracker chargé avec succès")
