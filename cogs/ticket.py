@@ -107,7 +107,7 @@ class Ticket(commands.Cog):
             await asyncio.sleep(2)
             await self.process_ticket(channel)
 
-    @discord.app_commands.command(name="process_tickets", description="Traite tous les tickets existants")
+    @discord.app_commands.command(name="ticket", description="Traite tous les tickets existants")
     @discord.app_commands.default_permissions(administrator=True)
     async def process_tickets(self, interaction: discord.Interaction):
         try:
