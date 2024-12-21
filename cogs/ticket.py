@@ -10,22 +10,36 @@ class Ticket(commands.Cog):
 
     async def is_ticket_channel(self, channel):
         try:
-            async for message in channel.history(limit=5):
-                if "TicketTool.xyz" in message.content:
-                    return True
+            async for message in channel.history(limit=10):
+                # Vérifie les embeds du message
+                for embed in message.embeds:
+                    if embed.footer and "TicketTool.xyz" in embed.footer.text:
+                        print(f"Ticket trouvé: {channel.name}")
+                        return True
             return False
-        except:
+        except Exception as e:
+            print(f"Erreur lors de la vérification du ticket {channel.name}: {str(e)}")
             return False
 
-    async def find_tickettool_answer(self, channel, question):
-        async for message in channel.history(limit=100):
-            content = message.content
-            if question in content:
-                lines = content.split('\n')
-                for i, line in enumerate(lines):
-                    if question in line and i + 1 < len(lines):
-                        return lines[i + 1].strip()
-        return None
+    async def find_tickettool_answer(self, channel, question_text):
+        try:
+            async for message in channel.history(limit=20):
+                # Vérifie les embeds du message
+                for embed in message.embeds:
+                    # Vérifie le contenu de l'embed
+                    if embed.description:
+                        # Divise la description en lignes
+                        lines = embed.description.split('\n')
+                        for i, line in enumerate(lines):
+                            if question_text in line and i + 1 < len(lines):
+                                # La réponse est la ligne suivante
+                                answer = lines[i + 1].strip()
+                                print(f"Réponse trouvée pour {question_text}: {answer}")
+                                return answer
+            return None
+        except Exception as e:
+            print(f"Erreur lors de la recherche de réponse: {str(e)}")
+            return None
 
     async def get_first_four_words(self, text):
         words = text.split()[:4]
@@ -33,42 +47,46 @@ class Ticket(commands.Cog):
 
     async def process_ticket(self, channel):
         try:
+            print(f"Traitement du salon: {channel.name}")
+
             # Vérifie d'abord si c'est un ticket
             if not await self.is_ticket_channel(channel):
+                print(f"Ce n'est pas un ticket: {channel.name}")
                 return
 
-            # Vérifie si le salon est déjà dans la bonne catégorie
+            # Vérifie la catégorie
             target_category = self.bot.get_channel(self.target_category_id)
             if not target_category:
+                print("Catégorie cible non trouvée")
                 return
             
             if channel.category_id != self.target_category_id:
+                print(f"Déplacement du salon {channel.name} vers la catégorie cible")
                 await channel.move(category=target_category, sync_permissions=True)
 
             # Traitement selon le type de ticket
-            
-            # Ticket de fiche
             name_answer = await self.find_tickettool_answer(channel, "Quel est le nom de votre personnage ?")
             if name_answer:
+                print(f"Renommage en tant que fiche: {name_answer}")
                 await channel.edit(name=name_answer)
                 return
 
-            # Ticket de sous-élément
             sub_element = await self.find_tickettool_answer(channel, "Quel est le sous-élément ?")
             if sub_element:
+                print(f"Renommage en tant que sous-élément: {sub_element}")
                 await channel.edit(name=sub_element)
                 return
 
-            # Ticket de magie unique
             magic_name = await self.find_tickettool_answer(channel, "Quel est le nom de la magie unique")
             if magic_name:
+                print(f"Renommage en tant que magie unique: {magic_name}")
                 await channel.edit(name=magic_name)
                 return
 
-            # Ticket de demande
             request = await self.find_tickettool_answer(channel, "Quelle est votre demande ?")
             if request:
                 new_name = await self.get_first_four_words(request)
+                print(f"Renommage en tant que demande: {new_name}")
                 await channel.edit(name=new_name)
                 return
 
@@ -94,6 +112,7 @@ class Ticket(commands.Cog):
             if await self.is_ticket_channel(channel):
                 await self.process_ticket(channel)
                 processed += 1
+                print(f"Ticket traité: {channel.name}")
 
         await interaction.followup.send(f"Traitement terminé. {processed} tickets ont été traités.")
 
