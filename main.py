@@ -34,6 +34,7 @@ class CustomBot(commands.Bot):
         await self.load_extension('cogs.bump')
         await self.load_extension('cogs.vocabulaire')
         await self.load_extension('cogs.souselement')
+        await self.load_extension('cogs.ticket')
 
         # Synchroniser les commandes
         await self.tree.sync()
