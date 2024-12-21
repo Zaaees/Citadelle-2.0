@@ -123,6 +123,21 @@ class Vocabulaire(commands.Cog):
         client = gspread.authorize(credentials)
         return client.open_by_key(os.getenv('GOOGLE_SHEET_ID_VOCABULAIRE')).sheet1
 
+    def load_vocabulary(self):
+        # Récupérer toutes les données du Google Sheet
+        records = self.sheet.get_all_records()
+        
+        # Créer le dictionnaire de vocabulaire
+        vocabulary = {}
+        for row in records:
+            mot = row['Mot'].lower()
+            vocabulary[mot] = {
+                'definition': row['Definition'],
+                'extrait': row['Extrait']
+            }
+        
+        return vocabulary
+    
     def save_vocabulary(self):
         # Récupérer toutes les données actuelles
         current_data = self.sheet.get_all_records()
