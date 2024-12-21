@@ -27,11 +27,9 @@ class SubElementModal(discord.ui.Modal):
 class SousElements(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        # Initialisation de la connexion Google Sheets
-        self.gc = self.setup_google_sheets()
-        self.sheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT')).sheet1
+        self.setup_google_sheets()
         self.bot.loop.create_task(self.load_persistent_views())
-
+        
     def setup_google_sheets(self):
         scope = ['https://spreadsheets.google.com/feeds',
                  'https://www.googleapis.com/auth/spreadsheets',
@@ -40,76 +38,122 @@ class SousElements(commands.Cog):
             eval(os.getenv('SERVICE_ACCOUNT_JSON')),
             scopes=scope
         )
-        return gspread.authorize(credentials)
+        self.gc = gspread.authorize(credentials)
+        self.sheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT')).sheet1
 
-    def load_data(self):
-        # Charger toutes les données du Google Sheet
-        all_records = self.sheet.get_all_records()
-        data = {}
-        for record in all_records:
-            message_id = str(record['message_id'])
-            if message_id not in data:
-                data[message_id] = {
-                    'channel_id': record['channel_id'],
-                    'user_id': record['user_id'],
-                    'character_name': record['character_name'],
-                    'elements': {
-                        'Eau': [], 'Feu': [], 'Vent': [], 'Terre': [], 'Espace': []
-                    }
+    def get_message_data(self, message_id):
+        try:
+            cells = self.sheet.findall(str(message_id), in_column=1)
+            if not cells:
+                return None
+            
+            data = {
+                'channel_id': None,
+                'user_id': None,
+                'character_name': None,
+                'elements': {
+                    'Eau': [], 'Feu': [], 'Vent': [], 'Terre': [], 'Espace': []
                 }
-            element = record['element']
-            sub_element = record['sub_element']
-            if sub_element:
-                data[message_id]['elements'][element].append(sub_element)
-        return data
+            }
+            
+            rows = self.sheet.get_all_values()
+            for cell in cells:
+                row = rows[cell.row - 1]
+                data['channel_id'] = int(row[1])
+                data['user_id'] = int(row[2])
+                data['character_name'] = row[3]
+                element = row[4]
+                sub_element = row[5]
+                if sub_element:
+                    data['elements'][element].append(sub_element)
+                    
+            return data
+        except Exception as e:
+            print(f"Erreur lors de la récupération des données: {e}")
+            return None
 
-    def save_data(self, message_id, data):
-        # Supprimer les anciennes entrées pour ce message_id
-        self.sheet.delete_rows(
-            self.find_rows_by_message_id(message_id)
-        )
-        
-        # Ajouter les nouvelles données
-        rows_to_add = []
-        for element, sub_elements in data['elements'].items():
-            if not sub_elements:
-                rows_to_add.append([
-                    message_id,
-                    data['channel_id'],
-                    data['user_id'],
-                    data['character_name'],
-                    element,
-                    ''
-                ])
-            for sub_element in sub_elements:
-                rows_to_add.append([
-                    message_id,
-                    data['channel_id'],
-                    data['user_id'],
-                    data['character_name'],
-                    element,
-                    sub_element
-                ])
-        
-        if rows_to_add:
-            self.sheet.append_rows(rows_to_add)
-    
-    def find_rows_by_message_id(self, message_id):
-        cell_list = self.sheet.findall(str(message_id), in_column=1)
-        return [cell.row for cell in cell_list]
+    def save_message_data(self, message_id, data):
+        try:
+            # Supprimer les anciennes entrées
+            cells = self.sheet.findall(str(message_id), in_column=1)
+            rows_to_delete = [cell.row for cell in cells]
+            for row in sorted(rows_to_delete, reverse=True):
+                self.sheet.delete_rows(row)
+
+            # Préparer les nouvelles lignes
+            rows_to_add = []
+            for element, sub_elements in data['elements'].items():
+                if not sub_elements:
+                    rows_to_add.append([
+                        str(message_id),
+                        str(data['channel_id']),
+                        str(data['user_id']),
+                        data['character_name'],
+                        element,
+                        ''
+                    ])
+                for sub_element in sub_elements:
+                    rows_to_add.append([
+                        str(message_id),
+                        str(data['channel_id']),
+                        str(data['user_id']),
+                        data['character_name'],
+                        element,
+                        sub_element
+                    ])
+
+            if rows_to_add:
+                self.sheet.append_rows(rows_to_add)
+        except Exception as e:
+            print(f"Erreur lors de la sauvegarde des données: {e}")
 
     async def load_persistent_views(self):
         await self.bot.wait_until_ready()
-        data = self.load_data()
-        for message_id, message_data in data.items():
-            channel = self.bot.get_channel(message_data['channel_id'])
-            if channel:
-                try:
+        all_data = self.sheet.get_all_values()
+        processed_messages = set()
+        
+        for row in all_data[1:]:  # Skip header row
+            message_id = row[0]
+            if message_id in processed_messages:
+                continue
+                
+            processed_messages.add(message_id)
+            try:
+                channel = self.bot.get_channel(int(row[1]))
+                if channel:
                     message = await channel.fetch_message(int(message_id))
-                    view = SousElementsView(self, message_data['character_name'])
+                    view = SousElementsView(self, row[3])
                     self.bot.add_view(view, message_id=int(message_id))
-                except Exception as e:
-                    print(f"Erreur lors du chargement du message {message_id}: {e}")
+            except Exception as e:
+                print(f"Erreur lors du chargement du message {message_id}: {e}")
+
+    async def update_message(self, message, data):
+        def format_elements(elements):
+            if not elements:
+                return "-\n"
+            return ''.join(f'- {item}\n' for item in elements)
+
+        description = (
+            "# Sous-éléments :\n"
+            "** **\n"
+            "## __Eau :__\n"
+            f"{format_elements(data['elements']['Eau'])}\n"
+            "## __Feu :__\n"
+            f"{format_elements(data['elements']['Feu'])}\n"
+            "## __Vent :__\n"
+            f"{format_elements(data['elements']['Vent'])}\n"
+            "## __Terre :__\n"
+            f"{format_elements(data['elements']['Terre'])}\n"
+            "## __Espace :__\n"
+            f"{format_elements(data['elements']['Espace'])}\n"
+        )
+        
+        embed = discord.Embed(
+            title=f"Sous-éléments de {data['character_name']}", 
+            description=description,
+            color=0x8543f7
+        )
+        await message.edit(embed=embed)
 
     @app_commands.command(name='sous-éléments', description="Créer un message pour gérer les sous-éléments d'un personnage")
     async def sous_elements(self, interaction: discord.Interaction, character_name: str):
@@ -136,9 +180,7 @@ class SousElements(commands.Cog):
         )
     
         view = SousElementsView(self, character_name)
-    
         message = await interaction.followup.send(embed=embed, view=view)
-        print(f"Message {message.id} sent in channel {interaction.channel.id}.")
 
         data = {
             "channel_id": interaction.channel.id,
@@ -153,39 +195,8 @@ class SousElements(commands.Cog):
             }
         }
 
-        self.messages_data[str(message.id)] = data
-        self.save_data_file()
-
+        self.save_message_data(message.id, data)
         self.bot.add_view(view, message_id=message.id)
-        print(f"Data for message {message.id} saved.")
-
-    async def update_message(self, message, data):
-        def format_elements(elements):
-            if not elements:
-                return "-\n"
-            return ''.join(f'- {item}\n' for item in elements)
-
-        description = (
-            "# Sous-éléments :\n"
-            "** **\n"
-            "## __Eau :__\n"
-            + format_elements(data['elements']['Eau']) + "\n"
-            "## __Feu :__\n"
-            + format_elements(data['elements']['Feu']) + "\n"
-            "## __Vent :__\n"
-            + format_elements(data['elements']['Vent']) + "\n"
-            "## __Terre :__\n"
-            + format_elements(data['elements']['Terre']) + "\n"
-            "## __Espace :__\n"
-            + format_elements(data['elements']['Espace']) + "\n"
-        )
-        
-        embed = discord.Embed(
-            title=f"Sous-éléments de {data['character_name']}",  # Utilisez 'character_name' au lieu de 'nom du personnage'
-            description=description,
-            color=0x8543f7
-        )
-        await message.edit(embed=embed)
 
 class SousElementsView(discord.ui.View):
     def __init__(self, cog, character_name):
@@ -201,19 +212,18 @@ class SousElementsView(discord.ui.View):
 
     async def add_sub_element(self, interaction: discord.Interaction, element: str, sub_element: str):
         message_id = str(interaction.message.id)
+        data = self.cog.get_message_data(message_id)
 
-        if message_id not in self.cog.messages_data:
+        if not data:
             await interaction.followup.send("Message data not found.", ephemeral=True)
             return
-
-        data = self.cog.messages_data[message_id]
 
         if interaction.user.id != data['user_id']:
             await interaction.followup.send("Tu n'es pas autorisé à ajouter des sous-éléments.", ephemeral=True)
             return
 
         data['elements'][element].append(sub_element)
-        self.cog.save_data_file()
+        self.cog.save_message_data(message_id, data)
 
         await self.cog.update_message(interaction.message, data)
         await interaction.followup.send(f"Sous-élément '{sub_element}' ajouté à {element}.", ephemeral=True)
