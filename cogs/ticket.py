@@ -8,16 +8,22 @@ class Ticket(commands.Cog):
         self.bot = bot
         self.target_category_id = 1020827427888435210
 
+    async def is_ticket_channel(self, channel):
+        try:
+            async for message in channel.history(limit=5):
+                if "TicketTool.xyz" in message.content:
+                    return True
+            return False
+        except:
+            return False
+
     async def find_tickettool_answer(self, channel, question):
         async for message in channel.history(limit=100):
-            # Vérifie si le message contient à la fois la question et la réponse
             content = message.content
             if question in content:
-                # La réponse est généralement sur la ligne suivante dans le même message
                 lines = content.split('\n')
                 for i, line in enumerate(lines):
                     if question in line and i + 1 < len(lines):
-                        # Retourne la ligne suivante qui contient la réponse
                         return lines[i + 1].strip()
         return None
 
@@ -27,6 +33,10 @@ class Ticket(commands.Cog):
 
     async def process_ticket(self, channel):
         try:
+            # Vérifie d'abord si c'est un ticket
+            if not await self.is_ticket_channel(channel):
+                return
+
             # Vérifie si le salon est déjà dans la bonne catégorie
             target_category = self.bot.get_channel(self.target_category_id)
             if not target_category:
@@ -70,7 +80,7 @@ class Ticket(commands.Cog):
     @commands.Cog.listener()
     async def on_guild_channel_create(self, channel):
         if isinstance(channel, discord.TextChannel):
-            # Attendre un court instant pour laisser TicketTool initialiser le ticket
+            # Attendre que TicketTool finisse d'initialiser le ticket
             await asyncio.sleep(2)
             await self.process_ticket(channel)
 
@@ -81,7 +91,7 @@ class Ticket(commands.Cog):
 
         processed = 0
         for channel in interaction.guild.text_channels:
-            if "ticket" in channel.name.lower():
+            if await self.is_ticket_channel(channel):
                 await self.process_ticket(channel)
                 processed += 1
 
