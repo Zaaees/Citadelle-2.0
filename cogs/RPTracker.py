@@ -23,7 +23,16 @@ class RPTracker(commands.Cog):
         self.gc = gspread.authorize(self.credentials)
         self.sheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_ACTIVITE')).sheet1
         
-        self.update_task.start()
+        self.update_loop.start()  # On utilise update_loop au lieu de update_task
+
+    @tasks.loop(hours=1)
+    async def update_loop(self):  # Renommé en update_loop
+        await self.check_and_update()
+
+    @update_loop.before_loop  # Modifié pour correspondre au nouveau nom
+    async def before_update_loop(self):  # Modifié pour correspondre au nouveau nom
+        await self.bot.wait_until_ready()
+        await asyncio.sleep(60)
 
     async def update_sheet_timestamp(self):
         now = datetime.now(self.paris_tz)
