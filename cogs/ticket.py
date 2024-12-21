@@ -13,10 +13,13 @@ class Ticket(commands.Cog):
             async for message in channel.history(limit=10):
                 # Vérifie les embeds du message
                 for embed in message.embeds:
-                    if embed.footer and "TicketTool.xyz" in embed.footer.text:
+                    # Vérifie que c'est bien un ticket TicketTool
+                    if (embed.footer and "TicketTool.xyz" in embed.footer.text 
+                        and embed.author  # Vérifie qu'il y a un auteur
+                        and " (" in embed.author.name):  # Format typique "@User (Info | Info)"
                         print(f"Ticket trouvé: {channel.name}")
                         return True
-            return False
+                return False
         except Exception as e:
             print(f"Erreur lors de la vérification du ticket {channel.name}: {str(e)}")
             return False
@@ -24,15 +27,11 @@ class Ticket(commands.Cog):
     async def find_tickettool_answer(self, channel, question_text):
         try:
             async for message in channel.history(limit=20):
-                # Vérifie les embeds du message
                 for embed in message.embeds:
-                    # Vérifie le contenu de l'embed
                     if embed.description:
-                        # Divise la description en lignes
                         lines = embed.description.split('\n')
                         for i, line in enumerate(lines):
                             if question_text in line and i + 1 < len(lines):
-                                # La réponse est la ligne suivante
                                 answer = lines[i + 1].strip()
                                 print(f"Réponse trouvée pour {question_text}: {answer}")
                                 return answer
@@ -54,17 +53,20 @@ class Ticket(commands.Cog):
                 print(f"Ce n'est pas un ticket: {channel.name}")
                 return
 
-            # Vérifie la catégorie
+            # Obtenir la catégorie cible
             target_category = self.bot.get_channel(self.target_category_id)
             if not target_category:
                 print("Catégorie cible non trouvée")
                 return
-            
+
+            # Déplacer d'abord le ticket dans la bonne catégorie s'il n'y est pas déjà
             if channel.category_id != self.target_category_id:
                 print(f"Déplacement du salon {channel.name} vers la catégorie cible")
                 await channel.move(category=target_category, sync_permissions=True)
+                # Attendre un court instant pour s'assurer que le déplacement est terminé
+                await asyncio.sleep(1)
 
-            # Traitement selon le type de ticket
+            # Rechercher et traiter les réponses pour le renommage
             name_answer = await self.find_tickettool_answer(channel, "Quel est le nom de votre personnage ?")
             if name_answer:
                 print(f"Renommage en tant que fiche: {name_answer}")
@@ -109,6 +111,7 @@ class Ticket(commands.Cog):
 
         processed = 0
         for channel in interaction.guild.text_channels:
+            # Traiter tous les canaux textuels, qu'ils soient dans une catégorie ou non
             if await self.is_ticket_channel(channel):
                 await self.process_ticket(channel)
                 processed += 1
