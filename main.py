@@ -14,6 +14,7 @@ class CustomBot(commands.Bot):
         await self.load_extension('cogs.inventaire')
         await self.load_extension('cogs.RPTracker')
         await self.load_extension('cogs.bump')
+        await self.load_extension('cogs.vocabulaire')
 
         # Synchroniser les commandes
         await self.tree.sync()

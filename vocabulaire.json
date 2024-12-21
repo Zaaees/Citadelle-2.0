@@ -1,0 +1,850 @@
+{
+  "catabatique": {
+    "definition": "Se dit d'un vent descendant, généralement froid et sec, soufflant des montagnes vers les vallées.",
+    "extrait": "Il plonge en catabatique."
+  },
+  "grenelé": {
+    "definition": "Égrené, formé de petites granules ou particules.",
+    "extrait": "Un flot grenelé qui crépite sous la tête."
+  },
+  "forfanterie": {
+    "definition": "Vantardise, fanfaronnade.",
+    "extrait": "Qui reste notre prince en acte sans forfanterie."
+  },
+  "faseyait": {
+    "definition": "Flottait ou battait au vent, en parlant d'un tissu.",
+    "extrait": "Mon pantalon faseyait aux mollets."
+  },
+  "occiput": {
+    "definition": "Partie postérieure et inférieure de la tête, située à la base du crâne.",
+    "extrait": "Le fracas mat du marteau dans la fente de l'occiput cloua l'évidence."
+  },
+  "baroud": {
+    "definition": "Combat, lutte ; par extension, un acte de bravoure ou de résistance.",
+    "extrait": "Elle osa un baroud."
+  },
+  "encan": {
+    "definition": "Vente publique aux enchères ; par extension, lieu où se tiennent ces ventes.",
+    "extrait": "On laisse la hordaille confabuler à l'encan."
+  },
+  "confabuler": {
+    "definition": "Bavarder, discuter, souvent de manière informelle ou secrète.",
+    "extrait": "On laisse la hordaille confabuler à l'encan."
+  },
+  "claquemurent": {
+    "definition": "Se retrancher, s'enfermer de manière hermétique et protectrice.",
+    "extrait": "Les abrités se claquemurent."
+  },
+  "latérite": {
+    "definition": "Sol tropical riche en fer et en aluminium, de couleur rouge ou brune, utilisé comme matériau de construction.",
+    "extrait": "Au sol, la terre battue, grise de poussière, s'est recouverte en quelques minutes d'une nappe de latérite."
+  },
+  "pisé": {
+    "definition": "Technique de construction utilisant de la terre argileuse compactée.",
+    "extrait": "Architecture en pisé."
+  },
+  "quintet": {
+    "definition": "Œuvre de musique écrite pour cinq instruments ou cinq voix ; ici représentatif d'un son qui s'annonce sous cinq formes",
+    "extrait": "Il s'annonce toujours en quintet."
+  },
+  "encoignure": {
+    "definition": "Angle ou coin d'une pièce, endroit formé par la rencontre de deux murs.",
+    "extrait": "À ma droite, un chat oblong se cale dans une encoignure trop étroite pour lui."
+  },
+  "oblong": {
+    "definition": "De forme allongée, plus longue que large.",
+    "extrait": "À ma droite, un chat oblong se cale dans une encoignure trop étroite pour lui."
+  },
+  "ressac": {
+    "definition": "Retour de la vague après qu'elle a frappé un obstacle ; par extension, un retour ou une pause dans une action.",
+    "extrait": "À attendre le ressac, la courte pause dans l'accélération, qui nous permettra de..."
+  },
+  "sabla": {
+    "definition": "Agression par des particules de sable transportées par le vent, semblable à une abrasion.",
+    "extrait": "L'onde de choc fractura le fémur d'enceinte et le vent sabla cru le village à travers les jointures béantes du granit."
+  },
+  "cirque": {
+    "definition": "Formation géologique en forme d'amphithéâtre, entourée de parois rocheuses escarpées, souvent créée par l'érosion glaciaire.",
+    "extrait": "Ils dominaient un somptueux cirque rocheux, admirant la majesté des falaises entourant la vallée."
+  },
+  "gourds": {
+    "definition": "Engourdis, raidis par le froid ou l'inactivité, manquant de souplesse.",
+    "extrait": "Ses membres gourds avaient du mal à se mouvoir après la longue nuit passée dans le froid."
+  },
+  "emplâtre": {
+    "definition": "Substance épaisse appliquée sur la peau à des fins médicinales ; par analogie, quelque chose qui recouvre ou enveloppe de manière étouffante.",
+    "extrait": "L'épais silence englobait chaque relief comme un emplâtre, rendant l'atmosphère oppressante."
+  },
+  "poterne": {
+    "definition": "Petite porte dérobée souvent dissimulée dans les fortifications, permettant des entrées et sorties discrètes.",
+    "extrait": "Il existe une poterne au pied de la tour est, utilisée autrefois pour les fuites secrètes."
+  },
+  "ovoïde": {
+    "definition": "Qui a la forme d'un œuf, allongée et arrondie aux extrémités.",
+    "extrait": "Une forme ovoïde s'agite dans l'obscurité, intriguant les observateurs."
+  },
+  "chélicères": {
+    "definition": "Appendices en forme de crochets situés à l'avant de la bouche chez certains arthropodes, comme les araignées et les scorpions, utilisés pour mordre ou saisir les proies.",
+    "extrait": "Ses crochets s'appellent des chélicères, des outils redoutables pour capturer et paralyser ses victimes."
+  },
+  "échalas": {
+    "definition": "Personne grande et maigre, souvent avec une connotation de maladresse ou de faiblesse.",
+    "extrait": "L'échalas taciturne qui lui avait servi de partenaire le jour précédent était encore présent."
+  },
+  "caparaçonné": {
+    "definition": "Couvert d'un caparaçon, une sorte d'armure ou de couverture protectrice pour les chevaux, souvent richement décorée.",
+    "extrait": "Sa monture n'était pas caparaçonnée, ce qui laissait le cheval plus vulnérable."
+  },
+  "vérolé": {
+    "definition": "Se dit d'une personne atteinte de la vérole (syphilis) ; par extension, quelqu'un qui est très abîmé ou marqué par une maladie.",
+    "extrait": "Le vérolé s'attarde, sa silhouette décharnée se découpant dans la pénombre."
+  },
+  "damer le pion": {
+    "definition": "Surpasser quelqu'un, prendre l'avantage sur lui, souvent dans un contexte de rivalité ou de compétition.",
+    "extrait": "Un jour, nous lui damerons le pion et prouverons notre supériorité."
+  },
+  "conciliabules": {
+    "definition": "Conversations secrètes ou discrètes, souvent avec une connotation de complot ou de discussions informelles.",
+    "extrait": "Assez de conciliabules, il est temps de prendre une décision et de passer à l'action."
+  },
+  "surnuméraires": {
+    "definition": "En excès par rapport au nombre habituel ou nécessaire ; ici, se référant à des membres supplémentaires.",
+    "extrait": "Ses membres surnuméraires repliés dans son dos donnaient à la créature une apparence étrange et inquiétante."
+  },
+  "imprécations": {
+    "definition": "Paroles ou formules de malédiction prononcées contre quelqu'un, souvent avec une grande véhémence.",
+    "extrait": "Il lança à son peuple des imprécations dont elle ignorait le sens, mais qui semblaient lourdes de menaces."
+  },
+  "allant": {
+    "definition": "Énergie, entrain, dynamisme. Il s’agit de l’enthousiasme ou de la vigueur dans l’action.",
+    "extrait": "Elle a retrouvé de l’allant après une bonne nuit de sommeil."
+  },
+  "pantelants": {
+    "definition": "Se dit de quelqu'un qui est essoufflé, haletant, à bout de souffle, souvent après un effort intense.",
+    "extrait": "Après la course, ils étaient tous pantelants, peinant à reprendre leur souffle."
+  },
+  "astreints": {
+    "definition": "Obliger quelqu'un à faire quelque chose, lui imposer une tâche ou une contrainte.",
+    "extrait": "Les soldats ont été astreints à un entraînement intensif."
+  },
+  "croc-en-jambe": {
+    "definition": "un croche pied.",
+    "extrait": "Le soldat, après avoir parer son coup, lui fit un croc-en-jambe, afin de le déséquilibré"
+  },
+  "brûle-pourpoint": {
+    "definition": "peux avoir deux signification, la première lorsque les arquebusiers tirait à bout portant.\n\nLe deuxième sens est de dire quelque chose de façon abrupte, surprenante, que l'ont attend pas.",
+    "extrait": "Nous étions à brûle-pourpoint de leur fusils"
+  },
+  "rubicond": {
+    "definition": "Rouge et animé, rougeaud, rouge de colère",
+    "extrait": "Un visage rubicond encadré de boucles cuivrées, des yeux d'ambre qui respiraient une bienveillance qu'elle n'avait pas perçue jusque-là, qui lui tendait du pain et un morceau de viande."
+  },
+  "lovant": {
+    "definition": "Enroulé, enroulement",
+    "extrait": "Des marches, taillées à même la roche des parois, creusaient de part et d'autre des sillons pareils à des serpents lovant leur corps contre la fraîcheur des murs."
+  },
+  "véhémence": {
+    "definition": "Intensité passionnée, énergie",
+    "extrait": "Alorik, éloigne-toi d'elle, ajouta-t-elle en tirant sur le bras du petit garçon qui résista et protesta avec véhémence."
+  },
+  "millepertuis": {
+    "definition": "Une plante médicinale utilisée pour ses effets bénéfiques sur l'humeur",
+    "extrait": "Elle avait ajouté à la préparation du millepertuis, connu pour ses effets bienfaisants sur l'humeur."
+  },
+  "pointerolle": {
+    "definition": "Un outil utilisé pour extraire des roches ou des minéraux",
+    "extrait": "Avec l'extrémité pointue de sa pointerolle, elle s'était attelée à extraire du mur les roches veinées de minerai précieux."
+  },
+  "boyau": {
+    "definition": "Tunnel étroit et sombre",
+    "extrait": "À l'entrée de la mine, ils avaient récupéré leurs outils dans leurs casiers et s'étaient dirigés, toujours sans un mot, vers le boyau qui leur avait été assigné quelques mois plus tôt."
+  },
+  "fourbus": {
+    "definition": "Épuisé",
+    "extrait": "Il était si fourbu qu'il avait décidé de reporter au lendemain tous ses commentaires sur la personnalité de la nouvelle Synalia."
+  },
+  "râpée": {
+    "definition": "Usée, élimée",
+    "extrait": "Irika était faite d'angles et de lignes droites; les courbes qui devaient faire d'elle une femme étant pour l'instant indiscernables sous sa tunique râpée."
+  },
+  "éclusées": {
+    "definition": "Verres de bière consommés",
+    "extrait": "Et l'argent qu'ils étaient censés rapporter à la maison pour nourrir la famille disparaissait dans les innombrables pintes de bière éclusées à la taverne."
+  },
+  "chevron": {
+    "definition": "Pièce de bois qui soutient le toit d'une maison",
+    "extrait": "Sous le toit de la modeste bâtisse, là où les chevrons s'appuient sur le mur, un interstice laissait passer un fin courant d'air."
+  },
+  "éraillée": {
+    "definition": "Voix qui est altérée, qui a des craquements",
+    "extrait": "Mais non, ça va ! répondit l'adolescente d'une voix étonnamment grave et éraillée, en retirant ses mains de celles de Lilas d'un geste brusque."
+  },
+  "limon": {
+    "definition": "Matière organique et minérale qui se dépose au fond des cours d'eau.",
+    "extrait": "De plus, une fois le chaland libéré de sa prison de limon, l'équipage ferait halte dans cette ville pour un premier déchargement et le risque de rencontrer les matelots s'avérait trop important."
+  },
+  "graminées": {
+    "definition": "Plantes herbacées de la famille des Poacées, comme les herbes et les blés.",
+    "extrait": "Elle insinua son esprit dans les fibres d'une touffe de graminées et enroula les tiges autour des pieds de son agresseur."
+  },
+  "douelle": {
+    "definition": "Pièce en bois ou en métal qui renforce une structure.",
+    "extrait": "Le craquement des douelles de chêne qui éclatent fut suivi d'une explosion de pluie pourpre et parfumée."
+  },
+  "garde-corps": {
+    "definition": "Barrière de sécurité pour empêcher les chutes.",
+    "extrait": "Trop éprouvée pour s'arrimer solidement, Lilas fut projetée contre le garde-corps par l'impact."
+  },
+  "genévrier": {
+    "definition": "Arbuste à feuillage persistant et à baies bleues.",
+    "extrait": "Avec le sable arraché à son lit, le vent était parvenu à construire de petits monticules que colonisaient des chênes rabougris et des genévriers fringants."
+  },
+  "bastingage": {
+    "definition": "Rambarde de bateau.",
+    "extrait": "La Synalia s'installa à la proue, appuyée au bastingage, les yeux clos, concentrée sur les découpes du rivage qui prenaient forme dans son esprit."
+  },
+  "pivoine": {
+    "definition": "Fleur à pétales rouges ou roses.",
+    "extrait": "Ses tâches de rousseur formaient une splendide constellation cuivrée sur le ciel pivoine de ses joues."
+  },
+  "embruns": {
+    "definition": "Fine gouttelettes d'eau projetées dans l'air par les vagues ou le vent.",
+    "extrait": "Rafraîchi par les embruns, il n'avait pas senti la morsure du soleil."
+  },
+  "ecueils": {
+    "definition": "Obstacles, dangers.",
+    "extrait": "Concentrée, Lilas passa en revue les écueils qui jonchaient la route de leur échappée."
+  },
+  "vibrisses": {
+    "definition": "Poils sensoriels sur le museau de certains animaux (comme les chats).",
+    "extrait": "Lorsqu'il était soucieux, les rayures verticales entre les vibrisses de ses sourcils se réunissaient en une seule tache sombre, accentuant encore sa mine résolue."
+  },
+  "transverse": {
+    "definition": "Qui traverse, perpendiculaire.",
+    "extrait": "Elle tourna la tête en direction d'une trouée dans le mur de montagnes qui bordait la vallée de l'Inga et qui indiquait la présence d'une vallée transverse, le Val d'Inn."
+  },
+  "torve": {
+    "definition": "Regard sombre, menaçant.",
+    "extrait": "Les matelots cessèrent immédiatement leur conversation à l'approche de la jeune femme et les regards torves qu'elle perçut l'encouragèrent à poursuivre son chemin vers la poupe."
+  },
+  "roulis": {
+    "definition": "Mouvement de balancement d'un navire.",
+    "extrait": "Le roulis était à peine perceptible, si bien que même Flynn, qui avait la navigation en horreur, se déplaçait avec aisance sur les différents postes d'observation qu'offrait la cargaison."
+  },
+  "rustique": {
+    "definition": "Simple, brut, peu raffiné.",
+    "extrait": "La main qu'il tendit à la jeune femme était rêche et caleuse, mais la poignée franche qu'elle lui rendit lui signifia qu'elle n'était nullement impressionnée par son apparence rustique."
+  },
+  "rêche": {
+    "definition": "Rugueux, dur au toucher.",
+    "extrait": "La main qu'il tendit à la jeune femme était rêche et caleuse, mais la poignée franche qu'elle lui rendit lui signifia qu'elle n'était nullement impressionnée par son apparence rustique."
+  },
+  "bride": {
+    "definition": "Pièce du harnais fixée à la tête du cheval pour le diriger.",
+    "extrait": "Lilas mit pied à terre et conduisit Ayunn par la bride."
+  },
+  "rai": {
+    "definition": "Rayon de lumière.",
+    "extrait": "Un mince rai de lumière filtrant à travers les volets [...]"
+  },
+  "palefrenier": {
+    "definition": "Le palefrenier se charge du nettoyage des écuries et des soins quotidiens aux chevaux.",
+    "extrait": "Ayun avait été conduite aux écuries et se laissait dorloter par le palefrenier de Triston."
+  },
+  "bourgmestre": {
+    "definition": "Le bourgmestre est le détenteur du pouvoir exécutif au niveau communal.",
+    "extrait": "Le dossier était resté en attente chez le bourgmestre depuis des années en raison de l'absence d'héritiers connus à Vicombe."
+  },
+  "fard": {
+    "definition": "Apparence trompeuse qui dissimule la vérité.",
+    "extrait": "La richesse de ses vêtements et la grandeur de sa maison n'étaient visiblement qu'un fard appliqué sur un passé bien moins plaisant."
+  },
+  "strié": {
+    "definition": "Marqué de stries (petit sillon, rayure ou ligne), de lignes parallèles ou non se détachant sur un fond de couleur différente.",
+    "extrait": "Son nez violacé et ses pommettes striées de vaisseaux éclatés témoignaient d'un passé d'alcoolique [...]."
+  },
+  "jouxtait": {
+    "definition": "Être situé à côté d'un lieu, lui être contigu.",
+    "extrait": "[...] son attention avait été retenue par l'amoncellement de poutres et de gravats noircis qui jouxtait la riche habitation."
+  },
+  "trépignant": {
+    "definition": "Frapper vivement et nerveusement des pieds contre terre pour marquer une vive émotion.",
+    "extrait": "Je sais comment faire, annonça-t-il en fanfaronnant et en trépignant sur la berge."
+  },
+  "édenté": {
+    "definition": "Personne qui a perdu ses dents en totalité ou en partie.",
+    "extrait": "Les quelques bâtisses blanches qui surgissaient çà et là faisaient penser au sourire incomplet d'un édenté, méritoire, mais dérangeant."
+  },
+  "encorbellement": {
+    "definition": "En maçonnerie, « encorbellement » et « assise en encorbellement » désignent toute saillie qui porte à faux au nu d'un mur, formée par une ou plusieurs pierres posées l'une sur l'autre, et plus saillantes les unes que les autres",
+    "extrait": "Composée de deux ou trois étages en encorbellement, chaque bâtisse semblait se pencher en avant pour avoir la meilleure vue."
+  },
+  "avoir pignon sur rue (expression)": {
+    "definition": "Avoir une certaine notoriété, une situation confortable.\n***Étymologie :*** Autrefois, le pignon de toutes les maisons faisait face à la rue.\n**Pignon :** Partie haute et triangulaire d'un mur, entre les deux versants d'un toit.",
+    "extrait": "Le long de la rivière, collées les unes aux autres, toutes les maisons avaient pignon sur rue."
+  },
+  "clameur": {
+    "definition": "Ensemble de cris confus.",
+    "extrait": "La rive ouest de l'Inga fourmillait de vie, de clameurs, d'odeurs diverses et pas toutes agréables."
+  },
+  "chapelet": {
+    "definition": "Suite d'objets enfilés ou accrochés les uns à la suite des autres.",
+    "extrait": "Ruisselante, avec un chapelet de fines gouttelettes accrochées dans sa chevelure, Lilas sortit de la rivière."
+  },
+  "âcre": {
+    "definition": "Qui a une saveur ou une odeur forte, irritante.",
+    "extrait": "Elle s'accrocha à ce filet de souffle pur parmi les odeurs acres de fumée et de chair calcinée."
+  },
+  "vacuité": {
+    "definition": "Vide intellectuel, absence de valeur.",
+    "extrait": "Souviens-toi de qui tu es, de ce qui compte pour toi. Ne laisse aucune vacuité dans tes pensées, remplis-les d'images réconfortantes, de l'affection que tu as pour ton frère, pour tes amis, pour les paysages où tu as grandis."
+  },
+  "demi-lieue": {
+    "definition": "Unité de distance de l'ancien régime, d'environ deux kilomètres.",
+    "extrait": "Ils parcoururent en silence la demi-lieue qui les séparait de la ville."
+  },
+  "s'épancher": {
+    "definition": "Se confier librement, parler sans retenue de ses sentiments ; s'abandonner",
+    "extrait": "À défaut d'une épaule sur laquelle s'épancher, Lilas frotta sa joue contre l'encolure de la jument qui était à présent sienne."
+  },
+  "morgue": {
+    "definition": "Contenance hautaine et méprisante.",
+    "extrait": "Il émanait de lui une assurance qu'elle préféra considérer comme un gage de sécurité plutôt qu'une manifestation de la morgue habituelle des félins."
+  },
+  "arabesque": {
+    "definition": "Ornement formé de lettres, de lignes, de feuillages entrelacés.",
+    "extrait": "Le manche, noir, presque brillant, était décoré d'incrustations en laiton formant des arabesques compliquées qui se prolongeaient sur la lame étincelante."
+  },
+  "inflorescence": {
+    "definition": "Ensemble de fleurs ainsi disposées.",
+    "extrait": "Elle jouait distraitement avec les inflorescences violettes nouvellement apparues dans les herbes aromatiques de son amie."
+  },
+  "ostensiblement": {
+    "definition": "Sans se cacher, ouvertement.",
+    "extrait": "Jaz croisait les bras et tapait du pied, tout en tournant ostensiblement le dos à sa sœur à qui s'adressait pourtant sa colère."
+  },
+  "firmament": {
+    "definition": "Ciel, voûte céleste.",
+    "extrait": "Il émerge bientôt, du fond d'une doline, dans un pâturage paisible éclairé par un firmament d'étoiles qui lui servira à trouver plus facilement sa route."
+  },
+  "dérobade": {
+    "definition": "Action de se dérober.\n\n**Se dérober :** Se soustraire à quelque chose qui pèse, menace.",
+    "extrait": "Et pourquoi donc ? demanda la jeune femme d'un ton qui ne permettait aucune dérobade."
+  },
+  "aval": {
+    "definition": "partie d'un cours d'eau comprise entre un point donné et l'embouchure / Dans l'extrait, je pense que l'autrice a prit l'étymologie du terme \"Aval\" qui signifie \"vers la vallée\".",
+    "extrait": "[...] se trouva privée de son excuse pour poursuivre sa route vers l'aval."
+  },
+  "tempêter": {
+    "definition": "Maintenir à grand bruit son mécontentement, sa colère.",
+    "extrait": "Quand Capucine tempêtait, Lilas tempérait, si Capucine rayonnait, Lilas scintillait."
+  },
+  "ostensible": {
+    "definition": "Qui est fait sans se cacher ou avec l'intention d'être remarqué.",
+    "extrait": "D'un caractère plus fort, plus exubérant et d'une beauté plus ostensible que Lilas, Capucine avait toujours joué les premiers rôles."
+  },
+  "hâlé": {
+    "definition": "Bruni par le soleil.",
+    "extrait": "Une jolie jeune femme blonde au teint hâlé lui ouvrit."
+  },
+  "œillet": {
+    "definition": "Petite pièce métallique servant à renforcer une perforation ou un trou en vue d'y faire passer un lacet ou un cordon.",
+    "extrait": "Ayun resterait accrochée à un œillet saillant du mur, à l'ombre, jusqu'à ce qu'on ait le loisir de s'occuper d'elle."
+  },
+  "conjecture": {
+    "definition": "Supposition fondée sur des probabilités, mais qui n'est pas contrôlée par les faits.",
+    "extrait": "Elle préféra agir que de se perdre en conjecture et talonna Ayunn qui partit d'un petit galop."
+  },
+  "grégaire": {
+    "definition": "Qui vit par troupeaux / Relatif au groupement des êtres vivants, des humains, à la tendance à vivre en groupe.",
+    "extrait": "Nous ne sommes pas une espèce grégaire, donc nous n'avons que peu de contact entre nous."
+  },
+  "revêche": {
+    "definition": "Peu accommodant, qui manifeste un mauvais caractère.",
+    "extrait": "Et autre chose : j'apprécie ta compagnie. Je suis bien content de ne pas avoir à faire la route avec une vieille chouette revêche et moche."
+  },
+  "gracile": {
+    "definition": "Mince et délicat.",
+    "extrait": "Cet hiver, tu me supplieras de m'enrouler autour de ton joli petit cou gracile."
+  },
+  "mutin": {
+    "definition": "Qui est d'humeur taquine, qui aime à plaisanter.",
+    "extrait": "Pourtant, ça me paraît bigrement efficace, répliqua-t-il, mutin, juste avant d'être projeté au sol."
+  },
+  "grivois": {
+    "definition": "Qui est d'une gaieté licencieuse.",
+    "extrait": "Quelques temps plus tard, dans la pâle lueur d'un matin précoce, un Flynn au minois grivois grimpa sur la hanche de la jeune femme endormie et [...]"
+  },
+  "amadou": {
+    "definition": "Substance spongieuse provenant de l'amadouvier du chêne et préparée pour prendre feu facilement\n\n**Amadouvier :** Champignon du groupe des polypores, agent de la pourriture blanche du hêtre, et dont le carpophore peut atteindre 50 cm de diamètre.",
+    "extrait": "Les fibres d'amadou qu'elle tenait contre son pouce s'embrasèrent facilement et la braise alluma à son tour la paille et le bois sec."
+  },
+  "bride (équitation)": {
+    "definition": "Pièce de harnais qui prend place sur la tête du cheval et qui comprend deux mors, les montants, la têtière, la sous-gorge, le frontal, la muserolle et les quatre rênes.\n\n**À la bride (expression) :** Le tenir par les rênes sans le monter.",
+    "extrait": "Son cheval à la bride, elle les mena vers une ouverture dans la parois rocheuse, assez grande pour qu'elle s'y installe confortablement."
+  },
+  "à-pic": {
+    "definition": "Versant d'une montagne, d'une falaise dont la pente est abrupte et verticale.",
+    "extrait": "[...] ces lieux sont maintenant connus sous les noms de « Pic de l'Ourst » et « À-pic de l'Amante brisée »."
+  },
+  "bise": {
+    "definition": "Vent sec et froid soufflant du nord ou du nord-est.",
+    "extrait": "Depuis, lorsque le vent souffle du nord, on peut parfois entendre dans le chant de la bise noire les lamentations d'un ours inconsolable."
+  },
+  "replet": {
+    "definition": "Qui a de l'embonpoint ; grassouillet.",
+    "extrait": "Les parents de la couturière, qui étaient cupides et sans scrupules, la donnèrent de bon cœur au noble en échange d'un titre ronflant et d'une bourse replète."
+  },
+  "équinoxe": {
+    "definition": "Chacune des deux périodes de l'année où le jour a une durée égale à celle de la nuit",
+    "extrait": "Ils filaient un parfait amour et s'étaient promis l'un à l'autre pour l'équinoxe du printemps."
+  },
+  "éperon": {
+    "definition": "Saillie d'un contrefort montagneux, d'un coteau, etc...",
+    "extrait": "La rivière et la route dessinaient un coude vers la gauche, contournant le pied d'un éperon rocheux qui cachait le reste de la vallée."
+  },
+  "saillie": {
+    "definition": "Chacune des parties en avancée sur le nu d'une façade (balcon, corniche, etc...)",
+    "extrait": "Ils venaient de dépasser la saillie rocheuse qui leur cachait la vallée et le paysage [...]"
+  },
+  "affres": {
+    "definition": "Très grandes angoisses, tourments physiques, intellectuels, moraux.",
+    "extrait": "[...] ceux qui comptaient pour elle allaient être livrés aux affres du manque."
+  },
+  "en croupe": {
+    "definition": "Sur la croupe d'une monture, derrière le cavalier.",
+    "extrait": "Sur ce, il sauta des épaules de la jeune femme et s'installa en croupe entre les sacoches."
+  },
+  "garrot (équitation)": {
+    "definition": "Partie du corps située au-dessus de l'épaule et qui prolonge l'encolure.",
+    "extrait": "[...] elle lui permit de se laisser tomber sur le garrot de la jument."
+  },
+  "saule": {
+    "definition": "Arbre ou arbrisseau qui croît dans les lieux humides.",
+    "extrait": "Dans les branches d'un saule qui bordait le cours d'eau [...]"
+  },
+  "combe": {
+    "definition": "Petite vallée encaissée.",
+    "extrait": "Après la combe aux chevreuils, tu peux faire un bout de chemin dans le lit de la rivière, il est plat et peu profond, ça la rafraîchira."
+  },
+  "ballot": {
+    "definition": "Petite balle de marchandises ou de vêtements.",
+    "extrait": "[...] souleva le rabat de cuir et lança son deuxième ballot dans l'autre sacoche."
+  },
+  "paquetage": {
+    "definition": "Ensemble des effets d'habillement, d'équipement et de campement distribués aux militaires.",
+    "extrait": "Il ouvrit la première sacoche et Lilas y fourra une partie de son paquetage."
+  },
+  "patine": {
+    "definition": "Transformation de la surface d'un objet, d'une sculpture, se produisant avec le temps ou sous l'effet de certains traitements de surface. les patines artificielles sont obtenues à l'aide de divers acides.",
+    "extrait": "Ayun portait en croupe les vieilles fontes du père de Lilas que Justi ne s'était pas contenté de dépoussiérer, car elles brillaient d'une patine de graisse toute récente."
+  },
+  "outre": {
+    "definition": "Peau d'animal cousue en forme de sac et servant de récipient.",
+    "extrait": "[...] de quoi allumer un feu, le matériel de pêche de Jaz et une outre d'eau."
+  },
+  "fonte (équitation)": {
+    "definition": "Sac à rabat accroché au harnachement d'un cheval, souvent utilisé pour transporter une arme à feu.",
+    "extrait": "Tu as gardé les fontes que ton père utilisait sur son vieux cheval ?"
+  },
+  "bai (cheval)": {
+    "definition": "Dont la robe est d'un brun rouge.",
+    "extrait": "[...] montant à cru sur un cheval bai."
+  },
+  "anfractuosité": {
+    "definition": "Cavité profonde et irrégulière.",
+    "extrait": "Lorsqu'elle avait calé dans les anfractuosités du plancher le pied unique de sa chaise à traire, elle avait senti se refermer sur elle le cocon protecteur de la routine."
+  },
+  "tare": {
+    "definition": "Grave défaut qui porte préjudice à un groupe, une institution.",
+    "extrait": "En réalité, l'humain recèle quantité de défaillances, de vides, de nœuds inextricables qui sont autant de tares qu'elle peut exploiter."
+  },
+  "trèfle (maladie du trèfle)": {
+    "definition": "Différentes maladies affectant le trèfle violet, qui se développe surtout lors de l'automne et l'hiver doux et humides.",
+    "extrait": "La table et les chaises tendaient leurs pieds vers le plafond comme des vaches mortes du trèfle."
+  },
+  "pêle-mêle": {
+    "definition": "Dans un désordre complet.",
+    "extrait": "Ses meubles renversés et vidés de leur contenu s'entassaient pêle-mêle."
+  },
+  "ployer": {
+    "definition": "Plier, tordre en abaissant.",
+    "extrait": "Essaie de faire ployer cette grosse branche au-dessus de nous jusqu'au sol, demanda Flynn."
+  },
+  "dénégation": {
+    "definition": "Action de dénier, nier.",
+    "extrait": "Bien que sa conversation fût mentale, Lilas secouait la tête en signe de dénégation."
+  },
+  "rembrunir": {
+    "definition": "Rendre brun, rendre plus sombre.",
+    "extrait": "Lilas se rembrunit. Les ombres d'Achillée et de Jocco obscurcirent ses traits."
+  },
+  "tarir": {
+    "definition": "1. Épuiser, mettre à sec une réserve d'eau, de liquide. / 2. Épuiser ce qui constitue la source de quelque chose.",
+    "extrait": "Ses larmes semblaient sécher à même ses yeux, ou peut-être s'étaient-elles taries d'elles-mêmes."
+  },
+  "providentiel": {
+    "definition": "Qui arrive par heureux hasard.",
+    "extrait": "Déjà les mouches se délectaient de ce repas providentiel."
+  },
+  "harassé (être harassé)": {
+    "definition": "Être exténué, très fatigué.",
+    "extrait": "Harassée par l'effort, les émotions et les questions qui lui vrillaient les sens, Lilas n'aspirait plus qu'à rentrer chez elle."
+  },
+  "doline": {
+    "definition": "Une doline est une petite cuvette à fond plus ou moins plat. Ce terme de géologie désigne une excavation circulaire pouvant mesurer de dix à plusieurs centaines de mètres de diamètre. Les dolines sont souvent situées dans des régions de relief karstique.",
+    "extrait": "Presque à bout de souffle, Lilas contourna une cuvette herbeuse, une doline où le sol s'était affaissé."
+  },
+  "épars": {
+    "definition": "Répandu de tous les côtés, dispersé, en désordre.",
+    "extrait": "La forêt s'arrêtait à la lisière d'un pâturage boisé aux arbres épars qui ne présentait aucune possibilité de se cacher."
+  },
+  "sylvestre": {
+    "definition": "Relatif aux forêts.",
+    "extrait": "Elle se détendit : la faune sylvestre reprenait enfin ses droits."
+  },
+  "moucheté (être moucheté)": {
+    "definition": "Être tacheté, en parlant du pelage de certains animaux.",
+    "extrait": "Il se roulait par terre en tentant de se dégager des crocs d'un animal à la fourrure mouchetée."
+  },
+  "fourrage": {
+    "definition": "Plantes servant à la nourriture du bétail.",
+    "extrait": "Traite, fourrage, les tâches quotidiennes les réclamaient aussi bien sur l'exploitation de Justi qu'à la ferme de Lilas."
+  },
+  "chape": {
+    "definition": "Couche épaisse de quelque chose qui recouvre une surface.",
+    "extrait": "De lourds nuages gris en provenance de la lointaine mer de Jade couvraient à présent le ciel d'une chape écrasante."
+  },
+  "cireux": {
+    "definition": "Qui est blafard et jaunâtre (un teint cireux).",
+    "extrait": "[...] car le visage de la malade avait viré à un teint cireux."
+  },
+  "sobriquet": {
+    "definition": "Surnom familier, généralement moqueur.",
+    "extrait": "Tout naturellement, les jeunes garçons du Val d'Enson recevaient un sobriquet, plus court et moins pompeux."
+  },
+  "filiation": {
+    "definition": "Lien de parenté unissant l'enfant à son père, à sa mère.",
+    "extrait": "Dans cette vallée, le respect des anciens et la filiation revêtaient une importance capitale."
+  },
+  "change (donner le change)": {
+    "definition": "Tromper quelqu'un en lui faisant adroitement prendre une chose pour une autre.",
+    "extrait": "[...] navrée devant les efforts que déployait Achillée pour donner le change face au petit."
+  },
+  "choir": {
+    "definition": "Être entrainé vers le bas / Abandonner",
+    "extrait": "À peine Jaz fut-il sorti de la pièce qu'elle se laissa choir sur son oreiller avec une respiration haletante."
+  },
+  "l'âtre": {
+    "definition": "Partie de la cheminée où l'on fait le feu / partie du foyer qui entoure immédiatement le combustible dans les fours, fourneaux et cheminées.",
+    "extrait": "Elle suspendit au crochet de l'âtre une théière qu'elle poussa au-dessus des braises."
+  },
+  "literie": {
+    "definition": "Ensemble des objets qui recouvrent le sommier : matelas, traversin, oreiller, couverture, parfois draps.",
+    "extrait": "[...] s'attela à changer la literie."
+  },
+  "lisière": {
+    "definition": "Partie extrême (d'un terrain, d'une région). La lisière d'un champ, d'une forêt.",
+    "extrait": "[...] elle aperçut les premières maisons de Clarbiel, dont celle d'Achillée et Justi située en lisière du hameau."
+  },
+  "ramification": {
+    "definition": "Division en plusieurs rameaux ; chacune des divisions ou chacun des rameau.",
+    "extrait": "Depuis sa naissance, la peau de ses plantes de pieds portait de mystérieuses taches, comme un réseau de lignes aux multiples ramifications, semblables à des fissures ou à des racines, d'un rose framboise légèrement nacré."
+  },
+  "phréatique": {
+    "definition": "Qui a trait aux puits",
+    "extrait": "Son cœur battait au rythme d'un pouls phréatique et primitif."
+  },
+  "ovin": {
+    "definition": "Relatif au mouton, au bélier, à la brebis",
+    "extrait": "La jeune femme foulait de ses pieds nus le chemin tracé par les innombrables ovins emmenés en pâture sur les flancs de la montagne arrondie qui fermait la vallée."
+  },
+  "ru": {
+    "definition": "Petit ruisseau.",
+    "extrait": "[...] que l'on qualifiait de rivière, mais qui, en cet endroit, ne coulait pas plus fort qu'un petit ru."
+  },
+  "entrebâillé": {
+    "definition": "à demi-ouvert (une fenêtre entrebâillée)",
+    "extrait": "Lilas décida de le laisser dormir et quitta la maison en veillant à laisser un volet entrebâillée pour qu'il puisse sortir à son réveil."
+  },
+  "ostentatoire": {
+    "definition": "Qui marque de l'ostentation, en parlant de choses. Qui est montré avec insistance et sans discrétion.",
+    "extrait": "Cette construction ostentatoire faisait étalage de la réussite de son propriétaire. Les trois étages supérieurs en encorbellement présentaient des balcons sculptés aux montants ouvragés. Chaque fenêtre était équipée de volets et on entrevoyait de lourds rideaux chatoyants."
+  },
+  "ouvragés": {
+    "definition": "Enrichir (quelque chose) d'ornements divers / Se couvrir d'ornement divers.",
+    "extrait": "Cette construction ostentatoire faisait étalage de la réussite de son propriétaire. Les trois étages supérieurs en encorbellement présentaient des balcons sculptés aux montants ouvragés. Chaque fenêtre était équipée de volets et on entrevoyait de lourds rideaux chatoyants."
+  },
+  "chatoyant": {
+    "definition": "Qui a des reflets vifs et changeants.",
+    "extrait": "Cette construction ostentatoire faisait étalage de la réussite de son propriétaire. Les trois étages supérieurs en encorbellement présentaient des balcons sculptés aux montants ouvragés. Chaque fenêtre était équipée de volets et on entrevoyait de lourds rideaux chatoyants."
+  },
+  "filasse": {
+    "definition": "Se dit de cheveux ou d'une barbe qui sont clairsemés, fins et d'aspect un peu désordonné.",
+    "extrait": "Une longue barbe filasse tombant de son menton, accentuant son air vieilli."
+  },
+  "préséance": {
+    "definition": "Ordre de priorité ou de préférence accordé selon des règles de hiérarchie, souvent dans un contexte social ou protocolaire.",
+    "extrait": "Comme le voudraient les règles de préséance, il attendit que les invités de marque soient servis en premier."
+  },
+  "gouaillerie": {
+    "definition": "Propos ou attitude marquant une moquerie, souvent impertinente ou irrévérencieuse.",
+    "extrait": "Seuls les plus téméraires se risquaient à une gouaillerie hasardeuse en présence de l'autorité."
+  },
+  "ajouré": {
+    "definition": "Percé de petites ouvertures ou de trous qui laissent passer la lumière, souvent de manière décorative.",
+    "extrait": "La dentelle ajourée ornait magnifiquement la robe."
+  },
+  "atone": {
+    "definition": "D'une voix monocorde, sans expression.",
+    "extrait": "Alors tu peux t'en aller, dit la mère d'une voix atone."
+  },
+  "nimbée": {
+    "definition": "Entourée d'une aura, d'une lumière, d'un halo.",
+    "extrait": "D'objet de raillerie à cause de son manque de grâce, elle se retrouvait à présent nimbée d'une aura de mystère."
+  },
+  "souricière": {
+    "definition": "Piège utilisé pour attraper les souris.",
+    "extrait": "Selon les ordres du maître d'œuvre, la souricière géante crachait maintenant des hommes par toutes ses galeries."
+  },
+  "étais": {
+    "definition": "Supports en bois utilisés pour soutenir une construction.",
+    "extrait": "Les étais de bois semblaient tenir bon, mais il jugea plus prudent d'en demander d'autres à Norik"
+  },
+  "étayés": {
+    "definition": "Renforcés, stabilisés",
+    "extrait": "Chaque escalier menait à l'embouchure d'un tunnel, plus ou moins profond, dont certains, étayés de bois, se prolongeaient au-delà du regard."
+  },
+  "galbés": {
+    "definition": "Courbes arrondies",
+    "extrait": "Elle rêvait d'avoir le même corps en forme de sablier, les mêmes seins galbés et les mêmes hanches arrondies."
+  },
+  "doléance": {
+    "definition": "Plainte, réclamation",
+    "extrait": "Ne sachant pas s'il s'agissait d'un trait d'humour ou d'une nouvelle doléance, Lilas se contenta d'esquisser un sourire."
+  },
+  "émacié": {
+    "definition": "Ayant un aspect maigre et décharné",
+    "extrait": "Une femme au visage émacié et aux épaules avachies s'y tenait debout, un jeune enfant calé sur sa hanche maigre."
+  },
+  "appentis": {
+    "definition": "Petite construction en bois, en tôle ou en tôle ondulée, accolée à un bâtiment pour y entreposer des outils, des meubles, etc.",
+    "extrait": "J'ai remarqué un appentis derrière votre maison, nous permettriez-vous de nous y abriter cette nuit ?"
+  },
+  "pinacle": {
+    "definition": "Pointe élevée, sommet d'un bâtiment",
+    "extrait": "Certains de ces pinacles étaient couronnés d'un énorme rocher vert foncé ou rouge ocre, posé en équilibre sur leur sommet, comme placé par la main de quelque géant habile et facétieux."
+  },
+  "facétieux": {
+    "definition": "Qui aime les plaisanteries, les farces",
+    "extrait": "Certains de ces pinacles étaient couronnés d'un énorme rocher vert foncé ou rouge ocre, posé en équilibre sur leur sommet, comme placé par la main de quelque géant habile et facétieux."
+  },
+  "boudin": {
+    "definition": "Bande de tissu ou de cuir, utilisé pour protéger les yeux ou les oreilles",
+    "extrait": "Elle observa son frère sur sa petite jument grise, la tête baissée afin de protéger ses yeux du soleil sous le boudin de tissu."
+  },
+  "austère": {
+    "definition": "Sévère, simple, sans fantaisie",
+    "extrait": "Le poids de cette responsabilité l'écrasait autant que le paysage austère et sauvage du Val d'Arkon."
+  },
+  "discontinuer": {
+    "definition": "Sans interruption",
+    "extrait": "La pluie s'abattit sans discontinuer sur le petit abri étanche durant toute la nuit."
+  },
+  "feuillus": {
+    "definition": "Arbre à feuilles caduques (perdant ses feuilles chaque automne)",
+    "extrait": "Elle se résolut à quitter le chemin quand elle aperçut au loin un bosquet de feuillus qui semblait parfait pour un abris."
+  },
+  "alluvion": {
+    "definition": "Accumulation de terres et de débris transportés par les eaux d'une rivière ou d'un cours d'eau",
+    "extrait": "Depuis qu'elle avait déplacé les alluvions de la rivière, elle ne s'était pas octroyé un seul moment de répit pour reprendre des forces."
+  },
+  "franc-bord": {
+    "definition": "La distance entre le niveau de l'eau et le pont d'un navire.",
+    "extrait": "Le franc-bord des chalands fluviaux étant heureusement très modestes, le saut à effectuer n'était que de trois coudées environ"
+  },
+  "encablure": {
+    "definition": "Unité de mesure de distance en mer, équivalent à la distance parcourue par un navire en une heure.",
+    "extrait": "À quelques encablures en aval, sans que rien ne soit visible à la surface, le lit de la rivière commença à se transformer."
+  },
+  "flibustiers": {
+    "definition": "Pirates, corsaires.",
+    "extrait": "Il tenait en respect trois... non, cinq... non, huit flibustiers grâce à sa seule lame."
+  },
+  "appareiller": {
+    "definition": "Mettre en route, en marche (en parlant d'un navire).",
+    "extrait": "Il s'éloigna d'un pas assuré vers la poupe en vue d'appareiller."
+  },
+  "laconiquement": {
+    "definition": "Brièvement, succinctement.",
+    "extrait": "Entendu, répondit laconiquement le capitaine."
+  },
+  "toise": {
+    "definition": "Mesure de longueur valant 6 pieds (1,949m)",
+    "extrait": "[...] désormais large de quatre ou cinq toises."
+  },
+  "contrefort": {
+    "definition": "Partie de la montagne formée par une arête secondaire qui vient buter contre une arête principale",
+    "extrait": "En parcourant les sentiers escarpés de la chaîne de montagnes, les randonneurs sont impressionnés par les imposants contreforts qui se dressent devant eux."
+  },
+  "coteau": {
+    "definition": "Petite colline, son versant.",
+    "extrait": "En se promenant à travers la campagne, les voyageurs peuvent admirer les vignobles soigneusement alignés sur les coteaux ensoleillés."
+  },
+  "encaissé": {
+    "definition": "Resserré entre deux pentes escarpées.",
+    "extrait": "La rivière serpente à travers un vallon encaissé."
+  },
+  "harnachement": {
+    "definition": "Ensemble de pièces qui servent à équiper un animal de selle ou de trait.",
+    "extrait": "Le cheval était prêt pour la parade, son harnachement soigneusement ajusté et orné de motifs complexes."
+  },
+  "subreptice": {
+    "definition": "Qui est obtenu, qui se fait par surprise, à l'insu de qqn et contre sa volonté (une manoeuvre subreptice).",
+    "extrait": "Le transfert des fonds fut réalisé de manière subreptice."
+  },
+  "guilleret.te": {
+    "definition": "Qui manifeste une gaieté vive, insouciante.",
+    "extrait": "[...] dit Achillée dans un effort pour paraître guillerette qui ne fut visible qu'à Lilas."
+  },
+  "remugle": {
+    "definition": "Odeur désagréable de renfermé.",
+    "extrait": "[...] gisait à présent dans un lit souillé, enveloppée par les remugles de la maladie."
+  },
+  "vaine": {
+    "definition": "Sans efficacité (vaine tentative)",
+    "extrait": "Lilas ramassa une petite branche au sol et remonta ses cheveux en chignon dans une vaine tentative de capter sur sa nuque quelques traces d'air frais."
+  },
+  "réminiscence": {
+    "definition": "Retour à l'esprit d'un souvenir non identifié comme tel.",
+    "extrait": "Lilas s'enfonça malgré elle dans les sombres réminiscences, accompagnées de leur cohorte de revenants. Les silhouettes squelettiques des bâtisses calcinées réveillèrent en elle les spectres des victimes prisonnières des flammes."
+  },
+  "cohorte": {
+    "definition": "Groupe de personnes.",
+    "extrait": "Lilas s'enfonça malgré elle dans les sombres réminiscences, accompagnées de leur cohorte de revenants. Les silhouettes squelettiques des bâtisses calcinées réveillèrent en elle les spectres des victimes prisonnières des flammes."
+  },
+  "tréteaux": {
+    "definition": "Support pour poser une planche ou une table",
+    "extrait": "Le jeune home taciturne qui avait ouvert la porte avait posé une planche sur deux tréteaux et s'était affalé sur un tabouret, à présent tout absorbé à creuser des sillons dans la table avec son ongle."
+  },
+  "taciturne": {
+    "definition": "Personne qui parle peu",
+    "extrait": "Le jeune home taciturne qui avait ouvert la porte avait posé une planche sur deux tréteaux et s'était affalé sur un tabouret, à présent tout absorbé à creuser des sillons dans la table avec son ongle."
+  },
+  "fripe": {
+    "definition": "Vêtements usagés",
+    "extrait": "Quelques fois, c'était un amas ronflant de membres sales, de fripes dépenaillées et de tignasses orange affalé au bord de la route qui témoignait que la famille comptait toujours six membres désespérément vivants."
+  },
+  "dépenaillée": {
+    "definition": "Vêtements mal entretenus et en désordre",
+    "extrait": "Quelques fois, c'était un amas ronflant de membres sales, de fripes dépenaillées et de tignasses orange affalé au bord de la route qui témoignait que la famille comptait toujours six membres désespérément vivants."
+  },
+  "anthracite": {
+    "definition": "Gris foncé.",
+    "extrait": "Les toits d'ardoise anthracite et l'ossature de bois noirci ou rougi au sang de bœuf des maisons à colombages offraient un joli contraste avec les murs de torchis, blanchis à la chaux."
+  },
+  "colombage": {
+    "definition": "Mur en charpente dont les vides sont garnis d'une maçonnerie légère.",
+    "extrait": "Les toits d'ardoise anthracite et l'ossature de bois noirci ou rougi au sang de bœuf des maisons à colombages offraient un joli contraste avec les murs de torchis, blanchis à la chaux."
+  },
+  "torchis": {
+    "definition": "Terre argileuse malaxée avec de la paille hachée et utilisée en construction.",
+    "extrait": "Les toits d'ardoise anthracite et l'ossature de bois noirci ou rougi au sang de bœuf des maisons à colombages offraient un joli contraste avec les murs de torchis, blanchis à la chaux."
+  },
+  "chaux": {
+    "definition": "Oxyde de calcium ; substance blanche obtenue par la calcination des calcaires dans des fours à chaux.",
+    "extrait": "Les toits d'ardoise anthracite et l'ossature de bois noirci ou rougi au sang de bœuf des maisons à colombages offraient un joli contraste avec les murs de torchis, blanchis à la chaux."
+  },
+  "enfilade": {
+    "definition": "Ensemble de choses disposées, situées les unes à la suite des autres ; rangée.",
+    "extrait": "Le rive ouest invitait à explorer les enfilades de ses venelles tortueuses ; cette partie de la cité grouillait visiblement d'activité."
+  },
+  "venelles": {
+    "definition": "Petite rue étroite.",
+    "extrait": "Le rive ouest invitait à explorer les enfilades de ses venelles tortueuses ; cette partie de la cité grouillait visiblement d'activité."
+  },
+  "hébétude": {
+    "definition": "État d'une personne hébétée (rendu stupide).",
+    "extrait": "Tout, autour d'elle, semblait participer de cette hébétude. Nul chant d'oiseau ne saluait ce début de journée misérable, nul petit rongeur ne filait ventre à terre."
+  },
+  "filer": {
+    "definition": "Sécréter un fil de soie, en parlant des araignées et de nombreuses chenilles.",
+    "extrait": "Tout, autour d'elle, semblait participer de cette hébétude. Nul chant d'oiseau ne saluait ce début de journée misérable, nul petit rongeur ne filait ventre à terre."
+  },
+  "placide": {
+    "definition": "Qui est doux et calme",
+    "extrait": "Le Mont Tendre, nommé d'après les douces courbes de ses flancs, contrastait avec les sommets aux arêtes vives bordant la vallée. Les arrogants pics, dents ou aiguilles qui entouraient le Mont Tendre semblaient vainement émousser leur tranchant sur ses placides arrondis. Alors que leurs abruptes parois glabres de toute végétation n'abritaient que ronces et rapaces, [...]"
+  },
+  "glabre": {
+    "definition": "Dépourvu de poils (imberbe ou rasé)",
+    "extrait": "Le Mont Tendre, nommé d'après les douces courbes de ses flancs, contrastait avec les sommets aux arêtes vives bordant la vallée. Les arrogants pics, dents ou aiguilles qui entouraient le Mont Tendre semblaient vainement émousser leur tranchant sur ses placides arrondis. Alors que leurs abruptes parois glabres de toute végétation n'abritaient que ronces et rapaces, [...]"
+  },
+  "vaisselier": {
+    "definition": "Meuble rustique, où la vaisselle est exposée à la vue.",
+    "extrait": "Il sauta de la table au vaisselier en sapin et du vaisselier au linteau de la cheminée où il entreprit de pousser méthodiquement du bout de la patte toutes les figurines en bois qui s'y trouvaient alignées."
+  },
+  "linteau": {
+    "definition": "Pièce horizontale (de bois, pierre, métal) qui forme la partie supérieure d'une ouverture et soutient la maçonnerie. (Exemple : linteau de cheminée)",
+    "extrait": "Il sauta de la table au vaisselier en sapin et du vaisselier au linteau de la cheminée où il entreprit de pousser méthodiquement du bout de la patte toutes les figurines en bois qui s'y trouvaient alignées."
+  },
+  "tavelé": {
+    "definition": "Recouvert de taches ou de bosses",
+    "extrait": "Ses cheveux, un amas de nœuds et de brindilles, son visage tavelé par les aspérités du sol sur lequel elle avait dormi, sa robe déchirée et empestant el vin, la jeune femme était profondément marquée par les péripéties de la veille."
+  },
+  "toupet": {
+    "definition": "Touffe de cheveux sur le haut de la tête.",
+    "extrait": "Il arriva à la réunion avec un air de défi, un toupet insolent sur le front et une barbe hirsute qui ajoutaient à son allure de rebelle."
+  },
+  "hirsute": {
+    "definition": "Poilu, hérissé.",
+    "extrait": "Il arriva à la réunion avec un air de défi, un toupet insolent sur le front et une barbe hirsute qui ajoutaient à son allure de rebelle."
+  },
+  "rémouleur": {
+    "definition": "Artisan, souvent ambulant, qui aiguise les instruments tranchants",
+    "extrait": "[...] Lilas voyait un barbier, un apothicaire, un sabotier, un vendeur de bougies, un autre de savon, un couturier et un rémouleur."
+  },
+  "sabotier": {
+    "definition": "Personne qui fabrique, qui vend des sabots.",
+    "extrait": "[...] Lilas voyait un barbier, un apothicaire, un sabotier, un vendeur de bougies, un autre de savon, un couturier et un rémouleur."
+  },
+  "borborygmes": {
+    "definition": "Bruit produit par le déplacement des gaz dans l'intestin ou l'estomac.",
+    "extrait": "Des borborygmes fusent, des grognements de bêtes tordues qui ébrouent leur fourrure après un déluge."
+  },
+  "ébroue": {
+    "definition": "Souffler bruyamment en secouant vivement la tête, par peur ou par impatience, en parlant d'un animal, notamment du cheval",
+    "extrait": "Des borborygmes fusent, des grognements de bêtes tordues qui ébrouent leur fourrure après un déluge."
+  },
+  "écoufle": {
+    "definition": "Sorte de jouet composé d'une structure légère tendue de papier ou de toile, qui s'élève et plane lorsqu'on la tire face au vent.",
+    "extrait": "[...] allait flotter au vent à la manière d'une écoufle au bout d'une corde."
+  },
+  "maugréer": {
+    "definition": "Manifester son mécontentement, sa mauvaise humeur, en protestant à mi-voix.",
+    "extrait": "Il y a des blessés ? Maugrée Golgoth."
+  },
+  "malléole": {
+    "definition": "Saillie osseuse de la cheville.",
+    "extrait": "Coriolis s'est brisé la malléole en retombant sur une pierre."
+  },
+  "corroyer": {
+    "definition": "Forger ensemble ou souder à chaud (du métal).",
+    "extrait": "[...] À corroyer du plastron."
+  },
+  "sotch": {
+    "definition": "Importante dépression fermée de nature karstique, que l'on rencontre dans les Causses.",
+    "extrait": "[...] elle a vibré comme une cloche dans le sotch."
+  },
+  "moucheture": {
+    "definition": "Petite marque, tache d'une autre couleur que le fond.",
+    "extrait": "Un dessein qui ne soit qu'un hasard de mouchetures et d'incisions."
+  },
+  "gangue": {
+    "definition": "Matière sans valeur qui entoure un minerai, une pierre précieuse à l'état naturel.",
+    "extrait": "On les dirait graver dans la gangue."
+  },
+  "obombrer": {
+    "definition": "Ombrager, couvrir de son ombre.",
+    "extrait": "La lumière s'obombre."
+  }
+}
