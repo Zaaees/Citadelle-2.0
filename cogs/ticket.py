@@ -65,7 +65,7 @@ async def process_ticket(self, channel):
         if name_answer:
             first_letter = await self.get_first_letter(name_answer)
             if first_letter:
-                new_name = f"【🎭 】{first_letter}{name_answer[1:]}"
+                new_name = f"【🎭】{first_letter}{name_answer[1:]}"
                 await channel.edit(name=new_name)
                 return True
 
@@ -73,7 +73,7 @@ async def process_ticket(self, channel):
         if sub_element:
             first_letter = await self.get_first_letter(sub_element)
             if first_letter:
-                new_name = f"【⭐ 】{first_letter}{sub_element[1:]}"
+                new_name = f"【⭐】{first_letter}{sub_element[1:]}"
                 await channel.edit(name=new_name)
                 return True
 
@@ -81,7 +81,7 @@ async def process_ticket(self, channel):
         if magic_name:
             first_letter = await self.get_first_letter(magic_name)
             if first_letter:
-                new_name = f"【🌟 】{first_letter}{magic_name[1:]}"
+                new_name = f"【🌟】{first_letter}{magic_name[1:]}"
                 await channel.edit(name=new_name)
                 return True
 
@@ -89,7 +89,7 @@ async def process_ticket(self, channel):
         if request:
             first_letter = await self.get_first_letter(request)
             if first_letter:
-                new_name = f"【❔ 】{first_letter}{request[1:]}"
+                new_name = f"【❔】{first_letter}{request[1:]}"
                 await channel.edit(name=new_name)
                 return True
 
