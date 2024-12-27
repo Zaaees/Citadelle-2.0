@@ -17,10 +17,17 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.wfile.write(b'Bot is running!')
 
 def start_http_server():
-    port = int(os.environ.get("PORT", 10000))  # Render utilise la variable d'environnement PORT
-    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-    print(f"Serveur HTTP démarré sur le port {port}")
-    server.serve_forever()
+    try:
+        # Render fournit PORT, sinon utiliser 10000 localement
+        port = int(os.environ.get("PORT", 10000))
+        print(f"Port from environment: {os.environ.get('PORT')}")
+        print(f"Tentative de démarrage du serveur sur le port {port}...")
+        
+        server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+        print(f"Serveur HTTP démarré avec succès sur le port {port}")
+        server.serve_forever()
+    except Exception as e:
+        print(f"Erreur lors du démarrage du serveur : {e}")
 
 # Classe personnalisée pour le bot
 class CustomBot(commands.Bot):
