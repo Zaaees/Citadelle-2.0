@@ -12,11 +12,16 @@ class ValidationFiche(commands.Cog):
         self.setup_google_sheets()
 
     def setup_google_sheets(self):
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        creds_dict = json.loads(os.getenv('SERVICE_ACCOUNT_JSON'))
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        self.gc = gspread.authorize(creds)
-        self.sheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_VALIDATION')).sheet1
+        # Ajoutez la gestion d'erreur et logging
+        try:
+            scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+            creds_dict = json.loads(os.getenv('SERVICE_ACCOUNT_JSON'))
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+            self.gc = gspread.authorize(creds)
+            self.sheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_VALIDATION')).sheet1
+            print("Google Sheets connexion réussie")
+        except Exception as e:
+            print(f"Erreur connexion Google Sheets: {e}")
 
     def get_ticket_data(self, channel_id):
         try:
@@ -58,21 +63,22 @@ class ValidationFiche(commands.Cog):
 
         def create_embed(self, validations, corrections):
             embed = discord.Embed(title="Validation de la fiche", color=discord.Color.blue())
-           
-            validations_text = "\n".join([f"• {self.cog.bot.get_user(int(user_id)).name}" 
+            
+            # Utiliser display_name au lieu de name
+            validations_text = "\n".join([f"• {self.cog.bot.get_user(int(user_id)).display_name}" 
                                         for user_id in validations]) or "Aucune validation"
             embed.add_field(name="Validations", value=validations_text, inline=False)
-           
+            
             corrections_text = ""
             for user_id, user_corrections in corrections.items():
                 user = self.cog.bot.get_user(int(user_id))
-                corrections_text += f"**{user.name}**:\n"
+                corrections_text += f"**{user.display_name}**:\n"
                 for correction in user_corrections:
                     corrections_text += f"• {correction}\n"
-           
+            
             embed.add_field(name="Corrections demandées", 
-                          value=corrections_text or "Aucune correction demandée", 
-                          inline=False)
+                        value=corrections_text or "Aucune correction demandée", 
+                        inline=False)
             return embed
 
         @discord.ui.button(label="Validé", style=discord.ButtonStyle.green, custom_id="validate")
@@ -130,23 +136,23 @@ class ValidationFiche(commands.Cog):
         await message.pin()
         return message
 
-    async def check_and_create_validation_messages(self):
-        for guild in self.bot.guilds:
-            category = guild.get_channel(1020827427888435210)
-            if category:
-                for channel in category.channels:
-                    if channel.name.startswith("【🎭】"):
-                        messages = [msg async for msg in channel.history()]
-                        existing = any(msg.author == self.bot.user and 
-                                    msg.embeds and 
-                                    msg.embeds[0].title == "Validation de la fiche" 
-                                    for msg in messages)
-                        if not existing:
-                            await self.create_validation_message(channel)
+async def check_and_create_validation_messages(self):
+    for guild in self.bot.guilds:
+        category = guild.get_channel(1020827427888435210)
+        if category:
+            for channel in category.channels:
+                if channel.name.startswith("【🎭】"):
+                    messages = [msg async for msg in channel.history()]
+                    existing = any(msg.author == self.bot.user and 
+                                 msg.embeds and 
+                                 msg.embeds[0].title == "Validation de la fiche" 
+                                 for msg in messages)
+                    if not existing:
+                        await self.create_validation_message(channel)
 
-    @commands.Cog.listener()
-    async def on_ready(self):
-        await self.check_and_create_validation_messages()
+@commands.Cog.listener()
+async def on_ready(self):
+    await self.check_and_create_validation_messages()
 
     @app_commands.command(name="validation")
     @app_commands.default_permissions(administrator=True)
