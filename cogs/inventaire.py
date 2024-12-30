@@ -271,6 +271,83 @@ class Inventory(commands.Cog):
                 
                 await alert_channel.send(message)
 
+    @app_commands.command(name="stats", description="Afficher les statistiques des médailles")
+    async def show_stats(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        students = self.load_students()
+        if not students:
+            await interaction.followup.send("Aucune donnée disponible.")
+            return
+
+        # Calcul des statistiques
+        medals = list(students.values())
+        total_students = len(medals)
+        total_medals = sum(medals)
+        average_medals = total_medals / total_students if total_students > 0 else 0
+        max_medals = max(medals) if medals else 0
+        min_medals = min(medals) if medals else 0
+
+        # Distribution par année
+        years_distribution = {
+            "Première années": 0,
+            "Deuxième années": 0,
+            "Troisième années": 0,
+            "Quatrième années": 0
+        }
+
+        for medals in students.values():
+            if 0 <= medals < 7:
+                years_distribution["Première années"] += 1
+            elif 7 <= medals < 18:
+                years_distribution["Deuxième années"] += 1
+            elif 18 <= medals < 30:
+                years_distribution["Troisième années"] += 1
+            else:
+                years_distribution["Quatrième années"] += 1
+
+        # Création de l'embed
+        embed = discord.Embed(
+            title="📊 Statistiques des médailles",
+            color=0x8543f7
+        )
+
+        # Statistiques générales
+        embed.add_field(
+            name="Vue d'ensemble",
+            value=f"**Nombre total d'élèves :** {total_students}\n"
+                f"**Total des médailles :** {total_medals:.1f}\n"
+                f"**Moyenne par élève :** {average_medals:.1f}\n"
+                f"**Maximum :** {max_medals:.1f}\n"
+                f"**Minimum :** {min_medals:.1f}",
+            inline=False
+        )
+
+        # Distribution par année
+        embed.add_field(
+            name="Distribution par année",
+            value="\n".join([
+                f"**{year} :** {count} élève{'s' if count > 1 else ''} "
+                f"({(count/total_students*100):.1f}%)"
+                for year, count in years_distribution.items() if count > 0
+            ]),
+            inline=False
+        )
+
+        # Top 3 des élèves
+        top_students = sorted(students.items(), key=lambda x: x[1], reverse=True)[:3]
+        if top_students:
+            embed.add_field(
+                name="Top 3 des élèves",
+                value="\n".join([
+                    f"**{i+1}.** {name} : {medals:.1f} médaille{'s' if medals != 1 else ''}"
+                    for i, (name, medals) in enumerate(top_students)
+                ]),
+                inline=False
+            )
+
+        await interaction.followup.send(embed=embed)
+
 async def setup(bot):
     await bot.add_cog(Inventory(bot))
     print("Cog Inventaire chargé avec succès")
