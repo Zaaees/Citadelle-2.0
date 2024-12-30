@@ -56,10 +56,6 @@ class CustomBot(commands.Bot):
         # Implémentez votre logique de vérification de rôle ici
         return True
 
-    async def on_ready(self):
-        print(f'Connecté en tant que {self.user.name}')
-        print(f'ID du bot : {self.user.id}')
-
 def main():
     # Démarrer le serveur HTTP dans un thread séparé
     threading.Thread(target=start_http_server, daemon=True).start()
@@ -74,6 +70,12 @@ def main():
         command_prefix='!', 
         intents=intents
     )
+
+    # Événements du bot
+    @bot.event
+    async def on_ready():
+        print(f'Connecté en tant que {bot.user.name}')
+        print(f'ID du bot : {bot.user.id}')
 
     # Exécuter le bot
     bot.run(os.getenv('DISCORD_TOKEN'))
