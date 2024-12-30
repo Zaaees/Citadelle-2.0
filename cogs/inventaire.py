@@ -316,10 +316,10 @@ class Inventory(commands.Cog):
         embed.add_field(
             name="Vue d'ensemble",
             value=f"**Nombre total d'élèves :** {total_students}\n"
-                f"**Total des médailles :** {total_medals:.1f}\n"
-                f"**Moyenne par élève :** {average_medals:.1f}\n"
-                f"**Maximum :** {max_medals:.1f}\n"
-                f"**Minimum :** {min_medals:.1f}",
+                f"**Total des médailles :** {total_medals:.2f}\n"
+                f"**Moyenne par élève :** {average_medals:.2f}\n"
+                f"**Maximum :** {max_medals:.2f}\n"
+                f"**Minimum :** {min_medals:.2f}",
             inline=False
         )
 
@@ -340,7 +340,7 @@ class Inventory(commands.Cog):
             embed.add_field(
                 name="Top 3 des élèves",
                 value="\n".join([
-                    f"**{i+1}.** {name} : {medals:.1f} médaille{'s' if medals != 1 else ''}"
+                    f"**{i+1}.** {name} : {medals:.2f} médaille{'s' if medals != 1 else ''}"
                     for i, (name, medals) in enumerate(top_students)
                 ]),
                 inline=False
