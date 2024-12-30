@@ -105,10 +105,15 @@ class Inventory(commands.Cog):
             else:
                 return "Quatrième années"
 
-        # Trier les étudiants par nombre de médailles
+        def format_medals(medals):
+            # Pour les nombres entiers, convertir en int pour supprimer le .0
+            if medals.is_integer():
+                medals = int(medals)
+            # Gérer le singulier/pluriel
+            return f"{medals} médaille" if medals == 1 else f"{medals} médailles"
+
         sorted_students = sorted(students.items(), key=lambda x: x[1], reverse=True)
         
-        # Préparer les années
         years = {
             "Quatrième années": [], 
             "Troisième années": [], 
@@ -116,12 +121,10 @@ class Inventory(commands.Cog):
             "Première années": []
         }
 
-        # Répartir les étudiants par année
         for name, medals in sorted_students:
             year = get_year(medals)
-            years[year].append(f"  - ***{name} :** {medals} médailles*")
+            years[year].append(f"  - ***{name} :** {format_medals(medals)}*")
 
-        # Construire le message
         message = "## ✮ Liste des personnages et leurs médailles ✮\n** **\n"  
         for i, (year, students_list) in enumerate(years.items()):
             if students_list:
@@ -132,7 +135,7 @@ class Inventory(commands.Cog):
                     message += "\n"  
 
         return message.rstrip()
-
+    
     def get_year(self, medals):
         if 0 <= medals < 7:
             return 1
