@@ -271,7 +271,7 @@ class Inventory(commands.Cog):
                 
                 await alert_channel.send(message)
 
-    @app_commands.command(name="stats", description="Afficher les statistiques des médailles")
+    @app_commands.command(name="statinventaire", description="Afficher les statistiques des médailles")
     async def show_stats(self, interaction: discord.Interaction):
         await interaction.response.defer()
         
