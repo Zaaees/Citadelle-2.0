@@ -313,12 +313,14 @@ class Inventory(commands.Cog):
         )
 
         # Statistiques générales
+        total_medals_formatted = f"{total_medals:.2f}" if isinstance(total_medals, float) else str(total_medals)
+        max_medals_formatted = f"{max_medals:.2f}" if isinstance(max_medals, float) else str(max_medals)
         embed.add_field(
             name="Vue d'ensemble",
             value=f"**Nombre total d'élèves :** {total_students}\n"
-                f"**Total des médailles :** {total_medals:.2f}\n"
+                f"**Total des médailles :** {total_medals_formatted}\n"
                 f"**Moyenne par élève :** {average_medals:.2f}\n"
-                f"**Maximum :** {max_medals:.2f}\n"
+                f"**Maximum :** {max_medals_formatted}\n"
                 f"**Minimum :** {min_medals:.2f}",
             inline=False
         )
