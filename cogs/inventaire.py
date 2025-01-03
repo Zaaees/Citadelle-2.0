@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 import gspread
 from google.oauth2.service_account import Credentials as ServiceAccountCredentials
 from gspread.exceptions import CellNotFound
+import asyncio
 
 load_dotenv()
 
@@ -63,34 +64,30 @@ class Inventory(commands.Cog):
 
     def save_students(self, students):
         try:
-            # Récupérer les données existantes
-            existing_data = self.sheet.get_all_values()
+            # Récupérer toutes les données en une fois
+            all_data = self.sheet.get_all_values()
+            updates = []
             
-            # Créer un dictionnaire pour suivre les mises à jour
-            updated_students = {}
-            
-            # Parcourir les données existantes
-            for row in existing_data[1:]:  # Ignorer l'en-tête
-                if len(row) >= 2:
-                    name = row[0].strip()
-                    
-                    # Si l'étudiant est dans la nouvelle liste et a des médailles
-                    if name in students and students[name] > 0:
-                        updated_students[name] = students[name]
-                        # Mettre à jour la cellule avec le nouveau nombre de médailles
-                        cell = self.sheet.find(name)
-                        self.sheet.update_cell(cell.row, 2, students[name])
-                    
-                    # Si l'étudiant a été supprimé (0 médailles), supprimer la ligne
-                    elif name in students and students[name] <= 0:
-                        cell = self.sheet.find(name)
-                        self.sheet.delete_rows(cell.row) 
-            
-            # Ajouter les nouveaux étudiants qui n'étaient pas dans la feuille
+            # Préparer toutes les mises à jour
             for name, medals in students.items():
-                if name not in updated_students and medals > 0:
-                    self.sheet.append_row([name, medals])
-            
+                try:
+                    cell = self.sheet.find(name)
+                    if medals > 0:
+                        updates.append({
+                            'range': f'B{cell.row}',
+                            'values': [[medals]]
+                        })
+                except CellNotFound:
+                    if medals > 0:
+                        updates.append({
+                            'range': f'A{len(all_data) + 1}:B{len(all_data) + 1}',
+                            'values': [[name, medals]]
+                        })
+                        
+            # Effectuer toutes les mises à jour en une seule requête
+            if updates:
+                self.sheet.batch_update(updates)
+                
         except Exception as e:
             print(f"Erreur lors de la sauvegarde des étudiants : {e}")
 
@@ -248,12 +245,18 @@ class Inventory(commands.Cog):
         await interaction.followup.send(embeds=embeds)
 
     async def update_medal_inventory(self):
-        students = self.load_students()
-        message_content = self.format_student_list(students)
-        
-        channel = self.bot.get_channel(self.CHANNEL_ID)
-        message = await channel.fetch_message(self.MESSAGE_ID)
-        await message.edit(content=message_content)
+        try:
+            async with asyncio.timeout(30):  # timeout de 30 secondes
+                students = self.load_students()
+                message_content = self.format_student_list(students)
+                
+                channel = self.bot.get_channel(self.CHANNEL_ID)
+                message = await channel.fetch_message(self.MESSAGE_ID)
+                await message.edit(content=message_content)
+        except asyncio.TimeoutError:
+            print("Timeout lors de la mise à jour de l'inventaire")
+        except Exception as e:
+            print(f"Erreur lors de la mise à jour de l'inventaire : {e}")
 
     async def check_and_send_year_change_alert(self, guild, old_medals, new_medals, character_name):
         old_year = self.get_year(old_medals)
