@@ -48,97 +48,97 @@ class Ticket(commands.Cog):
             return self.alphabet_mapping.get(first_letter, None)
         return None
 
-async def process_ticket(self, channel):
-    try:
-        if not await self.is_ticket_channel(channel):
-            return False
-
-        target_category = self.bot.get_channel(self.target_category_id)
-        if target_category and channel.category != target_category:
-            try:
-                await channel.edit(category=target_category)
-                await asyncio.sleep(self.CHANNEL_EDIT_DELAY)
-            except Exception as e:
-                print(f"Erreur lors du déplacement: {str(e)}")
-
-        name_answer = await self.find_tickettool_answer(channel, "Quel est le nom de votre personnage ?")
-        if name_answer:
-            first_letter = await self.get_first_letter(name_answer)
-            if first_letter:
-                new_name = f"【🎭】{first_letter}{name_answer[1:]}"
-                await channel.edit(name=new_name)
-                return True
-
-        sub_element = await self.find_tickettool_answer(channel, "Quel est le sous-élément ?")
-        if sub_element:
-            first_letter = await self.get_first_letter(sub_element)
-            if first_letter:
-                new_name = f"【⭐】{first_letter}{sub_element[1:]}"
-                await channel.edit(name=new_name)
-                return True
-
-        magic_name = await self.find_tickettool_answer(channel, "Quel est le nom de la magie unique")
-        if magic_name:
-            first_letter = await self.get_first_letter(magic_name)
-            if first_letter:
-                new_name = f"【🌟】{first_letter}{magic_name[1:]}"
-                await channel.edit(name=new_name)
-                return True
-
-        request = await self.find_tickettool_answer(channel, "Quelle est votre demande ?")
-        if request:
-            first_letter = await self.get_first_letter(request)
-            if first_letter:
-                new_name = f"【❔】{first_letter}{request[1:]}"
-                await channel.edit(name=new_name)
-                return True
-
-        return False
-
-    except Exception as e:
-        print(f"Erreur lors du traitement du ticket {channel.name}: {str(e)}")
-        return False
-
-@commands.Cog.listener()
-async def on_guild_channel_create(self, channel):
-        if isinstance(channel, discord.TextChannel):
-            await asyncio.sleep(2)
-            await self.process_ticket(channel)
-
-@discord.app_commands.command(name="ticket", description="Traite tous les tickets existants")
-@discord.app_commands.default_permissions(administrator=True)
-async def process_tickets(self, interaction: discord.Interaction):
+    async def process_ticket(self, channel):
         try:
-            await interaction.response.send_message("Traitement des tickets en cours...", ephemeral=True)
+            if not await self.is_ticket_channel(channel):
+                return False
 
-            processed = 0
-            total_processed = 0
-
-            channels_to_check = [
-                channel for channel in interaction.guild.text_channels 
-                if channel.category is None
-            ]
-
-            for channel in channels_to_check:
+            target_category = self.bot.get_channel(self.target_category_id)
+            if target_category and channel.category != target_category:
                 try:
-                    if await self.process_ticket(channel):
-                        processed += 1
-                    total_processed += 1
+                    await channel.edit(category=target_category)
                     await asyncio.sleep(self.CHANNEL_EDIT_DELAY)
                 except Exception as e:
-                    print(f"Erreur lors du traitement du ticket {channel.name}: {e}")
+                    print(f"Erreur lors du déplacement: {str(e)}")
 
-            await interaction.followup.send(
-                f"Traitement terminé. {processed} tickets ont été traités sur {total_processed} salons vérifiés.",
-                ephemeral=True
-            )
+            name_answer = await self.find_tickettool_answer(channel, "Quel est le nom de votre personnage ?")
+            if name_answer:
+                first_letter = await self.get_first_letter(name_answer)
+                if first_letter:
+                    new_name = f"【🎭】{first_letter}{name_answer[1:]}"
+                    await channel.edit(name=new_name)
+                    return True
+
+            sub_element = await self.find_tickettool_answer(channel, "Quel est le sous-élément ?")
+            if sub_element:
+                first_letter = await self.get_first_letter(sub_element)
+                if first_letter:
+                    new_name = f"【⭐】{first_letter}{sub_element[1:]}"
+                    await channel.edit(name=new_name)
+                    return True
+
+            magic_name = await self.find_tickettool_answer(channel, "Quel est le nom de la magie unique")
+            if magic_name:
+                first_letter = await self.get_first_letter(magic_name)
+                if first_letter:
+                    new_name = f"【🌟】{first_letter}{magic_name[1:]}"
+                    await channel.edit(name=new_name)
+                    return True
+
+            request = await self.find_tickettool_answer(channel, "Quelle est votre demande ?")
+            if request:
+                first_letter = await self.get_first_letter(request)
+                if first_letter:
+                    new_name = f"【❔】{first_letter}{request[1:]}"
+                    await channel.edit(name=new_name)
+                    return True
+
+            return False
 
         except Exception as e:
-            print(f"Erreur lors de l'exécution de la commande: {str(e)}")
+            print(f"Erreur lors du traitement du ticket {channel.name}: {str(e)}")
+            return False
+
+    @commands.Cog.listener()
+    async def on_guild_channel_create(self, channel):
+            if isinstance(channel, discord.TextChannel):
+                await asyncio.sleep(2)
+                await self.process_ticket(channel)
+
+    @discord.app_commands.command(name="ticket", description="Traite tous les tickets existants")
+    @discord.app_commands.default_permissions(administrator=True)
+    async def process_tickets(self, interaction: discord.Interaction):
             try:
-                await interaction.followup.send("Une erreur est survenue lors du traitement.", ephemeral=True)
-            except:
-                pass
+                await interaction.response.send_message("Traitement des tickets en cours...", ephemeral=True)
+
+                processed = 0
+                total_processed = 0
+
+                channels_to_check = [
+                    channel for channel in interaction.guild.text_channels 
+                    if channel.category is None
+                ]
+
+                for channel in channels_to_check:
+                    try:
+                        if await self.process_ticket(channel):
+                            processed += 1
+                        total_processed += 1
+                        await asyncio.sleep(self.CHANNEL_EDIT_DELAY)
+                    except Exception as e:
+                        print(f"Erreur lors du traitement du ticket {channel.name}: {e}")
+
+                await interaction.followup.send(
+                    f"Traitement terminé. {processed} tickets ont été traités sur {total_processed} salons vérifiés.",
+                    ephemeral=True
+                )
+
+            except Exception as e:
+                print(f"Erreur lors de l'exécution de la commande: {str(e)}")
+                try:
+                    await interaction.followup.send("Une erreur est survenue lors du traitement.", ephemeral=True)
+                except:
+                    pass
 
 async def setup(bot):
     await bot.add_cog(Ticket(bot))
