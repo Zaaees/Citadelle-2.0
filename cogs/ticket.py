@@ -99,15 +99,15 @@ async def process_ticket(self, channel):
         print(f"Erreur lors du traitement du ticket {channel.name}: {str(e)}")
         return False
 
-    @commands.Cog.listener()
-    async def on_guild_channel_create(self, channel):
+@commands.Cog.listener()
+async def on_guild_channel_create(self, channel):
         if isinstance(channel, discord.TextChannel):
             await asyncio.sleep(2)
             await self.process_ticket(channel)
 
-    @discord.app_commands.command(name="ticket", description="Traite tous les tickets existants")
-    @discord.app_commands.default_permissions(administrator=True)
-    async def process_tickets(self, interaction: discord.Interaction):
+@discord.app_commands.command(name="ticket", description="Traite tous les tickets existants")
+@discord.app_commands.default_permissions(administrator=True)
+async def process_tickets(self, interaction: discord.Interaction):
         try:
             await interaction.response.send_message("Traitement des tickets en cours...", ephemeral=True)
 
