@@ -23,11 +23,11 @@ class ValidationView(discord.ui.View):
             if cog:
                 self.sheet = cog.sheet
             else:
-                await interaction.response.send_message("Erreur: impossible de traiter la validation pour le moment.", ephemeral=True)
+                await interaction.followup.send("Erreur: impossible de traiter la validation pour le moment.", ephemeral=True)
                 return
 
         if not any(role.id == 1018179623886000278 for role in interaction.user.roles):
-            await interaction.response.send_message("Vous n'avez pas la permission d'utiliser ce bouton.", ephemeral=True)
+            await interaction.followup.send("Vous n'avez pas la permission d'utiliser ce bouton.", ephemeral=True)
             return
 
         channel_id = str(interaction.channel_id)
@@ -51,7 +51,7 @@ class ValidationView(discord.ui.View):
 
             await self.update_validation_message(interaction)
         except gspread.exceptions.CellNotFound:
-            await interaction.response.send_message("Erreur: Données non trouvées pour ce salon.", ephemeral=True)
+            await interaction.followup.send("Erreur: Données non trouvées pour ce salon.", ephemeral=True)
 
     @discord.ui.button(label="À corriger", style=discord.ButtonStyle.red, custom_id="correct_button")
     async def correct_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -158,8 +158,6 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
                 if cog:
                     await cog.notify_owner_if_needed(interaction.channel)
             
-            await interaction.followup.send("Vos corrections ont été enregistrées.", ephemeral=True)
-            
         except gspread.exceptions.CellNotFound:
             await interaction.response.send_message("Erreur: Données non trouvées pour ce salon.", ephemeral=True)
 
@@ -243,7 +241,7 @@ class Validation(commands.Cog):
     async def validation(self, interaction: discord.Interaction):
         await interaction.response.defer()  # Déférer la réponse ici aussi
         if not interaction.channel.name.startswith("【🎭】"):
-            await interaction.response.send_message("Ce salon n'est pas un ticket de personnage.", ephemeral=True)
+            await interaction.followup.send("Ce salon n'est pas un ticket de personnage.", ephemeral=True)
             return
 
         channel_id = str(interaction.channel.id)
