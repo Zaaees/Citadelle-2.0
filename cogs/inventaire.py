@@ -335,11 +335,16 @@ class Inventory(commands.Cog):
         if new_year > old_year:
             alert_channel = guild.get_channel(self.ALERT_CHANNEL_ID)
             if alert_channel:
-                member = next((m for m in guild.members if character_name.lower() in m.display_name.lower()), None)
+                # Charger les données des étudiants pour obtenir l'ID de l'utilisateur
+                students = self.load_students()
+                student_data = students.get(character_name, {})
+                user_id = student_data.get('user_id')
                 
-                if member:
-                    message = f"Félicitations à **{member.mention}** ({character_name}) pour son passage à la {new_year}ème année !"
+                if user_id:
+                    # Si l'utilisateur est lié, on utilise son ID pour le ping
+                    message = f"Félicitations à <@{user_id}> ({character_name}) pour son passage à la {new_year}ème année !"
                 else:
+                    # Si aucun utilisateur n'est lié, on affiche juste le nom du personnage
                     message = f"Félicitations à **{character_name}** pour son passage à la {new_year}ème année !"
                 
                 await alert_channel.send(message)
