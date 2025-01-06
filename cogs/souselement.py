@@ -239,3 +239,4 @@ class ElementButton(discord.ui.Button):
 async def setup(bot):
     await bot.add_cog(SousElements(bot))
     print("Cog Souselements chargé avec succès")
+
