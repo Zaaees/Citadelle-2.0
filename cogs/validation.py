@@ -104,8 +104,10 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
             style=discord.TextStyle.paragraph,
             placeholder="Entrez les points à corriger...",
             required=True,
-            default=existing_correction
+            default=existing_correction,
+            max_length=1000
         )
+        self.add_item(self.correction)  # Ajout explicite du TextInput
 
     async def on_submit(self, interaction: discord.Interaction):
         channel_id = str(interaction.channel.id)
@@ -123,8 +125,9 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
                 self.sheet.update_cell(cell.row, 2, str(validated_by))
 
             view = ValidationView(self.sheet)
+            await interaction.response.defer()  # Déférer la réponse d'abord
             await view.update_validation_message(interaction)
-            await interaction.response.send_message("Vos corrections ont été enregistrées.", ephemeral=True)
+            await interaction.followup.send("Vos corrections ont été enregistrées.", ephemeral=True)
         except gspread.exceptions.CellNotFound:
             await interaction.response.send_message("Erreur: Données non trouvées pour ce salon.", ephemeral=True)
 
