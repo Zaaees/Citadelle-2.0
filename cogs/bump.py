@@ -6,10 +6,13 @@ import os
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import json
+import time
+from googleapiclient.errors import HttpError
 
-class Bump(commands.Cog):
+class Bump:
     def __init__(self, bot):
         self.bot = bot
+        self.last_bump = self.load_last_bump()
         self.channel_id = 1031999400383348757
         self.disboard_bot_id = 302050872383242240
         
@@ -32,13 +35,26 @@ class Bump(commands.Cog):
         return service.spreadsheets()
 
     def load_last_bump(self):
-        result = self.sheet.values().get(
-            spreadsheetId=self.GOOGLE_SHEET_ID,
-            range='A2'
-        ).execute()
-        
-        values = result.get('values', [[datetime.min.isoformat()]])
-        return datetime.fromisoformat(values[0][0])
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                # Your existing code to load the last bump
+                result = self.service.spreadsheets().values().get(
+                    spreadsheetId=self.spreadsheet_id,
+                    range="A2"
+                ).execute()
+                return result.get('values', [])[0][0]
+            except HttpError as e:
+                if e.resp.status == 503:
+                    if attempt < max_retries - 1:
+                        time.sleep(2 ** attempt)  # Exponential backoff
+                    else:
+                        raise
+                else:
+                    raise
+
+    async def setup(bot):
+       await bot.add_cog(Bump(bot))
 
     def save_last_bump(self):
         self.sheet.values().update(
