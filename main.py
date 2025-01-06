@@ -1,5 +1,6 @@
 import os
 import threading
+import logging
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import discord
 from discord.ext import commands
@@ -8,11 +9,18 @@ import sys
 import traceback
 import asyncio
 import aiohttp
+import signal
+
+# Configuration du logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Charger les variables d'environnement
 load_dotenv()
 
-# Serveur HTTP minimal pour Render
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -25,23 +33,25 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
 
+    def log_message(self, format, *args):
+        logger.info(f"Health check: {format%args}")
+
 def start_http_server():
     try:
-        # Render fournit PORT, sinon utiliser 10000 localement
         port = int(os.environ.get("PORT", 10000))
-        print(f"Port from environment: {os.environ.get('PORT')}")
-        print(f"Tentative de démarrage du serveur sur le port {port}...")
-        
+        logger.info(f"Starting HTTP server on port {port}")
         server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-        print(f"Serveur HTTP démarré avec succès sur le port {port}")
         server.serve_forever()
     except Exception as e:
-        print(f"Erreur lors du démarrage du serveur : {e}")
+        logger.error(f"Failed to start HTTP server: {e}")
 
-# Classe personnalisée pour le bot
 class CustomBot(commands.Bot):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self):
+        intents = discord.Intents.default()
+        intents.message_content = True
+        intents.members = True
+        super().__init__(command_prefix="!", intents=intents)
+        
         self.initial_extensions = [
             'cogs.inventaire',
             'cogs.RPTracker',
@@ -55,76 +65,71 @@ class CustomBot(commands.Bot):
     async def setup_hook(self):
         # Charger les cogs
         for extension in self.initial_extensions:
-            await self.load_extension(extension)
+            try:
+                await self.load_extension(extension)
+                logger.info(f"Loaded extension: {extension}")
+            except Exception as e:
+                logger.error(f"Failed to load extension {extension}: {e}")
+                traceback.print_exc()
         
         # Synchroniser les commandes
         await self.tree.sync()
 
-    async def reload_extensions(self):
-        for extension in self.initial_extensions:
-            try:
-                await self.reload_extension(extension)
-            except Exception as e:
-                print(f"Erreur lors du rechargement de {extension}: {e}")
-        await self.tree.sync()
-
-    def check_role(self, interaction):
-        # Implémentez votre logique de vérification de rôle ici
-        return True
-
-class MyBot(commands.Bot):
-    def __init__(self):
-        intents = discord.Intents.default()
-        intents.message_content = True
-        intents.members = True
-        super().__init__(command_prefix="!", intents=intents)
-        
-    async def setup_hook(self):
-        for filename in os.listdir('./cogs'):
-            if filename.endswith('.py'):
-                try:
-                    await self.load_extension(f'cogs.{filename[:-3]}')
-                except Exception as e:
-                    print(f'Failed to load extension {filename}', file=sys.stderr)
-                    traceback.print_exc()
-
     async def on_ready(self):
-        print(f'{self.user} has connected to Discord!')
+        logger.info(f'{self.user} has connected to Discord!')
         try:
             synced = await self.tree.sync()
-            print(f"Synced {len(synced)} command(s)")
+            logger.info(f"Synced {len(synced)} command(s)")
         except Exception as e:
-            print(f"Failed to sync commands: {e}")
+            logger.error(f"Failed to sync commands: {e}")
 
-def main():
-    # Démarrer le serveur HTTP dans un thread séparé
-    threading.Thread(target=start_http_server, daemon=True).start()
+    async def close(self):
+        logger.info("Shutting down bot...")
+        await super().close()
 
-    bot = MyBot()
+async def start_bot():
+    bot = CustomBot()
     
-    # Ajout d'une meilleure gestion des erreurs de connexion
-    async def start_bot():
+    # Gérer l'arrêt proprement
+    def signal_handler(sig, frame):
+        logger.info("Shutdown signal received")
+        asyncio.create_task(bot.close())
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    # Démarrer le serveur HTTP
+    http_thread = threading.Thread(target=start_http_server, daemon=True)
+    http_thread.start()
+
+    retry_count = 0
+    max_retries = 5
+    
+    while retry_count < max_retries:
         try:
             async with bot:
                 await bot.start(os.getenv('DISCORD_TOKEN'))
-        except discord.errors.HTTPException as e:
-            print(f"HTTP Exception: {e}")
-            await asyncio.sleep(5)  # Attendre 5 secondes avant de réessayer
-            await start_bot()
-        except aiohttp.ClientConnectorError as e:
-            print(f"Connection Error: {e}")
-            await asyncio.sleep(5)
-            await start_bot()
+                break
+        except (discord.errors.HTTPException, aiohttp.ClientConnectorError) as e:
+            retry_count += 1
+            logger.error(f"Connection error (attempt {retry_count}/{max_retries}): {e}")
+            if retry_count < max_retries:
+                await asyncio.sleep(min(5 * retry_count, 30))  # Backoff exponentiel
+            else:
+                logger.critical("Max retries reached, shutting down")
+                break
         except Exception as e:
-            print(f"Unexpected error: {e}")
-            await asyncio.sleep(5)
-            await start_bot()
+            logger.critical(f"Unexpected error: {e}")
+            break
 
-    # Utiliser asyncio.run() pour démarrer le bot
+def main():
     try:
         asyncio.run(start_bot())
     except KeyboardInterrupt:
-        print("Bot stopped by user")
+        logger.info("Bot stopped by user")
+    except Exception as e:
+        logger.critical(f"Fatal error: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
