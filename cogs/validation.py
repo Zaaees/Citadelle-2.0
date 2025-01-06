@@ -116,11 +116,6 @@ class ValidationView(discord.ui.View):
         if not message.pinned:
             await message.pin()
 
-        # Vérifier s'il y a eu des changements dans les corrections
-        cog = interaction.client.get_cog('Validation')
-        if cog:
-            await cog.notify_owner_if_needed(interaction.channel)
-
 class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
     def __init__(self, sheet, existing_correction=""):
         super().__init__()
@@ -141,13 +136,10 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
             cell = self.sheet.find(channel_id)
             row_data = self.sheet.row_values(cell.row)
             corrections = eval(row_data[2]) if row_data[2] else {}
+            old_correction = corrections.get(interaction.user.id, None)
             
-            # Vérifier si c'est une nouvelle correction ou une modification
-            should_notify = True
-            if interaction.user.id in corrections:
-                # Si le contenu est identique, pas besoin de notifier
-                if corrections[interaction.user.id] == self.correction.value:
-                    should_notify = False
+            # Ne notifier que si c'est une nouvelle correction ou si le contenu a changé
+            should_notify = old_correction is None or old_correction != self.correction.value
             
             corrections[interaction.user.id] = self.correction.value
             self.sheet.update_cell(cell.row, 3, str(corrections))
@@ -158,16 +150,16 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
                 self.sheet.update_cell(cell.row, 2, str(validated_by))
 
             view = ValidationView(self.sheet)
-            await interaction.response.defer()  # Déférer la réponse d'abord
+            await interaction.response.defer()
             await view.update_validation_message(interaction)
             
-            # Ne notifier que s'il y a un nouveau point à corriger ou une modification
             if should_notify:
                 cog = interaction.client.get_cog('Validation')
                 if cog:
                     await cog.notify_owner_if_needed(interaction.channel)
             
             await interaction.followup.send("Vos corrections ont été enregistrées.", ephemeral=True)
+            
         except gspread.exceptions.CellNotFound:
             await interaction.response.send_message("Erreur: Données non trouvées pour ce salon.", ephemeral=True)
 
