@@ -1,26 +1,14 @@
 import os
 import threading
-import logging
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
-import sys
-import traceback
-import asyncio
-import aiohttp
-import signal
-
-# Configuration du logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 # Charger les variables d'environnement
 load_dotenv()
 
+# Serveur HTTP minimal pour Render
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -33,103 +21,64 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
 
-    def log_message(self, format, *args):
-        logger.info(f"Health check: {format%args}")
-
 def start_http_server():
     try:
+        # Render fournit PORT, sinon utiliser 10000 localement
         port = int(os.environ.get("PORT", 10000))
-        logger.info(f"Starting HTTP server on port {port}")
+        print(f"Port from environment: {os.environ.get('PORT')}")
+        print(f"Tentative de démarrage du serveur sur le port {port}...")
+        
         server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+        print(f"Serveur HTTP démarré avec succès sur le port {port}")
         server.serve_forever()
     except Exception as e:
-        logger.error(f"Failed to start HTTP server: {e}")
+        print(f"Erreur lors du démarrage du serveur : {e}")
 
+# Classe personnalisée pour le bot
 class CustomBot(commands.Bot):
-    def __init__(self):
-        intents = discord.Intents.default()
-        intents.message_content = True
-        intents.members = True
-        super().__init__(command_prefix="!", intents=intents)
-        
-        self.initial_extensions = [
-            'cogs.inventaire',
-            'cogs.RPTracker',
-            'cogs.bump',
-            'cogs.vocabulaire',
-            'cogs.souselement',
-            'cogs.ticket',
-            'cogs.validation'
-        ]
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     async def setup_hook(self):
         # Charger les cogs
-        for extension in self.initial_extensions:
-            try:
-                await self.load_extension(extension)
-                logger.info(f"Loaded extension: {extension}")
-            except Exception as e:
-                logger.error(f"Failed to load extension {extension}: {e}")
-                traceback.print_exc()
-        
+        await self.load_extension('cogs.inventaire')
+        await self.load_extension('cogs.RPTracker')
+        await self.load_extension('cogs.bump')
+        await self.load_extension('cogs.vocabulaire')
+        await self.load_extension('cogs.souselement')
+        await self.load_extension('cogs.ticket')
+        await self.load_extension('cogs.validation')
+
         # Synchroniser les commandes
         await self.tree.sync()
 
-    async def on_ready(self):
-        logger.info(f'{self.user} has connected to Discord!')
-        try:
-            synced = await self.tree.sync()
-            logger.info(f"Synced {len(synced)} command(s)")
-        except Exception as e:
-            logger.error(f"Failed to sync commands: {e}")
-
-    async def close(self):
-        logger.info("Shutting down bot...")
-        await super().close()
-
-async def start_bot():
-    bot = CustomBot()
-    
-    # Gérer l'arrêt proprement
-    def signal_handler(sig, frame):
-        logger.info("Shutdown signal received")
-        asyncio.create_task(bot.close())
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-    # Démarrer le serveur HTTP
-    http_thread = threading.Thread(target=start_http_server, daemon=True)
-    http_thread.start()
-
-    retry_count = 0
-    max_retries = 5
-    
-    while retry_count < max_retries:
-        try:
-            async with bot:
-                await bot.start(os.getenv('DISCORD_TOKEN'))
-                break
-        except (discord.errors.HTTPException, aiohttp.ClientConnectorError) as e:
-            retry_count += 1
-            logger.error(f"Connection error (attempt {retry_count}/{max_retries}): {e}")
-            if retry_count < max_retries:
-                await asyncio.sleep(min(5 * retry_count, 30))  # Backoff exponentiel
-            else:
-                logger.critical("Max retries reached, shutting down")
-                break
-        except Exception as e:
-            logger.critical(f"Unexpected error: {e}")
-            break
+    def check_role(self, interaction):
+        # Implémentez votre logique de vérification de rôle ici
+        return True
 
 def main():
-    try:
-        asyncio.run(start_bot())
-    except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
-    except Exception as e:
-        logger.critical(f"Fatal error: {e}")
-        sys.exit(1)
+    # Démarrer le serveur HTTP dans un thread séparé
+    threading.Thread(target=start_http_server, daemon=True).start()
 
-if __name__ == "__main__":
+    # Configuration du bot
+    intents = discord.Intents.default()
+    intents.message_content = True
+    intents.members = True
+
+    # Créer une instance du bot
+    bot = CustomBot(
+        command_prefix='!', 
+        intents=intents
+    )
+
+    # Événements du bot
+    @bot.event
+    async def on_ready():
+        print(f'Connecté en tant que {bot.user.name}')
+        print(f'ID du bot : {bot.user.id}')
+
+    # Exécuter le bot
+    bot.run(os.getenv('DISCORD_TOKEN'))
+
+if __name__ == '__main__':
     main()
