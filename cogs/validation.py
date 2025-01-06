@@ -142,6 +142,13 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
             row_data = self.sheet.row_values(cell.row)
             corrections = eval(row_data[2]) if row_data[2] else {}
             
+            # Vérifier si c'est une nouvelle correction ou une modification
+            should_notify = True
+            if interaction.user.id in corrections:
+                # Si le contenu est identique, pas besoin de notifier
+                if corrections[interaction.user.id] == self.correction.value:
+                    should_notify = False
+            
             corrections[interaction.user.id] = self.correction.value
             self.sheet.update_cell(cell.row, 3, str(corrections))
 
@@ -153,6 +160,13 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
             view = ValidationView(self.sheet)
             await interaction.response.defer()  # Déférer la réponse d'abord
             await view.update_validation_message(interaction)
+            
+            # Ne notifier que s'il y a un nouveau point à corriger ou une modification
+            if should_notify:
+                cog = interaction.client.get_cog('Validation')
+                if cog:
+                    await cog.notify_owner_if_needed(interaction.channel)
+            
             await interaction.followup.send("Vos corrections ont été enregistrées.", ephemeral=True)
         except gspread.exceptions.CellNotFound:
             await interaction.response.send_message("Erreur: Données non trouvées pour ce salon.", ephemeral=True)
