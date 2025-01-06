@@ -77,15 +77,19 @@ class Inventory(commands.Cog):
                 try:
                     cell = self.sheet.find(name)
                     if data['medals'] > 0:
+                        # Convertir l'ID en texte avec une apostrophe devant
+                        user_id_str = f"'{str(data['user_id'])}" if data['user_id'] else ''
                         updates.append({
                             'range': f'B{cell.row}:C{cell.row}',
-                            'values': [[data['medals'], data['user_id'] or '']]
+                            'values': [[data['medals'], user_id_str]]
                         })
                 except CellNotFound:
                     if data['medals'] > 0:
+                        # Convertir l'ID en texte avec une apostrophe devant
+                        user_id_str = f"'{str(data['user_id'])}" if data['user_id'] else ''
                         updates.append({
                             'range': f'A{len(all_data) + 1}:C{len(all_data) + 1}',
-                            'values': [[name, data['medals'], data['user_id'] or '']]
+                            'values': [[name, data['medals'], user_id_str]]
                         })
                         
             if updates:
