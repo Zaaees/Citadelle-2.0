@@ -199,18 +199,25 @@ class Validation(commands.Cog):
         await message.pin()
 
     @commands.Cog.listener()
-    async def on_guild_channel_create(self, channel):
-        if isinstance(channel, discord.TextChannel):
-            if channel.category_id == 1020827427888435210 and channel.name.startswith("【🎭】"):
-                self.sheet.append_row([str(channel.id), "[]", "{}"])
-                embed = discord.Embed(
-                    title="État de la validation",
-                    color=discord.Color.blue(),
-                    timestamp=datetime.now()
-                )
-                view = ValidationView(self.sheet)
-                message = await channel.send(embed=embed, view=view)
-                await message.pin()
+    async def on_guild_channel_update(self, before, after):
+        # Vérifie si c'est un canal texte et si le nom a été modifié
+        if isinstance(after, discord.TextChannel):
+            # Vérifie si le nom a été changé pour inclure 【🎭】
+            if not before.name.startswith("【🎭】") and after.name.startswith("【🎭】"):
+                # Vérifie si le canal n'est pas déjà dans la feuille
+                try:
+                    self.sheet.find(str(after.id))
+                except gspread.exceptions.CellNotFound:
+                    # Ajoute le canal à la feuille
+                    self.sheet.append_row([str(after.id), "[]", "{}"])
+                    embed = discord.Embed(
+                        title="État de la validation",
+                        color=discord.Color.blue(),
+                        timestamp=datetime.now()
+                    )
+                    view = ValidationView(self.sheet)
+                    message = await after.send(embed=embed, view=view)
+                    await message.pin()
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Validation(bot))
