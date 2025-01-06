@@ -10,19 +10,22 @@ import re
 import time
 
 class ValidationView(discord.ui.View):
-    def __init__(self, sheet=None):  # Rendre sheet optionnel
+    def __init__(self, cog=None):  # Modifier pour accepter le cog au lieu du sheet
         super().__init__(timeout=None)
-        self.sheet = sheet
+        self.cog = cog
+
+    @property
+    def sheet(self):
+        # Obtenir le sheet via le cog
+        return self.cog.sheet if self.cog else None
 
     @discord.ui.button(label="Validé", style=discord.ButtonStyle.green, custom_id="validate_button")
     async def validate_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()  # Déférer immédiatement la réponse
         if self.sheet is None:
-            # Récupérer une nouvelle instance de sheet
-            cog = interaction.client.get_cog('Validation')
-            if cog:
-                self.sheet = cog.sheet
-            else:
+            # Récupérer une nouvelle instance de cog
+            self.cog = interaction.client.get_cog('Validation')
+            if not self.cog:
                 await interaction.followup.send("Erreur: impossible de traiter la validation pour le moment.", ephemeral=True)
                 return
 
@@ -60,10 +63,8 @@ class ValidationView(discord.ui.View):
             return
 
         if self.sheet is None:
-            cog = interaction.client.get_cog('Validation')
-            if cog:
-                self.sheet = cog.sheet
-            else:
+            self.cog = interaction.client.get_cog('Validation')
+            if not self.cog:
                 await interaction.response.send_message("Erreur: impossible de traiter la validation pour le moment.", ephemeral=True)
                 return
 
@@ -163,24 +164,35 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
 class Validation(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.setup_sheets()
+        self._sheet = None
+        self._client = None
+        self.last_ping = {}
         # Ajouter cette ligne pour que les boutons persistent après redémarrage
-        bot.add_view(ValidationView())
-        self.last_ping = {}  # Dictionnaire pour stocker les timestamps des derniers pings
+        bot.add_view(ValidationView(self))
 
-    def setup_sheets(self):
-        scopes = [
-            'https://www.googleapis.com/auth/spreadsheets',
-            'https://www.googleapis.com/auth/drive'
-        ]
-        
-        creds = Credentials.from_service_account_info(
-            eval(os.getenv('SERVICE_ACCOUNT_JSON')),  # eval() convertit directement la chaîne en dictionnaire
-            scopes=scopes
-        )
-        client = gspread.authorize(creds)
-        spreadsheet_id = os.getenv('GOOGLE_SHEET_ID_VALIDATION')
-        self.sheet = client.open_by_key(spreadsheet_id).sheet1
+    @property
+    def sheet(self):
+        if self._sheet is None:
+            self._setup_sheets()
+        return self._sheet
+
+    def _setup_sheets(self):
+        """Initialize Google Sheets connection only when needed"""
+        if self._client is None:
+            scopes = [
+                'https://www.googleapis.com/auth/spreadsheets',
+                'https://www.googleapis.com/auth/drive'
+            ]
+            
+            creds = Credentials.from_service_account_info(
+                eval(os.getenv('SERVICE_ACCOUNT_JSON')),
+                scopes=scopes
+            )
+            self._client = gspread.authorize(creds)
+
+        if self._sheet is None:
+            spreadsheet_id = os.getenv('GOOGLE_SHEET_ID_VALIDATION')
+            self._sheet = self._client.open_by_key(spreadsheet_id).sheet1
 
     async def get_ticket_owner(self, channel):
         try:
@@ -255,7 +267,7 @@ class Validation(commands.Cog):
             timestamp=datetime.now()
         )
         
-        view = ValidationView(self.sheet)
+        view = ValidationView(self)  # Passer le cog au lieu du sheet
         await interaction.response.send_message(embed=embed, view=view)
         message = await interaction.original_response()
         await message.pin()
@@ -279,7 +291,7 @@ class Validation(commands.Cog):
                         color=discord.Color.blue(),
                         timestamp=datetime.now()
                     )
-                    view = ValidationView(self.sheet)
+                    view = ValidationView(self)
                     message = await after.send(embed=embed, view=view)
                     await message.pin()
                     # Ajouter le canal et l'ID du message à la feuille
