@@ -51,37 +51,33 @@ class Inventory(commands.Cog):
             print(f"Erreur d'authentification Google Sheets : {e}")
             return None
 
-    def load_students(self):
+    async def async_load_students(self):
         try:
-            # Récupère toutes les valeurs du tableau
-            data = self.sheet.get_all_values()
+            loop = asyncio.get_event_loop()
+            data = await loop.run_in_executor(None, self.sheet.get_all_values)
             
-            # Convertit en dictionnaire, en supposant la structure Nom | Médailles
             students = {}
-            for row in data[1:]:  # Ignore la première ligne (en-têtes)
+            for row in data[1:]:
                 if len(row) >= 2 and row[0].strip():
                     try:
-                        # Convertir les médailles, avec une valeur par défaut de 0
                         medals = float(row[1]) if row[1].strip() else 0
                         students[row[0].strip()] = medals
                     except ValueError:
                         print(f"Impossible de convertir les médailles pour {row[0]}: {row[1]}")
-            
             return students
         except Exception as e:
             print(f"Erreur lors du chargement des étudiants : {e}")
             return {}
 
-    def save_students(self, students):
+    async def async_save_students(self, students):
         try:
-            # Récupérer toutes les données en une fois
-            all_data = self.sheet.get_all_values()
+            loop = asyncio.get_event_loop()
+            all_data = await loop.run_in_executor(None, self.sheet.get_all_values)
             updates = []
             
-            # Préparer toutes les mises à jour
             for name, medals in students.items():
                 try:
-                    cell = self.sheet.find(name)
+                    cell = await loop.run_in_executor(None, self.sheet.find, name)
                     if medals > 0:
                         updates.append({
                             'range': f'B{cell.row}',
@@ -93,13 +89,21 @@ class Inventory(commands.Cog):
                             'range': f'A{len(all_data) + 1}:B{len(all_data) + 1}',
                             'values': [[name, medals]]
                         })
-                        
-            # Effectuer toutes les mises à jour en une seule requête
+            
             if updates:
-                self.sheet.batch_update(updates)
-                
+                await loop.run_in_executor(None, self.sheet.batch_update, updates)
         except Exception as e:
             print(f"Erreur lors de la sauvegarde des étudiants : {e}")
+            raise
+
+    async def async_log_medal_change(self, name: str, change: float, new_total: float, modified_by: str):
+        try:
+            date = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+            new_row = [date, name, f"+{change}" if change > 0 else str(change), str(new_total), modified_by]
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self.history_sheet.insert_row, new_row, 2)
+        except Exception as e:
+            print(f"Erreur lors de l'enregistrement dans l'historique : {e}")
 
     def format_student_list(self, students):
         def get_year(medals):
@@ -153,131 +157,100 @@ class Inventory(commands.Cog):
         else:
             return 4
 
-    def log_medal_change(self, name: str, change: float, new_total: float, modified_by: str):
-        try:
-            # Format de la date: DD/MM/YYYY HH:MM
-            date = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
-            
-            # Préparer la nouvelle ligne
-            new_row = [
-                date,
-                name,
-                f"+{change}" if change > 0 else str(change),
-                str(new_total),
-                modified_by
-            ]
-            
-            # Insérer la nouvelle ligne après les en-têtes
-            self.history_sheet.insert_row(new_row, 2)  # 2 pour insérer après les en-têtes
-        except Exception as e:
-            print(f"Erreur lors de l'enregistrement dans l'historique : {e}")
-
     @app_commands.command(name="medaille", description="Ajouter des médailles à un ou plusieurs élèves")
     async def add_medal(self, interaction: discord.Interaction, noms: str, montant: float):
-        # Vérification des permissions en premier
         if not self.bot.check_role(interaction):
             await interaction.response.send_message("Vous n'avez pas la permission d'utiliser cette commande.", ephemeral=True)
             return
 
-        # Defer après la vérification des permissions
         await interaction.response.defer(ephemeral=False)
-
-        students = self.load_students()
-        noms_list = [nom.strip() for nom in noms.split(',')]
         
-        embeds = []
+        try:
+            students = await self.async_load_students()
+            noms_list = [nom.strip() for nom in noms.split(',')]
+            embeds = []
 
-        for nom in noms_list:
-            old_medals = students.get(nom, 0)
-            if nom in students:
-                students[nom] += montant
-            else:
-                students[nom] = montant
-        
-            new_medals = students[nom]
+            for nom in noms_list:
+                old_medals = students.get(nom, 0)
+                students[nom] = old_medals + montant
+                new_medals = students[nom]
+                
+                await self.async_log_medal_change(nom, montant, new_medals, str(interaction.user))
+                
+                embed = discord.Embed(
+                    title=nom,
+                    description=f"**{montant}** médailles ajoutées. Total actuel : **{new_medals}** médailles.",
+                    color=0x8543f7
+                )
+                embeds.append(embed)
+                
+                await self.check_and_send_year_change_alert(interaction.guild, old_medals, new_medals, nom)
+
+            await self.async_save_students(students)
+            await self.update_medal_inventory()
+            await interaction.followup.send(embeds=embeds)
             
-            # Enregistrer dans l'historique
-            self.log_medal_change(nom, montant, new_medals, str(interaction.user))
-            
-            embed = discord.Embed(
-                title=nom,
-                description=f"**{montant}** médailles ajoutées. Total actuel : **{new_medals}** médailles.",
-                color=0x8543f7
-            )
-        
-            embeds.append(embed)
-        
-            await self.check_and_send_year_change_alert(interaction.guild, old_medals, new_medals, nom)
-
-        self.save_students(students)
-        await self.update_medal_inventory()
-
-        # Utilisez followup pour envoyer les embeds
-        await interaction.followup.send(embeds=embeds)
+        except Exception as e:
+            await interaction.followup.send(f"Une erreur est survenue: {str(e)}", ephemeral=True)
 
     @app_commands.command(name="unmedaille", description="Retirer des médailles à un ou plusieurs élèves")
     async def remove_medal(self, interaction: discord.Interaction, noms: str, montant: float):
-        await interaction.response.defer()  # Défer l'interaction pour éviter un timeout
-        
-        # Vérification des permissions
         if not self.bot.check_role(interaction):
             await interaction.response.send_message("Vous n'avez pas la permission d'utiliser cette commande.", ephemeral=True)
             return
 
-        # Charger les étudiants existants
-        students = self.load_students()
-        noms_list = [nom.strip() for nom in noms.split(',')]
+        await interaction.response.defer(ephemeral=False)
         
-        embeds = []
+        try:
+            students = await self.async_load_students()
+            noms_list = [nom.strip() for nom in noms.split(',')]
+            embeds = []
+            loop = asyncio.get_event_loop()
 
-        for nom in noms_list:
-            if nom in students:
-                old_medals = students[nom]
-                students[nom] -= montant
-                
-                # Enregistrer dans l'historique avant toute suppression potentielle
-                self.log_medal_change(nom, -montant, max(0, students[nom]), str(interaction.user))
-                
-                if students[nom] <= 0:
-                    # Supprimer directement la ligne de Google Sheets
-                    try:
-                        cell = self.sheet.find(nom)
-                        self.sheet.delete_row(cell.row)  # Suppression de la ligne
-                        del students[nom]  # Supprimer également de la liste locale
+            for nom in noms_list:
+                if nom in students:
+                    old_medals = students[nom]
+                    students[nom] -= montant
+                    
+                    await self.async_log_medal_change(nom, -montant, max(0, students[nom]), str(interaction.user))
+                    
+                    if students[nom] <= 0:
+                        try:
+                            cell = await loop.run_in_executor(None, self.sheet.find, nom)
+                            await loop.run_in_executor(None, self.sheet.delete_row, cell.row)
+                            del students[nom]
+                            embed = discord.Embed(
+                                title=nom,
+                                description=f"**{montant}** médailles retirées. {nom} a été supprimé de la liste.",
+                                color=0xFF0000
+                            )
+                        except Exception as e:
+                            embed = discord.Embed(
+                                title="Erreur",
+                                description=f"Erreur lors de la suppression de {nom}: {str(e)}",
+                                color=0xFF0000
+                            )
+                    else:
+                        students[nom] = max(0, students[nom])
                         embed = discord.Embed(
                             title=nom,
-                            description=f"**{montant}** médailles retirées. {nom} a été supprimé de la liste car son total est de 0 ou moins.",
-                            color=0xFF0000
-                        )
-                    except gspread.exceptions.CellNotFound:
-                        embed = discord.Embed(
-                            title="Erreur",
-                            description=f"Impossible de trouver {nom} dans la feuille pour suppression.",
-                            color=0xFF0000
+                            description=f"**{montant}** médailles retirées. Total actuel : **{students[nom]}** médailles.",
+                            color=0x8543f7
                         )
                 else:
-                    # Mettre à jour le nombre de médailles si > 0
-                    self.sheet.update_cell(self.sheet.find(nom).row, 2, students[nom])
                     embed = discord.Embed(
-                        title=nom,
-                        description=f"**{montant}** médailles retirées. Total actuel : **{students[nom]}** médailles.",
-                        color=0x8543f7
+                        title="Erreur",
+                        description=f"{nom} n'est pas dans la liste des élèves.",
+                        color=0xFF0000
                     )
-            else:
-                # Si l'élève n'est pas trouvé dans la liste
-                embed = discord.Embed(
-                    title="Erreur",
-                    description=f"{nom} n'est pas dans la liste des élèves.",
-                    color=0xFF0000
-                )
+                embeds.append(embed)
+
+            await self.async_save_students(students)
+            await self.update_medal_inventory()
+            await interaction.followup.send(embeds=embeds)
             
-            embeds.append(embed)
-
-        # Mettre à jour l'inventaire après toutes les modifications
-        await self.update_medal_inventory()
-
-        # Envoyer les résultats sous forme d'embed
-        await interaction.followup.send(embeds=embeds)
+        except Exception as e:
+            await interaction.followup.send(f"Une erreur est survenue: {str(e)}", ephemeral=True)
 
     async def update_medal_inventory(self):
         try:
