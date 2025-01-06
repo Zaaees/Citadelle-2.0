@@ -71,33 +71,30 @@ class Inventory(commands.Cog):
 
     def save_students(self, students):
         try:
+            # Récupérer toutes les données actuelles
             all_data = self.sheet.get_all_values()
-            updates = []
+            header = all_data[0]  # Sauvegarder l'en-tête
             
+            # Préparer les nouvelles données
+            new_data = [header]  # Commencer avec l'en-tête
+            
+            # Créer un dictionnaire des lignes existantes par nom
+            existing_rows = {row[0]: idx + 1 for idx, row in enumerate(all_data[1:], 1) if row[0]}
+            
+            # Ajouter toutes les entrées des étudiants
             for name, data in students.items():
-                try:
-                    cell = self.sheet.find(name)
-                    if data['medals'] > 0:
-                        # Stocke l'ID directement sans apostrophe
-                        user_id_str = str(data['user_id']) if data['user_id'] else ''
-                        updates.append({
-                            'range': f'B{cell.row}:C{cell.row}',
-                            'values': [[data['medals'], user_id_str]]
-                        })
-                except CellNotFound:
-                    if data['medals'] > 0:
-                        # Stocke l'ID directement sans apostrophe
-                        user_id_str = str(data['user_id']) if data['user_id'] else ''
-                        updates.append({
-                            'range': f'A{len(all_data) + 1}:C{len(all_data) + 1}',
-                            'values': [[name, data['medals'], user_id_str]]
-                        })
-                        
-            if updates:
-                self.sheet.batch_update(updates)
-                
+                medals = data['medals']
+                user_id = str(data['user_id']) if data['user_id'] else ''
+                if medals > 0:  # Ne garder que les étudiants avec des médailles > 0
+                    new_data.append([name, str(medals), user_id])
+            
+            # Mettre à jour la feuille entière
+            self.sheet.clear()  # Effacer toutes les données
+            self.sheet.update('A1', new_data)  # Mettre à jour avec les nouvelles données
+            
         except Exception as e:
             print(f"Erreur lors de la sauvegarde des étudiants : {e}")
+            raise  # Propager l'erreur pour la gestion d'erreur
 
     def format_student_list(self, students):
         def get_year(medals):
@@ -185,33 +182,35 @@ class Inventory(commands.Cog):
         
         embeds = []
 
-        for nom in noms_list:
-            old_medals = students.get(nom, {'medals': 0})['medals']
-            if nom in students:
-                students[nom]['medals'] += montant
-            else:
-                students[nom] = {'medals': montant, 'user_id': None}
-        
-            new_medals = students[nom]['medals']
-            
-            # Enregistrer dans l'historique
-            self.log_medal_change(nom, montant, new_medals, str(interaction.user))
-            
-            embed = discord.Embed(
-                title=nom,
-                description=f"**{montant}** médailles ajoutées. Total actuel : **{new_medals}** médailles.",
-                color=0x8543f7
-            )
-        
-            embeds.append(embed)
-        
-            await self.check_and_send_year_change_alert(interaction.guild, old_medals, new_medals, nom)
+        try:
+            for nom in noms_list:
+                old_medals = students.get(nom, {'medals': 0})['medals']
+                if nom in students:
+                    students[nom]['medals'] += montant
+                else:
+                    students[nom] = {'medals': montant, 'user_id': None}
+                
+                new_medals = students[nom]['medals']
+                self.log_medal_change(nom, montant, new_medals, str(interaction.user))
+                
+                embed = discord.Embed(
+                    title=nom,
+                    description=f"**{montant}** médailles ajoutées. Total actuel : **{new_medals}** médailles.",
+                    color=0x8543f7
+                )
+                embeds.append(embed)
+                
+                # Sauvegarder immédiatement après chaque modification
+                self.save_students(students)
+                await self.check_and_send_year_change_alert(interaction.guild, old_medals, new_medals, nom)
 
-        self.save_students(students)
-        await self.update_medal_inventory()
-
-        # Utilisez followup pour envoyer les embeds
-        await interaction.followup.send(embeds=embeds)
+            # Mettre à jour l'affichage une seule fois à la fin
+            await self.update_medal_inventory()
+            
+            await interaction.followup.send(embeds=embeds)
+        except Exception as e:
+            print(f"Erreur dans add_medal : {e}")
+            await interaction.followup.send("Une erreur s'est produite lors de l'ajout des médailles.", ephemeral=True)
 
     @app_commands.command(name="unmedaille", description="Retirer des médailles à un ou plusieurs élèves")
     async def remove_medal(self, interaction: discord.Interaction, noms: str, montant: float):
@@ -303,17 +302,30 @@ class Inventory(commands.Cog):
 
     async def update_medal_inventory(self):
         try:
-            async with asyncio.timeout(30):  # timeout de 30 secondes
-                students = self.load_students()
-                message_content = self.format_student_list(students)
-                
-                channel = self.bot.get_channel(self.CHANNEL_ID)
+            channel = self.bot.get_channel(self.CHANNEL_ID)
+            if not channel:
+                print(f"Impossible de trouver le canal {self.CHANNEL_ID}")
+                return
+
+            students = self.load_students()
+            message_content = self.format_student_list(students)
+
+            try:
                 message = await channel.fetch_message(self.MESSAGE_ID)
                 await message.edit(content=message_content)
-        except asyncio.TimeoutError:
-            print("Timeout lors de la mise à jour de l'inventaire")
+            except discord.NotFound:
+                # Si le message n'existe pas, en créer un nouveau
+                new_message = await channel.send(message_content)
+                self.MESSAGE_ID = new_message.id
+                print(f"Nouveau message d'inventaire créé avec l'ID: {self.MESSAGE_ID}")
+            except Exception as e:
+                print(f"Erreur lors de la mise à jour du message : {e}")
+                # Tenter de créer un nouveau message
+                new_message = await channel.send(message_content)
+                self.MESSAGE_ID = new_message.id
+
         except Exception as e:
-            print(f"Erreur lors de la mise à jour de l'inventaire : {e}")
+            print(f"Erreur critique dans update_medal_inventory : {e}")
 
     async def check_and_send_year_change_alert(self, guild, old_medals, new_medals, character_name):
         old_year = self.get_year(old_medals)
