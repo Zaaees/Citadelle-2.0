@@ -47,8 +47,17 @@ class ValidationView(discord.ui.View):
             await interaction.response.send_message("Vous n'avez pas la permission d'utiliser ce bouton.", ephemeral=True)
             return
 
-        modal = CorrectionModal(self.sheet)
-        await interaction.response.send_modal(modal)
+        channel_id = str(interaction.channel_id)
+        try:
+            cell = self.sheet.find(channel_id)
+            row_data = self.sheet.row_values(cell.row)
+            corrections = eval(row_data[2]) if row_data[2] else {}
+            existing_correction = corrections.get(interaction.user.id, "")
+            
+            modal = CorrectionModal(self.sheet, existing_correction)
+            await interaction.response.send_modal(modal)
+        except gspread.exceptions.CellNotFound:
+            await interaction.response.send_message("Erreur: Données non trouvées pour ce salon.", ephemeral=True)
 
     async def update_validation_message(self, interaction: discord.Interaction):
         channel_id = str(interaction.channel_id)
@@ -87,16 +96,16 @@ class ValidationView(discord.ui.View):
             await message.pin()
 
 class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
-    def __init__(self, sheet):
+    def __init__(self, sheet, existing_correction=""):
         super().__init__()
         self.sheet = sheet
-
-    correction = discord.ui.TextInput(
-        label="Détaillez les points à corriger",
-        style=discord.TextStyle.paragraph,
-        placeholder="Entrez les points à corriger...",
-        required=True
-    )
+        self.correction = discord.ui.TextInput(
+            label="Détaillez les points à corriger",
+            style=discord.TextStyle.paragraph,
+            placeholder="Entrez les points à corriger...",
+            required=True,
+            default=existing_correction
+        )
 
     async def on_submit(self, interaction: discord.Interaction):
         channel_id = str(interaction.channel.id)
