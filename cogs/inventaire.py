@@ -53,20 +53,16 @@ class Inventory(commands.Cog):
 
     def load_students(self):
         try:
-            # Récupère toutes les valeurs du tableau
             data = self.sheet.get_all_values()
-            
-            # Convertit en dictionnaire, en supposant la structure Nom | Médailles
             students = {}
             for row in data[1:]:  # Ignore la première ligne (en-têtes)
                 if len(row) >= 2 and row[0].strip():
                     try:
-                        # Convertir les médailles, avec une valeur par défaut de 0
                         medals = float(row[1]) if row[1].strip() else 0
-                        students[row[0].strip()] = medals
+                        user_id = int(row[2]) if len(row) > 2 and row[2].strip() else None
+                        students[row[0].strip()] = {'medals': medals, 'user_id': user_id}
                     except ValueError:
-                        print(f"Impossible de convertir les médailles pour {row[0]}: {row[1]}")
-            
+                        print(f"Impossible de convertir les données pour {row[0]}")
             return students
         except Exception as e:
             print(f"Erreur lors du chargement des étudiants : {e}")
@@ -74,27 +70,24 @@ class Inventory(commands.Cog):
 
     def save_students(self, students):
         try:
-            # Récupérer toutes les données en une fois
             all_data = self.sheet.get_all_values()
             updates = []
             
-            # Préparer toutes les mises à jour
-            for name, medals in students.items():
+            for name, data in students.items():
                 try:
                     cell = self.sheet.find(name)
-                    if medals > 0:
+                    if data['medals'] > 0:
                         updates.append({
-                            'range': f'B{cell.row}',
-                            'values': [[medals]]
+                            'range': f'B{cell.row}:C{cell.row}',
+                            'values': [[data['medals'], data['user_id'] or '']]
                         })
                 except CellNotFound:
-                    if medals > 0:
+                    if data['medals'] > 0:
                         updates.append({
-                            'range': f'A{len(all_data) + 1}:B{len(all_data) + 1}',
-                            'values': [[name, medals]]
+                            'range': f'A{len(all_data) + 1}:C{len(all_data) + 1}',
+                            'values': [[name, data['medals'], data['user_id'] or '']]
                         })
                         
-            # Effectuer toutes les mises à jour en une seule requête
             if updates:
                 self.sheet.batch_update(updates)
                 
@@ -119,7 +112,7 @@ class Inventory(commands.Cog):
             # Gérer le singulier/pluriel
             return f"{medals} médaille" if medals == 1 else f"{medals} médailles"
 
-        sorted_students = sorted(students.items(), key=lambda x: x[1], reverse=True)
+        sorted_students = sorted(students.items(), key=lambda x: x[1]['medals'], reverse=True)
         
         years = {
             "Quatrième années": [], 
@@ -128,9 +121,9 @@ class Inventory(commands.Cog):
             "Première années": []
         }
 
-        for name, medals in sorted_students:
-            year = get_year(medals)
-            years[year].append(f"  - ***{name} :** {format_medals(medals)}*")
+        for name, data in sorted_students:
+            year = get_year(data['medals'])
+            years[year].append(f"  - ***{name} :** {format_medals(data['medals'])}*")
 
         message = "## ✮ Liste des personnages et leurs médailles ✮\n** **\n"  
         for i, (year, students_list) in enumerate(years.items()):
@@ -188,13 +181,13 @@ class Inventory(commands.Cog):
         embeds = []
 
         for nom in noms_list:
-            old_medals = students.get(nom, 0)
+            old_medals = students.get(nom, {'medals': 0})['medals']
             if nom in students:
-                students[nom] += montant
+                students[nom]['medals'] += montant
             else:
-                students[nom] = montant
+                students[nom] = {'medals': montant, 'user_id': None}
         
-            new_medals = students[nom]
+            new_medals = students[nom]['medals']
             
             # Enregistrer dans l'historique
             self.log_medal_change(nom, montant, new_medals, str(interaction.user))
@@ -232,13 +225,13 @@ class Inventory(commands.Cog):
 
         for nom in noms_list:
             if nom in students:
-                old_medals = students[nom]
-                students[nom] -= montant
+                old_medals = students[nom]['medals']
+                students[nom]['medals'] -= montant
                 
                 # Enregistrer dans l'historique avant toute suppression potentielle
-                self.log_medal_change(nom, -montant, max(0, students[nom]), str(interaction.user))
+                self.log_medal_change(nom, -montant, max(0, students[nom]['medals']), str(interaction.user))
                 
-                if students[nom] <= 0:
+                if students[nom]['medals'] <= 0:
                     # Supprimer directement la ligne de Google Sheets
                     try:
                         cell = self.sheet.find(nom)
@@ -257,10 +250,10 @@ class Inventory(commands.Cog):
                         )
                 else:
                     # Mettre à jour le nombre de médailles si > 0
-                    self.sheet.update_cell(self.sheet.find(nom).row, 2, students[nom])
+                    self.sheet.update_cell(self.sheet.find(nom).row, 2, students[nom]['medals'])
                     embed = discord.Embed(
                         title=nom,
-                        description=f"**{montant}** médailles retirées. Total actuel : **{students[nom]}** médailles.",
+                        description=f"**{montant}** médailles retirées. Total actuel : **{students[nom]['medals']}** médailles.",
                         color=0x8543f7
                     )
             else:
@@ -278,6 +271,30 @@ class Inventory(commands.Cog):
 
         # Envoyer les résultats sous forme d'embed
         await interaction.followup.send(embeds=embeds)
+
+    @app_commands.command(name="lier", description="Associer un personnage à un utilisateur Discord")
+    async def link_character(self, interaction: discord.Interaction, nom: str, utilisateur: discord.Member):
+        if not self.bot.check_role(interaction):
+            await interaction.response.send_message("Vous n'avez pas la permission d'utiliser cette commande.", ephemeral=True)
+            return
+
+        await interaction.response.defer()
+        
+        students = self.load_students()
+        if nom not in students:
+            await interaction.followup.send(f"Le personnage {nom} n'existe pas dans la liste.", ephemeral=True)
+            return
+
+        # Mettre à jour l'ID utilisateur
+        students[nom]['user_id'] = utilisateur.id
+        self.save_students(students)
+
+        embed = discord.Embed(
+            title="Association réussie",
+            description=f"Le personnage **{nom}** a été associé à {utilisateur.mention}",
+            color=0x00FF00
+        )
+        await interaction.followup.send(embed=embed)
 
     async def update_medal_inventory(self):
         try:
