@@ -59,7 +59,8 @@ class Inventory(commands.Cog):
                 if len(row) >= 2 and row[0].strip():
                     try:
                         medals = float(row[1]) if row[1].strip() else 0
-                        user_id = int(row[2]) if len(row) > 2 and row[2].strip() else None
+                        # Convertit l'ID en int si présent, None sinon
+                        user_id = int(row[2].replace("'", "")) if len(row) > 2 and row[2].strip() else None
                         students[row[0].strip()] = {'medals': medals, 'user_id': user_id}
                     except ValueError:
                         print(f"Impossible de convertir les données pour {row[0]}")
@@ -77,16 +78,16 @@ class Inventory(commands.Cog):
                 try:
                     cell = self.sheet.find(name)
                     if data['medals'] > 0:
-                        # Convertir l'ID en texte avec une apostrophe devant
-                        user_id_str = f"'{str(data['user_id'])}" if data['user_id'] else ''
+                        # Stocke l'ID directement sans apostrophe
+                        user_id_str = str(data['user_id']) if data['user_id'] else ''
                         updates.append({
                             'range': f'B{cell.row}:C{cell.row}',
                             'values': [[data['medals'], user_id_str]]
                         })
                 except CellNotFound:
                     if data['medals'] > 0:
-                        # Convertir l'ID en texte avec une apostrophe devant
-                        user_id_str = f"'{str(data['user_id'])}" if data['user_id'] else ''
+                        # Stocke l'ID directement sans apostrophe
+                        user_id_str = str(data['user_id']) if data['user_id'] else ''
                         updates.append({
                             'range': f'A{len(all_data) + 1}:C{len(all_data) + 1}',
                             'values': [[name, data['medals'], user_id_str]]
