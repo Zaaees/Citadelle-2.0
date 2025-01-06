@@ -4,8 +4,9 @@ from discord import app_commands
 from typing import Dict, List, Optional
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
+import re
 
 class ValidationView(discord.ui.View):
     def __init__(self, sheet=None):  # Rendre sheet optionnel
@@ -14,6 +15,7 @@ class ValidationView(discord.ui.View):
 
     @discord.ui.button(label="Validé", style=discord.ButtonStyle.green, custom_id="validate_button")
     async def validate_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()  # Déférer immédiatement la réponse
         if self.sheet is None:
             # Récupérer une nouvelle instance de sheet
             cog = interaction.client.get_cog('Validation')
@@ -113,6 +115,11 @@ class ValidationView(discord.ui.View):
         if not message.pinned:
             await message.pin()
 
+        # Vérifier s'il y a eu des changements dans les corrections
+        cog = interaction.client.get_cog('Validation')
+        if cog:
+            await cog.notify_owner_if_needed(interaction.channel)
+
 class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
     def __init__(self, sheet, existing_correction=""):
         super().__init__()
@@ -155,6 +162,7 @@ class Validation(commands.Cog):
         self.setup_sheets()
         # Ajouter cette ligne pour que les boutons persistent après redémarrage
         bot.add_view(ValidationView())
+        self.last_ping = {}  # Dictionnaire pour stocker les timestamps des derniers pings
 
     def setup_sheets(self):
         scopes = [
@@ -170,6 +178,36 @@ class Validation(commands.Cog):
         spreadsheet_id = os.getenv('GOOGLE_SHEET_ID_VALIDATION')
         self.sheet = client.open_by_key(spreadsheet_id).sheet1
 
+    async def get_ticket_owner(self, channel):
+        try:
+            # Récupérer le premier message du canal
+            first_message = [msg async for msg in channel.history(limit=1, oldest_first=True)][0]
+            # Chercher une mention d'utilisateur dans le contenu
+            mention_pattern = r'<@!?(\d+)>'
+            matches = re.findall(mention_pattern, first_message.content)
+            if matches:
+                user_id = int(matches[0])
+                return await self.bot.fetch_user(user_id)
+        except Exception as e:
+            print(f"Erreur lors de la recherche du propriétaire: {e}")
+        return None
+
+    async def notify_owner_if_needed(self, channel):
+        owner = await self.get_ticket_owner(channel)
+        if not owner:
+            return
+
+        # Vérifier le cooldown
+        now = datetime.now()
+        last_ping_time = self.last_ping.get(channel.id)
+        
+        if last_ping_time is None or (now - last_ping_time) > timedelta(minutes=5):
+            self.last_ping[channel.id] = now
+            try:
+                await channel.send(f"{owner.mention} Des modifications ont été demandées sur votre fiche.")
+            except Exception as e:
+                print(f"Erreur lors de l'envoi du ping: {e}")
+
     @commands.Cog.listener()
     async def on_ready(self):
         print("Validation Cog is ready!")
@@ -177,6 +215,7 @@ class Validation(commands.Cog):
     @app_commands.command(name="validation", description="Envoie le message de validation dans ce salon")
     @app_commands.default_permissions(administrator=True)
     async def validation(self, interaction: discord.Interaction):
+        await interaction.response.defer()  # Déférer la réponse ici aussi
         if not interaction.channel.name.startswith("【🎭】"):
             await interaction.response.send_message("Ce salon n'est pas un ticket de personnage.", ephemeral=True)
             return
