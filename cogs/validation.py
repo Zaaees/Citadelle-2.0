@@ -7,6 +7,7 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta
 import os
 import re
+import time
 
 class ValidationView(discord.ui.View):
     def __init__(self, sheet=None):  # Rendre sheet optionnel
@@ -193,27 +194,39 @@ class Validation(commands.Cog):
         return None
 
     async def notify_owner_if_needed(self, channel):
-        owner = await self.get_ticket_owner(channel)
-        if not owner:
-            return
-
-        now = datetime.now()
-        last_ping_time = self.last_ping.get(channel.id)
-        
-        if last_ping_time is None or (now - last_ping_time) > timedelta(minutes=5):
-            self.last_ping[channel.id] = now
-            try:
-                cell = self.sheet.find(str(channel.id))
-                row_data = self.sheet.row_values(cell.row)
-                if len(row_data) >= 4 and row_data[3]:  # Vérifier si l'ID du message existe
-                    message_id = int(row_data[3])
-                    message_link = f"https://discord.com/channels/{channel.guild.id}/{channel.id}/{message_id}"
-                    await channel.send(
-                        f"{owner.mention} Des modifications ont été demandées sur votre fiche.\n"
-                        f"Vous pouvez consulter les détails ici : {message_link}"
-                    )
-            except Exception as e:
-                print(f"Erreur lors de l'envoi du ping: {e}")
+        try:
+            # Récupérer le propriétaire
+            owner = await self.get_ticket_owner(channel)
+            if not owner:
+                return
+                
+            # Vérifier le délai depuis le dernier ping
+            current_time = time.time()
+            if channel.id in self.last_ping:
+                if current_time - self.last_ping[channel.id] < 300:  # 5 minutes de délai
+                    return
+                    
+            # Récupérer l'ID du message de validation
+            cell = self.sheet.find(str(channel.id))
+            message_id = self.sheet.cell(cell.row, 4).value
+            
+            if not message_id:
+                return
+                
+            # Créer le lien du message
+            message_link = f"https://discord.com/channels/{channel.guild.id}/{channel.id}/{message_id}"
+            
+            # Envoyer la notification
+            await channel.send(
+                f"{owner.mention} Des modifications ont été demandées sur votre fiche.\n"
+                f"Vous pouvez consulter les détails ici : {message_link}"
+            )
+            
+            # Mettre à jour le timestamp du dernier ping
+            self.last_ping[channel.id] = current_time
+            
+        except Exception as e:
+            print(f"Erreur lors de la notification : {e}")
 
     @commands.Cog.listener()
     async def on_ready(self):
