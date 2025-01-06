@@ -11,6 +11,7 @@ import gspread
 from google.oauth2.service_account import Credentials as ServiceAccountCredentials
 from gspread.exceptions import CellNotFound
 import asyncio
+import datetime
 
 load_dotenv()
 
@@ -29,6 +30,15 @@ class Inventory(commands.Cog):
         self.client = self.get_sheets_client()
         self.spreadsheet = self.client.open_by_key(os.getenv('GOOGLE_SHEET_ID_INVENTAIRE'))
         self.sheet = self.spreadsheet.get_worksheet(0)  # Première feuille
+        
+        # Initialisation de la feuille d'historique
+        try:
+            self.history_sheet = self.spreadsheet.worksheet("Historique")
+        except:
+            # Créer la feuille si elle n'existe pas
+            self.history_sheet = self.spreadsheet.add_worksheet("Historique", 1000, 5)
+            # Ajouter les en-têtes
+            self.history_sheet.update('A1:E1', [['Date', 'Nom', 'Modification', 'Total', 'Modifié par']])
     
     def get_sheets_client(self):
         try:
@@ -143,6 +153,25 @@ class Inventory(commands.Cog):
         else:
             return 4
 
+    def log_medal_change(self, name: str, change: float, new_total: float, modified_by: str):
+        try:
+            # Format de la date: DD/MM/YYYY HH:MM
+            date = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+            
+            # Préparer la nouvelle ligne
+            new_row = [
+                date,
+                name,
+                f"+{change}" if change > 0 else str(change),
+                str(new_total),
+                modified_by
+            ]
+            
+            # Insérer la nouvelle ligne après les en-têtes
+            self.history_sheet.insert_row(new_row, 2)  # 2 pour insérer après les en-têtes
+        except Exception as e:
+            print(f"Erreur lors de l'enregistrement dans l'historique : {e}")
+
     @app_commands.command(name="medaille", description="Ajouter des médailles à un ou plusieurs élèves")
     async def add_medal(self, interaction: discord.Interaction, noms: str, montant: float):
         # Vérification des permissions en premier
@@ -166,6 +195,9 @@ class Inventory(commands.Cog):
                 students[nom] = montant
         
             new_medals = students[nom]
+            
+            # Enregistrer dans l'historique
+            self.log_medal_change(nom, montant, new_medals, str(interaction.user))
             
             embed = discord.Embed(
                 title=nom,
@@ -202,6 +234,9 @@ class Inventory(commands.Cog):
             if nom in students:
                 old_medals = students[nom]
                 students[nom] -= montant
+                
+                # Enregistrer dans l'historique avant toute suppression potentielle
+                self.log_medal_change(nom, -montant, max(0, students[nom]), str(interaction.user))
                 
                 if students[nom] <= 0:
                     # Supprimer directement la ligne de Google Sheets
