@@ -88,7 +88,7 @@ class ValidationView(discord.ui.View):
         corrections = eval(row_data[2]) if row_data[2] else {}
 
         embed = discord.Embed(
-            title="État de la validation",
+            title="__État de la validation__",
             color=discord.Color.blue(),
             timestamp=datetime.now()
         )
@@ -97,19 +97,19 @@ class ValidationView(discord.ui.View):
         for user_id in validated_by:
             user = interaction.guild.get_member(user_id)
             if user:
-                validated_text += f"✓ {user.display_name}\n"
+                validated_text += f"`{user.display_name}`\n"
         
         if validated_text:
-            embed.add_field(name="Validé par:", value=validated_text, inline=False)
+            embed.add_field(name="**✅ Validé par**", value=validated_text, inline=False)
 
         corrections_text = ""
         for user_id, correction in corrections.items():
             user = interaction.guild.get_member(user_id)
             if user:
-                corrections_text += f"**{user.display_name}** :\n{correction}\n\n"
+                corrections_text += f"**▸ `{user.display_name}`**\n{correction}\n\n"
 
         if corrections_text:
-            embed.add_field(name="Points à corriger:", value=corrections_text, inline=False)
+            embed.add_field(name="**🔍 Points à corriger**", value=corrections_text, inline=False)
 
         message = await interaction.message.edit(embed=embed, view=self)
         if not message.pinned:
@@ -204,7 +204,20 @@ class Validation(commands.Cog):
         if last_ping_time is None or (now - last_ping_time) > timedelta(minutes=5):
             self.last_ping[channel.id] = now
             try:
-                await channel.send(f"{owner.mention} Des modifications ont été demandées sur votre fiche.")
+                # Trouver le message de validation épinglé
+                pins = await channel.pins()
+                validation_message = next((msg for msg in pins if msg.author == self.bot and 
+                                        msg.embeds and 
+                                        msg.embeds[0].title == "État de la validation"), None)
+                
+                if validation_message:
+                    message_link = f"https://discord.com/channels/{channel.guild.id}/{channel.id}/{validation_message.id}"
+                    await channel.send(
+                        f"{owner.mention} Des modifications ont été demandées sur votre fiche.\n"
+                        f"Vous pouvez consulter les détails ici : {message_link}"
+                    )
+                else:
+                    await channel.send(f"{owner.mention} Des modifications ont été demandées sur votre fiche.")
             except Exception as e:
                 print(f"Erreur lors de l'envoi du ping: {e}")
 
