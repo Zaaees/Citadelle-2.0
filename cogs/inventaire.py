@@ -214,12 +214,13 @@ class Inventory(commands.Cog):
 
     @app_commands.command(name="unmedaille", description="Retirer des médailles à un ou plusieurs élèves")
     async def remove_medal(self, interaction: discord.Interaction, noms: str, montant: float):
-        await interaction.response.defer()  # Défer l'interaction pour éviter un timeout
-        
         # Vérification des permissions
         if not self.bot.check_role(interaction):
             await interaction.response.send_message("Vous n'avez pas la permission d'utiliser cette commande.", ephemeral=True)
             return
+            
+        # Défer l'interaction après la vérification des permissions
+        await interaction.response.defer()
 
         # Charger les étudiants existants
         students = self.load_students()
