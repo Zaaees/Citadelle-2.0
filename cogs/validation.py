@@ -197,27 +197,21 @@ class Validation(commands.Cog):
         if not owner:
             return
 
-        # Vérifier le cooldown
         now = datetime.now()
         last_ping_time = self.last_ping.get(channel.id)
         
         if last_ping_time is None or (now - last_ping_time) > timedelta(minutes=5):
             self.last_ping[channel.id] = now
             try:
-                # Trouver le message de validation épinglé
-                pins = await channel.pins()
-                validation_message = next((msg for msg in pins if msg.author == self.bot and 
-                                        msg.embeds and 
-                                        msg.embeds[0].title == "État de la validation"), None)
-                
-                if validation_message:
-                    message_link = f"https://discord.com/channels/{channel.guild.id}/{channel.id}/{validation_message.id}"
+                cell = self.sheet.find(str(channel.id))
+                row_data = self.sheet.row_values(cell.row)
+                if len(row_data) >= 4 and row_data[3]:  # Vérifier si l'ID du message existe
+                    message_id = int(row_data[3])
+                    message_link = f"https://discord.com/channels/{channel.guild.id}/{channel.id}/{message_id}"
                     await channel.send(
                         f"{owner.mention} Des modifications ont été demandées sur votre fiche.\n"
                         f"Vous pouvez consulter les détails ici : {message_link}"
                     )
-                else:
-                    await channel.send(f"{owner.mention} Des modifications ont été demandées sur votre fiche.")
             except Exception as e:
                 print(f"Erreur lors de l'envoi du ping: {e}")
 
@@ -237,7 +231,7 @@ class Validation(commands.Cog):
         try:
             cell = self.sheet.find(channel_id)
         except gspread.exceptions.CellNotFound:
-            self.sheet.append_row([channel_id, "[]", "{}"])
+            self.sheet.append_row([channel_id, "[]", "{}", ""])  # Ajout d'une colonne vide pour l'ID du message
         
         embed = discord.Embed(
             title="État de la validation",
@@ -249,6 +243,10 @@ class Validation(commands.Cog):
         await interaction.response.send_message(embed=embed, view=view)
         message = await interaction.original_response()
         await message.pin()
+        
+        # Sauvegarder l'ID du message
+        cell = self.sheet.find(channel_id)
+        self.sheet.update_cell(cell.row, 4, str(message.id))
 
     @commands.Cog.listener()
     async def on_guild_channel_update(self, before, after):
@@ -260,8 +258,6 @@ class Validation(commands.Cog):
                 try:
                     self.sheet.find(str(after.id))
                 except gspread.exceptions.CellNotFound:
-                    # Ajoute le canal à la feuille
-                    self.sheet.append_row([str(after.id), "[]", "{}"])
                     embed = discord.Embed(
                         title="État de la validation",
                         color=discord.Color.blue(),
@@ -270,6 +266,8 @@ class Validation(commands.Cog):
                     view = ValidationView(self.sheet)
                     message = await after.send(embed=embed, view=view)
                     await message.pin()
+                    # Ajouter le canal et l'ID du message à la feuille
+                    self.sheet.append_row([str(after.id), "[]", "{}", str(message.id)])
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Validation(bot))
