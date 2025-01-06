@@ -8,12 +8,21 @@ from datetime import datetime
 import os
 
 class ValidationView(discord.ui.View):
-    def __init__(self, sheet):
+    def __init__(self, sheet=None):  # Rendre sheet optionnel
         super().__init__(timeout=None)
         self.sheet = sheet
 
     @discord.ui.button(label="Validé", style=discord.ButtonStyle.green, custom_id="validate_button")
     async def validate_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.sheet is None:
+            # Récupérer une nouvelle instance de sheet
+            cog = interaction.client.get_cog('Validation')
+            if cog:
+                self.sheet = cog.sheet
+            else:
+                await interaction.response.send_message("Erreur: impossible de traiter la validation pour le moment.", ephemeral=True)
+                return
+
         if not any(role.id == 1018179623886000278 for role in interaction.user.roles):
             await interaction.response.send_message("Vous n'avez pas la permission d'utiliser ce bouton.", ephemeral=True)
             return
@@ -43,6 +52,15 @@ class ValidationView(discord.ui.View):
 
     @discord.ui.button(label="À corriger", style=discord.ButtonStyle.red, custom_id="correct_button")
     async def correct_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.sheet is None:
+            # Récupérer une nouvelle instance de sheet
+            cog = interaction.client.get_cog('Validation')
+            if cog:
+                self.sheet = cog.sheet
+            else:
+                await interaction.response.send_message("Erreur: impossible de traiter la validation pour le moment.", ephemeral=True)
+                return
+
         if not any(role.id == 1018179623886000278 for role in interaction.user.roles):
             await interaction.response.send_message("Vous n'avez pas la permission d'utiliser ce bouton.", ephemeral=True)
             return
@@ -135,6 +153,8 @@ class Validation(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.setup_sheets()
+        # Ajouter cette ligne pour que les boutons persistent après redémarrage
+        bot.add_view(ValidationView())
 
     def setup_sheets(self):
         scopes = [
