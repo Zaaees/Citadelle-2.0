@@ -6,6 +6,7 @@ import os
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import json
+import logging
 
 class Bump(commands.Cog):
     def __init__(self, bot):
@@ -22,6 +23,7 @@ class Bump(commands.Cog):
         self.last_bump = self.load_last_bump()
         self.last_reminder = self.load_last_reminder()
         self.check_bump.start()
+        self.setup_logging()
 
     def setup_google_sheets(self):
         credentials = service_account.Credentials.from_service_account_info(
@@ -65,6 +67,14 @@ class Bump(commands.Cog):
             body={'values': [[self.last_reminder.isoformat()]]}
         ).execute()
 
+    def setup_logging(self):
+        self.logger = logging.getLogger('bump_cog')
+        self.logger.setLevel(logging.INFO)
+        handler = logging.FileHandler('bump.log')
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
+
     @commands.Cog.listener()
     async def on_message(self, message):
         if message.channel.id == self.channel_id and message.author.id == self.disboard_bot_id:
@@ -74,22 +84,49 @@ class Bump(commands.Cog):
 
     @tasks.loop(minutes=1)
     async def check_bump(self):
+        try:
+            now = datetime.now()
+            time_since_last_bump = now - self.last_bump
+            time_since_last_reminder = now - self.last_reminder
+            
+            self.logger.info(f"Checking bump - Last bump: {time_since_last_bump}, Last reminder: {time_since_last_reminder}")
+            
+            if time_since_last_bump >= timedelta(hours=2) and time_since_last_reminder >= timedelta(hours=2):
+                channel = self.bot.get_channel(self.channel_id)
+                if channel:
+                    await channel.send("Bump le serveur")
+                    self.last_reminder = now
+                    self.save_last_reminder()
+                    self.logger.info("Reminder sent successfully")
+                else:
+                    self.logger.error(f"Channel not found: {self.channel_id}")
+
+            time_to_next_check = min(
+                timedelta(hours=2) - time_since_last_bump,
+                timedelta(hours=2) - time_since_last_reminder
+            )
+            next_check = max(1, int(time_to_next_check.total_seconds() / 60))
+            self.logger.info(f"Next check in {next_check} minutes")
+            self.check_bump.change_interval(minutes=next_check)
+
+        except Exception as e:
+            self.logger.error(f"Error in check_bump: {str(e)}")
+            self.check_bump.restart()
+
+    @commands.command(name="bumpstatus")
+    @commands.has_permissions(administrator=True)
+    async def bump_status(self, ctx):
+        """Affiche le statut actuel du système de bump"""
         now = datetime.now()
         time_since_last_bump = now - self.last_bump
         time_since_last_reminder = now - self.last_reminder
         
-        if time_since_last_bump >= timedelta(hours=2) and time_since_last_reminder >= timedelta(hours=2):
-            channel = self.bot.get_channel(self.channel_id)
-            if channel:
-                await channel.send("Bump le serveur")
-                self.last_reminder = now
-                self.save_last_reminder()
-
-        time_to_next_check = min(
-            timedelta(hours=2) - time_since_last_bump,
-            timedelta(hours=2) - time_since_last_reminder
-        )
-        self.check_bump.change_interval(minutes=max(1, int(time_to_next_check.total_seconds() / 60)))
+        embed = discord.Embed(title="Statut du Bump", color=discord.Color.blue())
+        embed.add_field(name="Dernier bump", value=f"Il y a {time_since_last_bump.seconds // 3600}h {(time_since_last_bump.seconds // 60) % 60}m")
+        embed.add_field(name="Dernier rappel", value=f"Il y a {time_since_last_reminder.seconds // 3600}h {(time_since_last_reminder.seconds // 60) % 60}m")
+        embed.add_field(name="Task active", value=str(self.check_bump.is_running()))
+        
+        await ctx.send(embed=embed)
 
     @check_bump.before_loop
     async def before_check_bump(self):
