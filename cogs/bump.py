@@ -91,10 +91,19 @@ class Bump(commands.Cog):
             
             self.logger.info(f"Checking bump - Last bump: {time_since_last_bump}, Last reminder: {time_since_last_reminder}")
             
-            if time_since_last_bump >= timedelta(hours=2) and time_since_last_reminder >= timedelta(hours=2):
+            # Vérification pour 24 heures
+            if time_since_last_bump >= timedelta(hours=24):
                 channel = self.bot.get_channel(self.channel_id)
                 if channel:
-                    await channel.send("Bump le serveur")
+                    await channel.send("⚠️ Ça fait 24h ! Bump le serveur enculé")
+                    self.last_reminder = now
+                    self.save_last_reminder()
+                    self.logger.info("24-hour reminder sent successfully")
+            # Vérification normale pour 2 heures
+            elif time_since_last_bump >= timedelta(hours=2) and time_since_last_reminder >= timedelta(hours=2):
+                channel = self.bot.get_channel(self.channel_id)
+                if channel:
+                    await channel.send("Bump le serveur enculé")
                     self.last_reminder = now
                     self.save_last_reminder()
                     self.logger.info("Reminder sent successfully")
