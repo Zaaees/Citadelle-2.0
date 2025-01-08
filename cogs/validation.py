@@ -75,47 +75,51 @@ class ValidationView(discord.ui.View):
             corrections = eval(row_data[2]) if row_data[2] else {}
             existing_correction = corrections.get(interaction.user.id, "")
             
-            modal = CorrectionModal(self.sheet, existing_correction)
+            modal = CorrectionModal(self.cog.sheet, existing_correction)  # Utiliser le sheet du cog
             await interaction.response.send_modal(modal)  # S'assurer que c'est la première réponse
         except gspread.exceptions.CellNotFound:
             await interaction.response.send_message("Erreur: Données non trouvées pour ce salon.", ephemeral=True)
 
     async def update_validation_message(self, interaction: discord.Interaction):
-        await interaction.message.edit(content="Mise à jour en cours...")  # Feedback visuel immédiat
-        channel_id = str(interaction.channel_id)
-        cell = self.sheet.find(channel_id)
-        row_data = self.sheet.row_values(cell.row)
-        
-        validated_by = eval(row_data[1]) if row_data[1] else []
-        corrections = eval(row_data[2]) if row_data[2] else {}
+        try:
+            channel_id = str(interaction.channel_id)
+            cell = self.sheet.find(channel_id)
+            row_data = self.sheet.row_values(cell.row)
+            
+            validated_by = eval(row_data[1]) if row_data[1] else []
+            corrections = eval(row_data[2]) if row_data[2] else {}
 
-        embed = discord.Embed(
-            title="__État de la validation__",
-            color=discord.Color.blue(),
-            timestamp=datetime.now()
-        )
+            embed = discord.Embed(
+                title="__État de la validation__",
+                color=discord.Color.blue(),
+                timestamp=datetime.now()
+            )
 
-        validated_text = ""
-        for user_id in validated_by:
-            user = interaction.guild.get_member(user_id)
-            if user:
-                validated_text += f"`{user.display_name}`\n"
-        
-        if validated_text:
-            embed.add_field(name="**✅ Validé par**", value=validated_text, inline=False)
+            validated_text = ""
+            for user_id in validated_by:
+                user = interaction.guild.get_member(user_id)
+                if user:
+                    validated_text += f"`{user.display_name}`\n"
+            
+            if validated_text:
+                embed.add_field(name="**✅ Validé par**", value=validated_text, inline=False)
 
-        corrections_text = ""
-        for user_id, correction in corrections.items():
-            user = interaction.guild.get_member(user_id)
-            if user:
-                corrections_text += f"**▸ `{user.display_name}`**\n{correction}\n\n"
+            corrections_text = ""
+            for user_id, correction in corrections.items():
+                user = interaction.guild.get_member(user_id)
+                if user:
+                    corrections_text += f"**▸ `{user.display_name}`**\n{correction}\n\n"
 
-        if corrections_text:
-            embed.add_field(name="**🔍 Points à corriger**", value=corrections_text, inline=False)
+            if corrections_text:
+                embed.add_field(name="**🔍 Points à corriger**", value=corrections_text, inline=False)
 
-        message = await interaction.message.edit(content=None, embed=embed, view=self)
-        if not message.pinned:
-            await message.pin()
+            await interaction.message.edit(content=None, embed=embed, view=self)
+            if not interaction.message.pinned:
+                await interaction.message.pin()
+                
+        except Exception as e:
+            print(f"Erreur lors de la mise à jour du message : {e}")
+            await interaction.followup.send("Une erreur est survenue lors de la mise à jour.", ephemeral=True)
 
 class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
     def __init__(self, sheet, existing_correction=""):
@@ -132,7 +136,7 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
         self.add_item(self.correction)  # Ajout explicite du TextInput
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer()
+        # Suppression du defer ici car il est déjà fait dans le bouton
         channel_id = str(interaction.channel.id)
         try:
             cell = self.sheet.find(channel_id)
@@ -151,14 +155,15 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
                 validated_by.remove(interaction.user.id)
                 self.sheet.update_cell(cell.row, 2, str(validated_by))
 
-            view = ValidationView(self.sheet)
-            await interaction.response.defer()
+            # Création d'une nouvelle vue avec le cog
+            cog = interaction.client.get_cog('Validation')
+            view = ValidationView(cog)
+            
+            # Mise à jour du message
             await view.update_validation_message(interaction)
             
-            if should_notify:
-                cog = interaction.client.get_cog('Validation')
-                if cog:
-                    await cog.notify_owner_if_needed(interaction.channel)
+            if should_notify and cog:
+                await cog.notify_owner_if_needed(interaction.channel)
             
             await interaction.followup.send("Modifications enregistrées!", ephemeral=True)
             
