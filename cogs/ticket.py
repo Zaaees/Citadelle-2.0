@@ -8,12 +8,25 @@ class Ticket(commands.Cog):
         self.bot = bot
         self.target_category_id = 1020827427888435210
         self.CHANNEL_EDIT_DELAY = 2
+        self.MAX_TITLE_LENGTH = 95  # Discord limite à 100, on garde une marge
         self.alphabet_mapping = {
             "A": "𝙰", "B": "𝙱", "C": "𝙲", "D": "𝙳", "E": "𝙴", "F": "𝙵", "G": "𝙶",
             "H": "𝙷", "I": "𝙸", "J": "𝙹", "K": "𝙺", "L": "𝙻", "M": "𝙼", "N": "𝙽",
             "O": "𝙾", "P": "𝙿", "Q": "𝚀", "R": "𝚁", "S": "𝚂", "T": "𝚃", "U": "𝚄",
             "V": "𝚅", "W": "𝚆", "X": "𝚇", "Y": "𝚈", "Z": "𝚉"
         }
+
+    async def truncate_text(self, text):
+        if len(text) <= self.MAX_TITLE_LENGTH:
+            return text
+        
+        # Trouve le dernier espace avant la limite pour couper proprement
+        truncated = text[:self.MAX_TITLE_LENGTH-3]
+        last_space = truncated.rfind(' ')
+        if last_space != -1:
+            truncated = truncated[:last_space]
+        
+        return truncated + "..."
 
     async def is_ticket_channel(self, channel):
         try:
@@ -89,7 +102,8 @@ class Ticket(commands.Cog):
             if request:
                 first_letter = await self.get_first_letter(request)
                 if first_letter:
-                    new_name = f"【❔】{first_letter}{request[1:]}"
+                    truncated_request = await self.truncate_text(request)
+                    new_name = f"【❔】{first_letter}{truncated_request[1:]}"
                     await channel.edit(name=new_name)
                     return True
 
