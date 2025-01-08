@@ -43,9 +43,20 @@ class SousElements(commands.Cog):
 
     def get_message_data(self, message_id):
         try:
-            cells = self.sheet.findall(str(message_id), in_column=1)
+            # Assurons-nous que message_id est une chaîne
+            message_id = str(message_id)
+            cells = self.sheet.findall(message_id, in_column=1)
             if not cells:
-                return None
+                print(f"Aucune donnée trouvée pour le message ID: {message_id}")
+                # Initialiser des données par défaut si rien n'est trouvé
+                return {
+                    'channel_id': None,
+                    'user_id': None,
+                    'character_name': None,
+                    'elements': {
+                        'Eau': [], 'Feu': [], 'Vent': [], 'Terre': [], 'Espace': []
+                    }
+                }
             
             data = {
                 'channel_id': None,
@@ -64,12 +75,13 @@ class SousElements(commands.Cog):
                 data['character_name'] = row[3]
                 element = row[4]
                 sub_element = row[5]
-                if sub_element:
-                    data['elements'][element].append(sub_element)
-                    
+                if sub_element and element in data['elements']:
+                    if sub_element not in data['elements'][element]:
+                        data['elements'][element].append(sub_element)
+                        
             return data
         except Exception as e:
-            print(f"Erreur lors de la récupération des données: {e}")
+            print(f"Erreur détaillée lors de la récupération des données: {str(e)}")
             return None
 
     def save_message_data(self, message_id, data):
