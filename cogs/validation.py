@@ -81,6 +81,7 @@ class ValidationView(discord.ui.View):
             await interaction.response.send_message("Erreur: Données non trouvées pour ce salon.", ephemeral=True)
 
     async def update_validation_message(self, interaction: discord.Interaction):
+        await interaction.message.edit(content="Mise à jour en cours...")  # Feedback visuel immédiat
         channel_id = str(interaction.channel_id)
         cell = self.sheet.find(channel_id)
         row_data = self.sheet.row_values(cell.row)
@@ -112,7 +113,7 @@ class ValidationView(discord.ui.View):
         if corrections_text:
             embed.add_field(name="**🔍 Points à corriger**", value=corrections_text, inline=False)
 
-        message = await interaction.message.edit(embed=embed, view=self)
+        message = await interaction.message.edit(content=None, embed=embed, view=self)
         if not message.pinned:
             await message.pin()
 
@@ -131,6 +132,7 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
         self.add_item(self.correction)  # Ajout explicite du TextInput
 
     async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer()
         channel_id = str(interaction.channel.id)
         try:
             cell = self.sheet.find(channel_id)
@@ -158,8 +160,10 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
                 if cog:
                     await cog.notify_owner_if_needed(interaction.channel)
             
+            await interaction.followup.send("Modifications enregistrées!", ephemeral=True)
+            
         except gspread.exceptions.CellNotFound:
-            await interaction.response.send_message("Erreur: Données non trouvées pour ce salon.", ephemeral=True)
+            await interaction.followup.send("Erreur: Données non trouvées pour ce salon.", ephemeral=True)
 
 class Validation(commands.Cog):
     def __init__(self, bot: commands.Bot):
