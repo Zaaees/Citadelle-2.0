@@ -58,6 +58,7 @@ class ValidationView(discord.ui.View):
 
     @discord.ui.button(label="À corriger", style=discord.ButtonStyle.red, custom_id="correct_button")
     async def correct_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Vérifier les permissions d'abord
         if not any(role.id == 1018179623886000278 for role in interaction.user.roles):
             await interaction.response.send_message("Permission non accordée.", ephemeral=True)
             return
@@ -75,10 +76,13 @@ class ValidationView(discord.ui.View):
             corrections = eval(row_data[2]) if row_data[2] else {}
             existing_correction = corrections.get(interaction.user.id, "")
             
-            modal = CorrectionModal(self.cog.sheet, existing_correction)  # Utiliser le sheet du cog
-            await interaction.response.send_modal(modal)  # S'assurer que c'est la première réponse
+            modal = CorrectionModal(self.cog.sheet, existing_correction)
+            await interaction.response.send_modal(modal)
         except gspread.exceptions.CellNotFound:
             await interaction.response.send_message("Erreur: Données non trouvées pour ce salon.", ephemeral=True)
+        except Exception as e:
+            print(f"Erreur dans correct_button: {e}")
+            await interaction.response.send_message("Une erreur est survenue.", ephemeral=True)
 
     def convert_channel_mentions(self, guild: discord.Guild, text: str) -> str:
         """Convertit les [#nom-salon] en mentions de salon"""
