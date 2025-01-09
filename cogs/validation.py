@@ -90,14 +90,26 @@ class ValidationView(discord.ui.View):
         
         def replace_channel(match):
             channel_name = match.group(1)
-            # Recherche le salon sans tenir compte de la casse
+            
+            # Recherche directe du salon
             channel = discord.utils.get(guild.channels, name=channel_name)
-            # Si pas trouvé, essayer une recherche plus flexible
+            
+            # Si pas trouvé, essayer avec le nom normalisé (sans émojis personnalisés)
             if not channel:
                 for ch in guild.channels:
+                    # Normaliser le nom du canal en remplaçant les émojis personnalisés
+                    normalized_name = re.sub(r':[a-zA-Z0-9_]+:', '', ch.name)
+                    # Supprimer les espaces supplémentaires qui pourraient résulter
+                    normalized_name = ' '.join(normalized_name.split())
+                    
+                    if normalized_name.lower() == channel_name.lower():
+                        channel = ch
+                        break
+                    # Essayer aussi avec le nom exact au cas où
                     if ch.name.lower() == channel_name.lower():
                         channel = ch
                         break
+            
             return f"<#{channel.id}>" if channel else match.group(0)
         
         return re.sub(pattern, replace_channel, text)
