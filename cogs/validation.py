@@ -19,9 +19,30 @@ class ValidationView(discord.ui.View):
         # Obtenir le sheet via le cog
         return self.cog.sheet if self.cog else None
 
+    def split_long_text(self, text: str, max_length: int = 1024) -> List[str]:
+        """Split text into chunks of max_length, trying to split at newlines."""
+        if len(text) <= max_length:
+            return [text]
+        
+        chunks = []
+        current_chunk = ""
+        
+        for line in text.split('\n'):
+            if len(current_chunk) + len(line) + 1 <= max_length:
+                current_chunk += (line + '\n')
+            else:
+                if current_chunk:
+                    chunks.append(current_chunk.rstrip())
+                current_chunk = line + '\n'
+                
+        if current_chunk:
+            chunks.append(current_chunk.rstrip())
+            
+        return chunks
+
     @discord.ui.button(label="Validé", style=discord.ButtonStyle.green, custom_id="validate_button")
     async def validate_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()  # Déférer immédiatement la réponse
+        await interaction.response.defer(ephemeral=True)  # Déférer immédiatement la réponse
         if self.sheet is None:
             # Récupérer une nouvelle instance de cog
             self.cog = interaction.client.get_cog('Validation')
@@ -59,13 +80,13 @@ class ValidationView(discord.ui.View):
     @discord.ui.button(label="À corriger", style=discord.ButtonStyle.red, custom_id="correct_button")
     async def correct_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not any(role.id == 1018179623886000278 for role in interaction.user.roles):
-            await interaction.response.send_message("Vous n'avez pas la permission d'utiliser ce bouton.", ephemeral=True)
+            await interaction.response.send_message("Permission non accordée.", ephemeral=True)
             return
 
         if self.sheet is None:
             self.cog = interaction.client.get_cog('Validation')
             if not self.cog:
-                await interaction.response.send_message("Erreur: impossible de traiter la validation pour le moment.", ephemeral=True)
+                await interaction.response.send_message("Erreur système.", ephemeral=True)
                 return
 
         channel_id = str(interaction.channel_id)
@@ -95,6 +116,7 @@ class ValidationView(discord.ui.View):
                 timestamp=datetime.now()
             )
 
+            # Handle validations
             validated_text = ""
             for user_id in validated_by:
                 user = interaction.guild.get_member(user_id)
@@ -104,22 +126,49 @@ class ValidationView(discord.ui.View):
             if validated_text:
                 embed.add_field(name="**✅ Validé par**", value=validated_text, inline=False)
 
-            corrections_text = ""
+            # Handle corrections with potential splitting
+            corrections_parts = []
+            current_part = ""
+            
             for user_id, correction in corrections.items():
                 user = interaction.guild.get_member(user_id)
                 if user:
-                    corrections_text += f"**▸ `{user.display_name}`**\n{correction}\n\n"
+                    correction_text = f"**▸ `{user.display_name}`**\n{correction}\n\n"
+                    if len(current_part) + len(correction_text) > 1024:
+                        if current_part:
+                            corrections_parts.append(current_part)
+                        current_part = correction_text
+                    else:
+                        current_part += correction_text
 
-            if corrections_text:
-                embed.add_field(name="**🔍 Points à corriger**", value=corrections_text, inline=False)
+            if current_part:
+                corrections_parts.append(current_part)
 
-            await interaction.message.edit(content=None, embed=embed, view=self)
-            if not interaction.message.pinned:
-                await interaction.message.pin()
+            # Add correction fields
+            for i, part in enumerate(corrections_parts):
+                field_name = "**🔍 Points à corriger**" if i == 0 else "**🔍 Points à corriger (suite)**"
+                embed.add_field(name=field_name, value=part, inline=False)
+
+            try:
+                await interaction.message.edit(content=None, embed=embed, view=self)
+                if not interaction.message.pinned:
+                    await interaction.message.pin()
+            except discord.NotFound:
+                # Le message original a été supprimé, on en crée un nouveau
+                new_message = await interaction.channel.send(embed=embed, view=self)
+                await new_message.pin()
+                # Mettre à jour l'ID du message dans la feuille
+                self.sheet.update_cell(cell.row, 4, str(new_message.id))
                 
         except Exception as e:
             print(f"Erreur lors de la mise à jour du message : {e}")
-            await interaction.followup.send("Une erreur est survenue lors de la mise à jour.", ephemeral=True)
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("Une erreur est survenue lors de la mise à jour.", ephemeral=True)
+                else:
+                    await interaction.channel.send("Une erreur est survenue lors de la mise à jour.", delete_after=5)
+            except:
+                pass
 
 class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
     def __init__(self, sheet, existing_correction=""):
@@ -136,15 +185,13 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
         self.add_item(self.correction)  # Ajout explicite du TextInput
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Suppression du defer ici car il est déjà fait dans le bouton
-        channel_id = str(interaction.channel.id)
         try:
+            channel_id = str(interaction.channel.id)
             cell = self.sheet.find(channel_id)
             row_data = self.sheet.row_values(cell.row)
             corrections = eval(row_data[2]) if row_data[2] else {}
             old_correction = corrections.get(interaction.user.id, None)
             
-            # Ne notifier que si c'est une nouvelle correction ou si le contenu a changé
             should_notify = old_correction is None or old_correction != self.correction.value
             
             corrections[interaction.user.id] = self.correction.value
@@ -155,20 +202,28 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
                 validated_by.remove(interaction.user.id)
                 self.sheet.update_cell(cell.row, 2, str(validated_by))
 
-            # Création d'une nouvelle vue avec le cog
             cog = interaction.client.get_cog('Validation')
             view = ValidationView(cog)
             
-            # Mise à jour du message
             await view.update_validation_message(interaction)
             
             if should_notify and cog:
                 await cog.notify_owner_if_needed(interaction.channel)
             
-            await interaction.followup.send("Modifications enregistrées!", ephemeral=True)
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("Modifications enregistrées!", ephemeral=True)
+                else:
+                    await interaction.followup.send("Modifications enregistrées!", ephemeral=True)
+            except:
+                await interaction.channel.send("Modifications enregistrées!", delete_after=5)
             
-        except gspread.exceptions.CellNotFound:
-            await interaction.followup.send("Erreur: Données non trouvées pour ce salon.", ephemeral=True)
+        except Exception as e:
+            print(f"Erreur dans on_submit: {e}")
+            try:
+                await interaction.channel.send("Une erreur est survenue lors de l'enregistrement.", delete_after=5)
+            except:
+                pass
 
 class Validation(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -176,8 +231,11 @@ class Validation(commands.Cog):
         self._sheet = None
         self._client = None
         self.last_ping = {}
-        # Ajouter cette ligne pour que les boutons persistent après redémarrage
-        bot.add_view(ValidationView(self))
+        self.setup_persistent_views()
+
+    def setup_persistent_views(self):
+        """Setup persistent views on initialization"""
+        self.bot.add_view(ValidationView(self))
 
     @property
     def sheet(self):
