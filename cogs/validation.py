@@ -21,7 +21,7 @@ class ValidationView(discord.ui.View):
 
     @discord.ui.button(label="Validé", style=discord.ButtonStyle.green, custom_id="validate_button")
     async def validate_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()  # Déférer immédiatement la réponse
+        await interaction.response.defer(ephemeral=True)  # Déférer immédiatement la réponse
         if self.sheet is None:
             # Récupérer une nouvelle instance de cog
             self.cog = interaction.client.get_cog('Validation')
@@ -59,13 +59,13 @@ class ValidationView(discord.ui.View):
     @discord.ui.button(label="À corriger", style=discord.ButtonStyle.red, custom_id="correct_button")
     async def correct_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not any(role.id == 1018179623886000278 for role in interaction.user.roles):
-            await interaction.response.send_message("Vous n'avez pas la permission d'utiliser ce bouton.", ephemeral=True)
+            await interaction.response.send_message("Permission non accordée.", ephemeral=True)
             return
 
         if self.sheet is None:
             self.cog = interaction.client.get_cog('Validation')
             if not self.cog:
-                await interaction.response.send_message("Erreur: impossible de traiter la validation pour le moment.", ephemeral=True)
+                await interaction.response.send_message("Erreur système.", ephemeral=True)
                 return
 
         channel_id = str(interaction.channel_id)
@@ -176,8 +176,11 @@ class Validation(commands.Cog):
         self._sheet = None
         self._client = None
         self.last_ping = {}
-        # Ajouter cette ligne pour que les boutons persistent après redémarrage
-        bot.add_view(ValidationView(self))
+        self.setup_persistent_views()
+
+    def setup_persistent_views(self):
+        """Setup persistent views on initialization"""
+        self.bot.add_view(ValidationView(self))
 
     @property
     def sheet(self):

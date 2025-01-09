@@ -28,7 +28,7 @@ class SousElements(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.setup_google_sheets()
-        self.bot.loop.create_task(self.load_persistent_views())
+        self.setup_views()
         
     def setup_google_sheets(self):
         scope = ['https://spreadsheets.google.com/feeds',
@@ -40,6 +40,10 @@ class SousElements(commands.Cog):
         )
         self.gc = gspread.authorize(credentials)
         self.sheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT')).sheet1
+
+    def setup_views(self):
+        """Initialize persistent views"""
+        self.bot.loop.create_task(self.load_persistent_views())
 
     def get_message_data(self, message_id):
         try:
@@ -121,94 +125,96 @@ class SousElements(commands.Cog):
 
     async def load_persistent_views(self):
         await self.bot.wait_until_ready()
-        all_data = self.sheet.get_all_values()
-        processed_messages = set()
-        
-        for row in all_data[1:]:  # Skip header row
-            message_id = row[0]
-            if message_id in processed_messages:
-                continue
+        try:
+            all_data = self.sheet.get_all_values()[1:]  # Skip header
+            processed = set()
+            
+            for row in all_data:
+                message_id = row[0]
+                if message_id in processed:
+                    continue
                 
-            processed_messages.add(message_id)
-            try:
-                channel = self.bot.get_channel(int(row[1]))
-                if channel:
-                    message = await channel.fetch_message(int(message_id))
-                    view = SousElementsView(self, row[3])
-                    self.bot.add_view(view, message_id=int(message_id))
-            except Exception as e:
-                print(f"Erreur lors du chargement du message {message_id}: {e}")
+                processed.add(message_id)
+                view = SousElementsView(self, row[3])
+                self.bot.add_view(view, message_id=int(message_id))
+        except Exception as e:
+            print(f"Erreur chargement vues persistantes: {e}")
 
     async def update_message(self, message, data):
-        def format_elements(elements):
-            if not elements:
-                return "-\n"
-            return ''.join(f'- {item}\n' for item in elements)
+        try:
+            def format_elements(elements):
+                if not elements:
+                    return "-\n"
+                return ''.join(f'- {item}\n' for item in elements)
 
-        description = (
-            "# Sous-éléments :\n"
-            "** **\n"
-            "## __Eau :__\n"
-            f"{format_elements(data['elements']['Eau'])}\n"
-            "## __Feu :__\n"
-            f"{format_elements(data['elements']['Feu'])}\n"
-            "## __Vent :__\n"
-            f"{format_elements(data['elements']['Vent'])}\n"
-            "## __Terre :__\n"
-            f"{format_elements(data['elements']['Terre'])}\n"
-            "## __Espace :__\n"
-            f"{format_elements(data['elements']['Espace'])}\n"
-        )
-        
-        embed = discord.Embed(
-            title=f"Sous-éléments de {data['character_name']}", 
-            description=description,
-            color=0x8543f7
-        )
-        await message.edit(embed=embed)
+            description = (
+                "# Sous-éléments :\n"
+                "** **\n"
+                "## __Eau :__\n"
+                f"{format_elements(data['elements']['Eau'])}\n"
+                "## __Feu :__\n"
+                f"{format_elements(data['elements']['Feu'])}\n"
+                "## __Vent :__\n"
+                f"{format_elements(data['elements']['Vent'])}\n"
+                "## __Terre :__\n"
+                f"{format_elements(data['elements']['Terre'])}\n"
+                "## __Espace :__\n"
+                f"{format_elements(data['elements']['Espace'])}\n"
+            )
+            
+            embed = discord.Embed(
+                title=f"Sous-éléments de {data['character_name']}", 
+                description=description,
+                color=0x8543f7
+            )
+            await message.edit(embed=embed)
+        except Exception as e:
+            print(f"Erreur mise à jour message: {e}")
 
     @app_commands.command(name='sous-éléments', description="Créer un message pour gérer les sous-éléments d'un personnage")
     async def sous_elements(self, interaction: discord.Interaction, character_name: str):
         await interaction.response.defer()
+        try:
+            description = (
+                "# Sous-éléments :\n"
+                "** **\n"
+                "## __Eau :__\n"
+                "-\n\n"
+                "## __Feu :__\n"
+                "-\n\n"
+                "## __Vent :__\n"
+                "-\n\n"
+                "## __Terre :__\n"
+                "-\n\n"
+                "## __Espace :__\n"
+                "-\n"
+            )
+            embed = discord.Embed(
+                title=f"Sous-éléments de {character_name}", 
+                description=description, 
+                color=0x8543f7
+            )
+        
+            view = SousElementsView(self, character_name)
+            message = await interaction.followup.send(embed=embed, view=view)
 
-        description = (
-            "# Sous-éléments :\n"
-            "** **\n"
-            "## __Eau :__\n"
-            "-\n\n"
-            "## __Feu :__\n"
-            "-\n\n"
-            "## __Vent :__\n"
-            "-\n\n"
-            "## __Terre :__\n"
-            "-\n\n"
-            "## __Espace :__\n"
-            "-\n"
-        )
-        embed = discord.Embed(
-            title=f"Sous-éléments de {character_name}", 
-            description=description, 
-            color=0x8543f7
-        )
-    
-        view = SousElementsView(self, character_name)
-        message = await interaction.followup.send(embed=embed, view=view)
-
-        data = {
-            "channel_id": interaction.channel.id,
-            "user_id": interaction.user.id,
-            "character_name": character_name,
-            "elements": {
-                "Eau": [],
-                "Feu": [],
-                "Vent": [],
-                "Terre": [],
-                "Espace": []
+            data = {
+                "channel_id": interaction.channel.id,
+                "user_id": interaction.user.id,
+                "character_name": character_name,
+                "elements": {
+                    "Eau": [],
+                    "Feu": [],
+                    "Vent": [],
+                    "Terre": [],
+                    "Espace": []
+                }
             }
-        }
 
-        self.save_message_data(message.id, data)
-        self.bot.add_view(view, message_id=message.id)
+            self.save_message_data(message.id, data)
+            self.bot.add_view(view, message_id=message.id)
+        except Exception as e:
+            await interaction.followup.send(f"Une erreur est survenue: {e}", ephemeral=True)
 
 class SousElementsView(discord.ui.View):
     def __init__(self, cog, character_name):
