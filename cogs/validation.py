@@ -88,56 +88,95 @@ class ValidationView(discord.ui.View):
             
             validated_by = eval(row_data[1]) if row_data[1] else []
             corrections = eval(row_data[2]) if row_data[2] else {}
+            message_ids = eval(row_data[4]) if len(row_data) > 4 and row_data[4] else []
 
-            embed = discord.Embed(
-                title="__État de la validation__",
-                color=discord.Color.blue(),
-                timestamp=datetime.now()
-            )
-
-            # Format validations
+            # Préparer le contenu des validations
             validated_text = ""
             for user_id in validated_by:
                 user = interaction.guild.get_member(user_id)
                 if user:
                     validated_text += f"`{user.display_name}`\n"
-            
-            if validated_text:
-                embed.add_field(name="**✅ Validé par**", value=validated_text[:1024], inline=False)
 
-            # Format corrections with length check
-            corrections_text = ""
+            # Préparer le contenu des corrections
+            corrections_parts = []
+            current_part = ""
             for user_id, correction in corrections.items():
                 user = interaction.guild.get_member(user_id)
                 if user:
                     new_text = f"**▸ `{user.display_name}`**\n{correction}\n\n"
-                    if len(corrections_text + new_text) > 1024:
-                        corrections_text += "...(suite tronquée)"
-                        break
-                    corrections_text += new_text
+                    if len(current_part + new_text) > 1024:
+                        corrections_parts.append(current_part)
+                        current_part = new_text
+                    else:
+                        current_part += new_text
+            
+            if current_part:
+                corrections_parts.append(current_part)
 
-            if corrections_text:
-                embed.add_field(name="**🔍 Points à corriger**", value=corrections_text[:1024], inline=False)
+            # Message principal
+            main_embed = discord.Embed(
+                title="__État de la validation__",
+                color=discord.Color.blue(),
+                timestamp=datetime.now()
+            )
 
-            # Try to edit the message, if it fails, send a new one
+            if validated_text:
+                main_embed.add_field(name="**✅ Validé par**", value=validated_text[:1024], inline=False)
+
+            if corrections_parts:
+                main_embed.add_field(name="**🔍 Points à corriger (1/{})**".format(len(corrections_parts)), 
+                                   value=corrections_parts[0], inline=False)
+
+            # Mise à jour ou création du message principal
             try:
-                await interaction.message.edit(content=None, embed=embed, view=self)
-                if not interaction.message.pinned:
-                    await interaction.message.pin()
-            except discord.NotFound:
-                # If the original message is not found, send a new one
-                new_message = await interaction.channel.send(embed=embed, view=self)
-                await new_message.pin()
-                
-                # Update the message ID in the sheet
-                self.sheet.update_cell(cell.row, 4, str(new_message.id))
-                
+                main_message = await interaction.message.edit(content=None, embed=main_embed, view=self)
+            except:
+                main_message = await interaction.channel.send(embed=main_embed, view=self)
+                await main_message.pin()
+
+            # Gestion des messages supplémentaires
+            existing_messages = []
+            for i, msg_id in enumerate(message_ids[1:], 1):
+                try:
+                    msg = await interaction.channel.fetch_message(int(msg_id))
+                    existing_messages.append(msg)
+                except:
+                    continue
+
+            # Mise à jour ou création des messages supplémentaires
+            new_message_ids = [str(main_message.id)]
+            for i in range(1, len(corrections_parts)):
+                embed = discord.Embed(
+                    color=discord.Color.blue(),
+                    timestamp=datetime.now()
+                )
+                embed.add_field(
+                    name=f"**🔍 Points à corriger ({i+1}/{len(corrections_parts)})**",
+                    value=corrections_parts[i],
+                    inline=False
+                )
+
+                if i-1 < len(existing_messages):
+                    msg = await existing_messages[i-1].edit(embed=embed)
+                else:
+                    msg = await interaction.channel.send(embed=embed)
+                new_message_ids.append(str(msg.id))
+
+            # Nettoyage des messages supplémentaires non utilisés
+            for i in range(len(corrections_parts)-1, len(existing_messages)):
+                empty_embed = discord.Embed(description="** **", color=discord.Color.blue())
+                await existing_messages[i].edit(embed=empty_embed)
+                new_message_ids.append(str(existing_messages[i].id))
+
+            # Mise à jour des IDs dans la feuille
+            self.sheet.update_cell(cell.row, 4, str(main_message.id))
+            self.sheet.update_cell(cell.row, 5, str(new_message_ids))
+
         except Exception as e:
             print(f"Erreur lors de la mise à jour du message : {e}")
             try:
                 await interaction.followup.send("Une erreur est survenue lors de la mise à jour.", ephemeral=True)
             except discord.NotFound:
-                # If followup fails, try to send a new message
                 await interaction.channel.send("Une erreur est survenue lors de la mise à jour.")
 
 class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
@@ -293,7 +332,8 @@ class Validation(commands.Cog):
         try:
             cell = self.sheet.find(channel_id)
         except gspread.exceptions.CellNotFound:
-            self.sheet.append_row([channel_id, "[]", "{}", ""])  # Ajout d'une colonne vide pour l'ID du message
+            # Ajouter une colonne pour les IDs des messages supplémentaires
+            self.sheet.append_row([channel_id, "[]", "{}", "", "[]"])
         
         embed = discord.Embed(
             title="État de la validation",
@@ -302,13 +342,22 @@ class Validation(commands.Cog):
         )
         
         view = ValidationView(self)  # Passer le cog au lieu du sheet
-        await interaction.response.send_message(embed=embed, view=view)
+        message = await interaction.response.send_message(embed=embed, view=view)
         message = await interaction.original_response()
         await message.pin()
         
-        # Sauvegarder l'ID du message
+        # Créer les messages supplémentaires vides
+        empty_embed = discord.Embed(description="** **", color=discord.Color.blue())
+        additional_messages = []
+        for _ in range(3):  # Créer 3 messages supplémentaires vides
+            msg = await interaction.channel.send(embed=empty_embed)
+            additional_messages.append(str(msg.id))
+        
+        # Sauvegarder tous les IDs des messages
+        message_ids = [str(message.id)] + additional_messages
         cell = self.sheet.find(channel_id)
         self.sheet.update_cell(cell.row, 4, str(message.id))
+        self.sheet.update_cell(cell.row, 5, str(message_ids))
 
     @commands.Cog.listener()
     async def on_guild_channel_update(self, before, after):
@@ -329,7 +378,7 @@ class Validation(commands.Cog):
                     message = await after.send(embed=embed, view=view)
                     await message.pin()
                     # Ajouter le canal et l'ID du message à la feuille
-                    self.sheet.append_row([str(after.id), "[]", "{}", str(message.id)])
+                    self.sheet.append_row([str(after.id), "[]", "{}", str(message.id), "[]"])
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Validation(bot))
