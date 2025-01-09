@@ -145,7 +145,7 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
             placeholder="Entrez les points à corriger...",
             required=True,
             default=existing_correction,
-            max_length=1000
+            max_length=4000  # Augmentation de la limite à 4000 caractères
         )
         self.add_item(self.correction)  # Ajout explicite du TextInput
 
@@ -159,7 +159,7 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
             corrections = eval(row_data[2]) if row_data[2] else {}
             old_correction = corrections.get(interaction.user.id, None)
             
-            should_notify = old_correction is None or old_correction != self.correction.value
+            should_notify = old_correction != self.correction.value  # Modifier la condition pour toujours notifier lors d'une modification
             
             corrections[interaction.user.id] = self.correction.value
             self.sheet.update_cell(cell.row, 3, str(corrections))
@@ -172,12 +172,12 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
             cog = interaction.client.get_cog('Validation')
             view = ValidationView(cog)
             
+            # Notifier avant la mise à jour du message pour être sûr que ça passe
+            if should_notify and cog:
+                await cog.notify_owner_if_needed(interaction.channel)
+            
             try:
                 await view.update_validation_message(interaction)
-                
-                if should_notify and cog:
-                    await cog.notify_owner_if_needed(interaction.channel)
-                
                 await interaction.followup.send("Modifications enregistrées!", ephemeral=True)
             except Exception as e:
                 print(f"Erreur lors de la mise à jour : {e}")
