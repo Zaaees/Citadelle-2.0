@@ -82,11 +82,18 @@ class ValidationView(discord.ui.View):
 
     def convert_channel_mentions(self, guild: discord.Guild, text: str) -> str:
         """Convertit les [#nom-salon] en mentions de salon"""
-        pattern = r'\[#([\w-]+)\]'
+        pattern = r'\[#([^\]]+)\]'
         
         def replace_channel(match):
             channel_name = match.group(1)
+            # Recherche le salon sans tenir compte de la casse
             channel = discord.utils.get(guild.channels, name=channel_name)
+            # Si pas trouvé, essayer une recherche plus flexible
+            if not channel:
+                for ch in guild.channels:
+                    if ch.name.lower() == channel_name.lower():
+                        channel = ch
+                        break
             return f"<#{channel.id}>" if channel else match.group(0)
         
         return re.sub(pattern, replace_channel, text)
