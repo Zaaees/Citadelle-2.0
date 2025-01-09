@@ -80,6 +80,17 @@ class ValidationView(discord.ui.View):
         except gspread.exceptions.CellNotFound:
             await interaction.response.send_message("Erreur: Données non trouvées pour ce salon.", ephemeral=True)
 
+    def convert_channel_mentions(self, guild: discord.Guild, text: str) -> str:
+        """Convertit les [#nom-salon] en mentions de salon"""
+        pattern = r'\[#([\w-]+)\]'
+        
+        def replace_channel(match):
+            channel_name = match.group(1)
+            channel = discord.utils.get(guild.channels, name=channel_name)
+            return f"<#{channel.id}>" if channel else match.group(0)
+        
+        return re.sub(pattern, replace_channel, text)
+
     async def update_validation_message(self, interaction: discord.Interaction):
         try:
             channel_id = str(interaction.channel_id)
@@ -113,7 +124,9 @@ class ValidationView(discord.ui.View):
                 for user_id, correction in corrections.items():
                     user = interaction.guild.get_member(user_id)
                     if user:
-                        corrections_text += f"**▸ `{user.display_name}`**\n{correction}\n\n"
+                        # Convertir les mentions de salon dans le texte
+                        converted_correction = self.convert_channel_mentions(interaction.guild, correction)
+                        corrections_text += f"**▸ `{user.display_name}`**\n{converted_correction}\n\n"
 
             if corrections_text:
                 if len(corrections_text) > 4096:
@@ -142,7 +155,7 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
         self.correction = discord.ui.TextInput(
             label="Détaillez les points à corriger",
             style=discord.TextStyle.paragraph,
-            placeholder="Entrez les points à corriger...",
+            placeholder="Entrez les points à corriger... Utilisez [#nom-salon] pour mentionner un salon",
             required=True,
             default=existing_correction,
             max_length=4000  # Augmentation de la limite à 4000 caractères
@@ -150,7 +163,7 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
         self.add_item(self.correction)  # Ajout explicite du TextInput
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)  # Defer the response first
+        await interaction.response.defer(ephemeral=True)
         
         try:
             channel_id = str(interaction.channel.id)
@@ -178,7 +191,6 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
             
             try:
                 await view.update_validation_message(interaction)
-                await interaction.followup.send("Modifications enregistrées!", ephemeral=True)
             except Exception as e:
                 print(f"Erreur lors de la mise à jour : {e}")
                 await interaction.channel.send("Les modifications ont été enregistrées mais une erreur est survenue lors de la mise à jour de l'affichage.")
