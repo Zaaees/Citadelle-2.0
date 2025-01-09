@@ -91,26 +91,30 @@ class ValidationView(discord.ui.View):
         def replace_channel(match):
             channel_name = match.group(1)
             
-            # Recherche directe du salon
-            channel = discord.utils.get(guild.channels, name=channel_name)
+            # Fonction pour normaliser un nom de canal
+            def normalize_channel_name(name):
+                # Supprimer les émojis Discord custom (:emoji:)
+                name = re.sub(r':[a-zA-Z0-9_]+:', '', name)
+                # Supprimer les émojis Unicode
+                name = re.sub(r'【[^】]+】', '', name)
+                # Nettoyer les espaces et caractères spéciaux
+                name = re.sub(r'[^a-zA-Z0-9\-]', '', name.lower())
+                return name
             
-            # Si pas trouvé, essayer avec le nom normalisé (sans émojis personnalisés)
-            if not channel:
-                for ch in guild.channels:
-                    # Normaliser le nom du canal en remplaçant les émojis personnalisés
-                    normalized_name = re.sub(r':[a-zA-Z0-9_]+:', '', ch.name)
-                    # Supprimer les espaces supplémentaires qui pourraient résulter
-                    normalized_name = ' '.join(normalized_name.split())
-                    
-                    if normalized_name.lower() == channel_name.lower():
-                        channel = ch
-                        break
-                    # Essayer aussi avec le nom exact au cas où
-                    if ch.name.lower() == channel_name.lower():
-                        channel = ch
-                        break
+            # Normaliser le nom recherché
+            normalized_search = normalize_channel_name(channel_name)
             
-            return f"<#{channel.id}>" if channel else match.group(0)
+            # Chercher parmi tous les canaux
+            for ch in guild.channels:
+                # Si correspondance exacte
+                if ch.name == channel_name:
+                    return f"<#{ch.id}>"
+                
+                # Si correspondance après normalisation
+                if normalize_channel_name(ch.name) == normalized_search:
+                    return f"<#{ch.id}>"
+            
+            return match.group(0)
         
         return re.sub(pattern, replace_channel, text)
 
