@@ -466,11 +466,12 @@ class AddSubElementButton(discord.ui.Button):
             return
 
         await interaction.response.defer(ephemeral=True)
-        view = SubElementSelectView(self.view.cog, interaction.message.id, interaction.user.id)
-        await view.setup_menus()
+        # Créer une nouvelle instance de SubElementSelectView au lieu d'utiliser self.view
+        select_view = SubElementSelectView(self.view.cog, interaction.message.id, interaction.user.id)
+        await select_view.setup_menus()
         await interaction.followup.send(
             "Sélectionnez un sous-élément à ajouter :",
-            view=view,
+            view=select_view,
             ephemeral=True
         )
 
