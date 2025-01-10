@@ -301,15 +301,14 @@ class SousElements(commands.Cog):
     async def add_subelement(self, interaction: discord.Interaction):
         try:
             if not interaction.user.get_role(MJ_ROLE_ID):
-                if not interaction.response.is_done():
-                    await interaction.response.send_message("Cette commande est réservée aux MJ.", ephemeral=True)
+                await interaction.response.send_message(
+                    "Cette commande est réservée aux MJ.", 
+                    ephemeral=True
+                )
                 return
-            
-            # Utiliser defer au lieu de send_message initial
-            await interaction.response.defer(ephemeral=True)
                 
             view = AddSubElementView(self)
-            await interaction.followup.send(
+            await interaction.response.send_message(
                 "Sélectionnez l'élément principal du sous-élément :", 
                 view=view, 
                 ephemeral=True
@@ -317,16 +316,14 @@ class SousElements(commands.Cog):
             
         except Exception as e:
             print(f"Erreur détaillée lors de l'ajout du sous-élément: {str(e)}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "Une erreur est survenue lors de l'ajout du sous-élément.",
-                    ephemeral=True
-                )
-            else:
-                await interaction.followup.send(
-                    "Une erreur est survenue lors de l'ajout du sous-élément.",
-                    ephemeral=True
-                )
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(
+                        "Une erreur est survenue lors de l'ajout du sous-élément.",
+                        ephemeral=True
+                    )
+            except:
+                pass  # Si on ne peut pas envoyer de message, on ignore silencieusement
 
     @app_commands.command(name='sous-éléments', description="Créer un message pour gérer les sous-éléments d'un personnage")
     async def sous_elements(self, interaction: discord.Interaction, character_name: str):
