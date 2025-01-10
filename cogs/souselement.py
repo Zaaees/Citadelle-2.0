@@ -18,17 +18,11 @@ FORUM_CHANNELS = {
 MJ_ROLE_ID = 1018179623886000278
 
 class SelectSubElementModal(discord.ui.Modal):
-    def __init__(self, view):
-        super().__init__(title="Sélectionner un sous-élément")
+    def __init__(self, view, element):
+        super().__init__(title=f"Ajouter un sous-élément - {element}")
         self.view = view
+        self.element = element
         
-        self.element = discord.ui.Select(
-            placeholder="Choisir l'élément principal",
-            options=[
-                discord.SelectOption(label=element) 
-                for element in ['Feu', 'Vent', 'Terre', 'Eau', 'Espace']
-            ]
-        )
         self.name = discord.ui.TextInput(
             label="Nom du sous-élément",
             required=True
@@ -54,8 +48,7 @@ class SelectSubElementModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer()
         
-        # Créer l'entrée dans le forum approprié
-        channel = interaction.guild.get_channel(FORUM_CHANNELS[self.element.values[0]])
+        channel = interaction.guild.get_channel(FORUM_CHANNELS[self.element])
         embed = discord.Embed(
             title=self.name.value,
             description=f"**Définition :** {self.definition.value}\n\n"
@@ -66,13 +59,13 @@ class SelectSubElementModal(discord.ui.Modal):
         
         thread = await channel.create_thread(
             name=self.name.value,
-            embed=embed
+            embed=embed,
+            content=embed.description
         )
         
-        # Sauvegarder dans la feuille Google Sheets
         data = {
             'name': self.name.value,
-            'element': self.element.values[0],
+            'element': self.element,
             'definition': self.definition.value,
             'emotional_state': self.emotional_state.value,
             'emotional_desc': self.emotional_desc.value
@@ -80,6 +73,24 @@ class SelectSubElementModal(discord.ui.Modal):
         await self.view.cog.save_subelement(data)
         
         await interaction.followup.send("Sous-élément ajouté avec succès!", ephemeral=True)
+
+class ElementSelect(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label=element, value=element)
+            for element in ['Feu', 'Vent', 'Terre', 'Eau', 'Espace']
+        ]
+        super().__init__(placeholder="Choisir l'élément principal", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        modal = SelectSubElementModal(self.view, self.values[0])
+        await interaction.response.send_modal(modal)
+
+class AddSubElementView(discord.ui.View):
+    def __init__(self, cog):
+        super().__init__()
+        self.cog = cog
+        self.add_item(ElementSelect())
 
 class SubElementModal(discord.ui.Modal):
     def __init__(self, view, element):
@@ -258,8 +269,12 @@ class SousElements(commands.Cog):
             await interaction.response.send_message("Cette commande est réservée aux MJ.", ephemeral=True)
             return
             
-        modal = SelectSubElementModal(self)
-        await interaction.response.send_modal(modal)
+        view = AddSubElementView(self)
+        await interaction.response.send_message(
+            "Sélectionnez l'élément principal du sous-élément :", 
+            view=view, 
+            ephemeral=True
+        )
 
     @app_commands.command(name='sous-éléments', description="Créer un message pour gérer les sous-éléments d'un personnage")
     async def sous_elements(self, interaction: discord.Interaction, character_name: str):
