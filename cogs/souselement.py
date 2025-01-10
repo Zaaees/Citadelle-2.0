@@ -360,11 +360,11 @@ class SousElements(commands.Cog):
             await interaction.followup.send(f"Une erreur est survenue: {e}", ephemeral=True)
 
 class SubElementSelect(discord.ui.Select):
-    def __init__(self, element, options):
+    def __init__(self, element, options, row_number):  # Ajout du paramètre row_number
         super().__init__(
             placeholder=f"Choisir un sous-élément de {element}",
             custom_id=f"subelement_select_{element.lower()}",
-            row=0,
+            row=row_number,  # Utilisation du row_number
             options=options,
             min_values=1,
             max_values=1
@@ -417,7 +417,15 @@ class SousElementsView(discord.ui.View):
         self.character_name = character_name
         
         # Charger les options pour chaque élément
-        for i, element in enumerate(['Eau', 'Feu', 'Vent', 'Terre', 'Espace']):
+        elements_rows = {  # Définir la ligne pour chaque élément
+            'Eau': 0,
+            'Feu': 1,
+            'Vent': 2,
+            'Terre': 3,
+            'Espace': 4
+        }
+        
+        for element, row in elements_rows.items():
             options = self.load_subelement_options(element)
             if not options:
                 options = [
@@ -427,7 +435,7 @@ class SousElementsView(discord.ui.View):
                         description=f"Contactez un MJ pour ajouter des sous-éléments de {element}"
                     )
                 ]
-            self.add_item(SubElementSelect(element, options))
+            self.add_item(SubElementSelect(element, options, row))  # Passer le numéro de ligne
 
     def load_subelement_options(self, element_filter):
         try:
