@@ -321,7 +321,8 @@ class SousElements(commands.Cog):
     @app_commands.command(name='sous-éléments', description="Créer un message pour gérer les sous-éléments d'un personnage")
     async def sous_elements(self, interaction: discord.Interaction, character_name: str):
         try:
-            # On reporte le defer après la création de la vue
+            await interaction.response.defer()
+            
             description = (
                 "# Sous-éléments :\n"
                 "** **\n"
@@ -343,11 +344,6 @@ class SousElements(commands.Cog):
             )
         
             view = SousElementsView(self, character_name)
-            # Initialiser les menus avant d'envoyer le message
-            await view.setup_menus()
-            
-            # Maintenant on peut defer et envoyer le message
-            await interaction.response.defer()
             message = await interaction.followup.send(embed=embed, view=view)
 
             data = {
@@ -365,8 +361,8 @@ class SousElements(commands.Cog):
 
             self.save_message_data(message.id, data)
             self.bot.add_view(view, message_id=message.id)
+            
         except Exception as e:
-            # S'assurer que nous répondons toujours à l'interaction
             if not interaction.response.is_done():
                 await interaction.response.send_message(
                     f"Une erreur est survenue: {str(e)}", 
