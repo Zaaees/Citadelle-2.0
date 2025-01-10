@@ -418,66 +418,14 @@ class SousElements(commands.Cog):
                 'Eau': [], 'Feu': [], 'Vent': [], 'Terre': [], 'Espace': []
             }
 
-class SubElementSelect(discord.ui.Select):
-    def __init__(self, element, options, row_number):  # Ajout du paramètre row_number
-        super().__init__(
-            placeholder=f"Choisir un sous-élément de {element}",
-            custom_id=f"subelement_select_{element.lower()}",
-            row=row_number,  # Utilisation du row_number
-            options=options,
-            min_values=1,
-            max_values=1
-        )
-        self.element_type = element
-
-    async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        
-        if self.values[0] == "none|none":
-            await interaction.followup.send(
-                f"Aucun sous-élément de {self.element_type} n'est disponible pour le moment.", 
-                ephemeral=True
-            )
-            return
-
-        try:
-            element, name = self.values[0].split("|")
-            view = self.view
-            message_id = str(interaction.message.id)
-            data = view.cog.get_message_data(message_id)
-
-            if not data:
-                await interaction.followup.send("Message data not found.", ephemeral=True)
-                return
-
-            if interaction.user.id != data['user_id']:
-                await interaction.followup.send("Tu n'es pas autorisé à ajouter des sous-éléments.", ephemeral=True)
-                return
-
-            if element not in data['elements']:
-                await interaction.followup.send(f"Élément invalide: {element}", ephemeral=True)
-                return
-
-            data['elements'][element].append(name)
-            view.cog.save_message_data(message_id, data)
-            await view.cog.update_message(interaction.message, data)
-            await interaction.followup.send(f"Sous-élément '{name}' ajouté à {element}.", ephemeral=True)
-        except Exception as e:
-            print(f"Erreur dans le callback du select: {str(e)}")
-            await interaction.followup.send(
-                "Une erreur est survenue lors de l'ajout du sous-élément.",
-                ephemeral=True
-            )
-
-class SousElementsView(discord.ui.View):
-    def __init__(self, cog, character_name):
-        super().__init__(timeout=None)
+class SubElementSelectView(discord.ui.View):
+    def __init__(self, cog, main_message_id, user_id):
+        super().__init__(timeout=300)  # Timeout de 5 minutes
         self.cog = cog
-        self.character_name = character_name
-        # Supprimé: self.setup_selects()
-        
+        self.main_message_id = main_message_id
+        self.user_id = user_id
+
     async def setup_menus(self):
-        """Initialise les menus de sélection de manière asynchrone"""
         elements_rows = {
             'Eau': 0, 'Feu': 1, 'Vent': 2, 'Terre': 3, 'Espace': 4
         }
@@ -503,7 +451,93 @@ class SousElementsView(discord.ui.View):
                     )
                 ]
             
-            self.add_item(SubElementSelect(element, options, row))
+            self.add_item(SubElementSelect(element, options, row, self.main_message_id, self.user_id))
+
+class AddSubElementButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(
+            style=discord.ButtonStyle.primary,
+            label="Ajouter sous-élément",
+            custom_id="add_subelement"
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != interaction.message.interaction.user.id:
+            await interaction.response.send_message(
+                "Tu n'es pas autorisé à modifier ces sous-éléments.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        view = SubElementSelectView(self.view.cog, interaction.message.id, interaction.user.id)
+        await view.setup_menus()
+        await interaction.followup.send(
+            "Sélectionnez un sous-élément à ajouter :",
+            view=view,
+            ephemeral=True
+        )
+
+class SousElementsView(discord.ui.View):
+    def __init__(self, cog, character_name):
+        super().__init__(timeout=None)
+        self.cog = cog
+        self.character_name = character_name
+        self.add_item(AddSubElementButton())
+
+class SubElementSelect(discord.ui.Select):
+    def __init__(self, element, options, row_number, main_message_id, user_id):
+        super().__init__(
+            placeholder=f"Sous-éléments de {element}",
+            custom_id=f"subelement_select_{element.lower()}",
+            row=row_number,
+            options=options,
+            min_values=1,
+            max_values=1
+        )
+        self.element_type = element
+        self.main_message_id = main_message_id
+        self.user_id = user_id
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                "Tu n'es pas autorisé à modifier ces sous-éléments.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        
+        if self.values[0] == "none|none":
+            await interaction.followup.send(
+                f"Aucun sous-élément de {self.element_type} n'est disponible pour le moment.", 
+                ephemeral=True
+            )
+            return
+
+        try:
+            element, name = self.values[0].split("|")
+            data = self.view.cog.get_message_data(str(self.main_message_id))
+
+            if not data:
+                await interaction.followup.send("Message data not found.", ephemeral=True)
+                return
+
+            data['elements'][element].append(name)
+            self.view.cog.save_message_data(str(self.main_message_id), data)
+            
+            # Mettre à jour le message principal
+            main_message = await interaction.channel.fetch_message(self.main_message_id)
+            await self.view.cog.update_message(main_message, data)
+            
+            await interaction.followup.send(f"Sous-élément '{name}' ajouté à {element}.", ephemeral=True)
+        except Exception as e:
+            print(f"Erreur dans le callback du select: {str(e)}")
+            await interaction.followup.send(
+                "Une erreur est survenue lors de l'ajout du sous-élément.",
+                ephemeral=True
+            )
 
 async def setup(bot):
     await bot.add_cog(SousElements(bot))
