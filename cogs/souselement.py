@@ -343,17 +343,54 @@ class SousElements(commands.Cog):
             await interaction.followup.send(f"Une erreur est survenue: {e}", ephemeral=True)
 
 class SubElementSelect(discord.ui.Select):
-    def __init__(self):
+    def __init__(self, options):
         super().__init__(
             placeholder="Choisir un sous-élément à ajouter",
             custom_id="subelement_select",
-            row=0
+            row=0,
+            options=options  # Passer les options directement au constructeur
         )
-        self.populate_options()
 
-    def populate_options(self):
+    async def callback(self, interaction: discord.Interaction):
+        element, name = self.values[0].split("|")
+        view = self.view
+        message_id = str(interaction.message.id)
+        data = view.cog.get_message_data(message_id)
+
+        if not data:
+            await interaction.response.send_message("Message data not found.", ephemeral=True)
+            return
+
+        if interaction.user.id != data['user_id']:
+            await interaction.response.send_message("Tu n'es pas autorisé à ajouter des sous-éléments.", ephemeral=True)
+            return
+
+        data['elements'][element].append(name)
+        view.cog.save_message_data(message_id, data)
+        await view.cog.update_message(interaction.message, data)
+        await interaction.response.send_message(f"Sous-élément '{name}' ajouté à {element}.", ephemeral=True)
+
+class SousElementsView(discord.ui.View):
+    def __init__(self, cog, character_name):
+        super().__init__(timeout=None)
+        self.cog = cog
+        self.character_name = character_name
+        
+        # Charger les options avant de créer le select
+        options = self.load_subelement_options()
+        if not options:
+            options = [
+                discord.SelectOption(
+                    label="Aucun sous-élément disponible",
+                    value="none|none",
+                    description="Contactez un MJ pour ajouter des sous-éléments"
+                )
+            ]
+        
+        self.add_item(SubElementSelect(options))
+
+    def load_subelement_options(self):
         try:
-            # Charger les sous-éléments depuis la feuille Google Sheets
             gc = gspread.authorize(Credentials.from_service_account_info(
                 eval(os.getenv('SERVICE_ACCOUNT_JSON')),
                 ['https://spreadsheets.google.com/feeds',
@@ -373,38 +410,10 @@ class SubElementSelect(discord.ui.Select):
                         description=f"Élément: {element}"
                     )
                 )
-            
-            self.options = options
+            return options
         except Exception as e:
             print(f"Erreur lors du chargement des sous-éléments: {e}")
-            self.options = []
-
-    async def callback(self, interaction: discord.Interaction):
-        element, name = self.values[0].split("|")
-        view = self.view
-        message_id = str(interaction.message.id)
-        data = view.cog.get_message_data(message_id)
-
-        if not data:
-            await interaction.response.send_message("Message data not found.", ephemeral=True)
-            return
-
-        if interaction.user.id != data['user_id']:
-            await interaction.response.send_message("Tu n'es pas autorisé à ajouter des sous-éléments.", ephemeral=True)
-            return
-
-        # Ajouter le sous-élément à la liste
-        data['elements'][element].append(name)
-        view.cog.save_message_data(message_id, data)
-        await view.cog.update_message(interaction.message, data)
-        await interaction.response.send_message(f"Sous-élément '{name}' ajouté à {element}.", ephemeral=True)
-
-class SousElementsView(discord.ui.View):
-    def __init__(self, cog, character_name):
-        super().__init__(timeout=None)
-        self.cog = cog
-        self.character_name = character_name
-        self.add_item(SubElementSelect())
+            return []
 
 async def setup(bot):
     await bot.add_cog(SousElements(bot))
