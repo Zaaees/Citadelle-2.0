@@ -7,6 +7,80 @@ import gspread
 from google.oauth2.service_account import Credentials
 from dotenv import load_dotenv
 
+FORUM_CHANNELS = {
+    'Feu': 1137675742499573861,
+    'Terre': 1137675703630970891,
+    'Eau': 1137675658609303552,
+    'Vent': 1137675592125399122,
+    'Espace': 1137675462076796949
+}
+
+MJ_ROLE_ID = 1018179623886000278
+
+class SelectSubElementModal(discord.ui.Modal):
+    def __init__(self, view):
+        super().__init__(title="Sélectionner un sous-élément")
+        self.view = view
+        
+        self.element = discord.ui.Select(
+            placeholder="Choisir l'élément principal",
+            options=[
+                discord.SelectOption(label=element) 
+                for element in ['Feu', 'Vent', 'Terre', 'Eau', 'Espace']
+            ]
+        )
+        self.name = discord.ui.TextInput(
+            label="Nom du sous-élément",
+            required=True
+        )
+        self.definition = discord.ui.TextInput(
+            label="Définition",
+            style=discord.TextStyle.paragraph,
+            required=True
+        )
+        self.emotional_state = discord.ui.TextInput(
+            label="État émotionnel",
+            required=True
+        )
+        self.emotional_desc = discord.ui.TextInput(
+            label="Description de l'état émotionnel",
+            style=discord.TextStyle.paragraph,
+            required=True
+        )
+        
+        for item in [self.name, self.definition, self.emotional_state, self.emotional_desc]:
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        # Créer l'entrée dans le forum approprié
+        channel = interaction.guild.get_channel(FORUM_CHANNELS[self.element.values[0]])
+        embed = discord.Embed(
+            title=self.name.value,
+            description=f"**Définition :** {self.definition.value}\n\n"
+                       f"**État émotionnel :** {self.emotional_state.value}\n"
+                       f"**Description :** {self.emotional_desc.value}",
+            color=0x8543f7
+        )
+        
+        thread = await channel.create_thread(
+            name=self.name.value,
+            embed=embed
+        )
+        
+        # Sauvegarder dans la feuille Google Sheets
+        data = {
+            'name': self.name.value,
+            'element': self.element.values[0],
+            'definition': self.definition.value,
+            'emotional_state': self.emotional_state.value,
+            'emotional_desc': self.emotional_desc.value
+        }
+        await self.view.cog.save_subelement(data)
+        
+        await interaction.followup.send("Sous-élément ajouté avec succès!", ephemeral=True)
+
 class SubElementModal(discord.ui.Modal):
     def __init__(self, view, element):
         super().__init__(title=f"Ajouter un sous-élément pour {element}")
@@ -170,6 +244,22 @@ class SousElements(commands.Cog):
             await message.edit(embed=embed)
         except Exception as e:
             print(f"Erreur mise à jour message: {e}")
+
+    async def save_subelement(self, data):
+        # Nouvelle méthode pour sauvegarder un sous-élément dans la liste principale
+        worksheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT_LIST')).sheet1
+        row = [data['name'], data['element'], data['definition'], 
+               data['emotional_state'], data['emotional_desc']]
+        worksheet.append_row(row)
+
+    @app_commands.command(name='ajouter-sous-element', description="Ajouter un nouveau sous-élément à la liste (MJ uniquement)")
+    async def add_subelement(self, interaction: discord.Interaction):
+        if not interaction.user.get_role(MJ_ROLE_ID):
+            await interaction.response.send_message("Cette commande est réservée aux MJ.", ephemeral=True)
+            return
+            
+        modal = SelectSubElementModal(self)
+        await interaction.response.send_modal(modal)
 
     @app_commands.command(name='sous-éléments', description="Créer un message pour gérer les sous-éléments d'un personnage")
     async def sous_elements(self, interaction: discord.Interaction, character_name: str):
