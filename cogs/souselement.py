@@ -49,9 +49,18 @@ class SelectSubElementModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer()
         
-        # Récupération du thread existant
-        thread_channel = interaction.guild.get_channel(THREAD_CHANNELS[self.element])
-        if not thread_channel:
+        # Récupération du forum
+        forum_channel = interaction.guild.get_channel(FORUM_ID)
+        if not forum_channel:
+            await interaction.followup.send(
+                "Erreur : Impossible de trouver le forum. Contactez un administrateur.",
+                ephemeral=True
+            )
+            return
+            
+        # Récupération du thread via le forum
+        thread = forum_channel.get_thread(THREAD_CHANNELS[self.element])
+        if not thread:
             await interaction.followup.send(
                 f"Erreur : Impossible de trouver le thread pour l'élément {self.element}. "
                 "Contactez un administrateur.",
@@ -69,7 +78,7 @@ class SelectSubElementModal(discord.ui.Modal):
             )
             
             # Envoi du message dans le thread existant
-            await thread_channel.send(embed=embed)
+            await thread.send(embed=embed)
             
             data = {
                 'name': self.name.value,
@@ -81,7 +90,7 @@ class SelectSubElementModal(discord.ui.Modal):
             await self.view.cog.save_subelement(data)
             
             await interaction.followup.send(
-                f"Sous-élément ajouté avec succès dans le thread {thread_channel.mention}!", 
+                f"Sous-élément ajouté avec succès dans le thread {thread.mention}!", 
                 ephemeral=True
             )
             
@@ -384,4 +393,5 @@ class ElementButton(discord.ui.Button):
 async def setup(bot):
     await bot.add_cog(SousElements(bot))
     print("Cog Souselements chargé avec succès")
+
 
