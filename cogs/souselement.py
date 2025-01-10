@@ -342,43 +342,69 @@ class SousElements(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"Une erreur est survenue: {e}", ephemeral=True)
 
+class SubElementSelect(discord.ui.Select):
+    def __init__(self):
+        super().__init__(
+            placeholder="Choisir un sous-élément à ajouter",
+            custom_id="subelement_select",
+            row=0
+        )
+        self.populate_options()
+
+    def populate_options(self):
+        try:
+            # Charger les sous-éléments depuis la feuille Google Sheets
+            gc = gspread.authorize(Credentials.from_service_account_info(
+                eval(os.getenv('SERVICE_ACCOUNT_JSON')),
+                ['https://spreadsheets.google.com/feeds',
+                'https://www.googleapis.com/auth/spreadsheets',
+                'https://www.googleapis.com/auth/drive']
+            ))
+            worksheet = gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT_LIST')).sheet1
+            all_data = worksheet.get_all_values()[1:]  # Skip header
+            
+            options = []
+            for row in all_data:
+                name, element = row[0], row[1]
+                options.append(
+                    discord.SelectOption(
+                        label=name,
+                        value=f"{element}|{name}",
+                        description=f"Élément: {element}"
+                    )
+                )
+            
+            self.options = options
+        except Exception as e:
+            print(f"Erreur lors du chargement des sous-éléments: {e}")
+            self.options = []
+
+    async def callback(self, interaction: discord.Interaction):
+        element, name = self.values[0].split("|")
+        view = self.view
+        message_id = str(interaction.message.id)
+        data = view.cog.get_message_data(message_id)
+
+        if not data:
+            await interaction.response.send_message("Message data not found.", ephemeral=True)
+            return
+
+        if interaction.user.id != data['user_id']:
+            await interaction.response.send_message("Tu n'es pas autorisé à ajouter des sous-éléments.", ephemeral=True)
+            return
+
+        # Ajouter le sous-élément à la liste
+        data['elements'][element].append(name)
+        view.cog.save_message_data(message_id, data)
+        await view.cog.update_message(interaction.message, data)
+        await interaction.response.send_message(f"Sous-élément '{name}' ajouté à {element}.", ephemeral=True)
+
 class SousElementsView(discord.ui.View):
     def __init__(self, cog, character_name):
         super().__init__(timeout=None)
         self.cog = cog
         self.character_name = character_name
-
-        self.add_item(ElementButton("Eau", 0))
-        self.add_item(ElementButton("Feu", 0))
-        self.add_item(ElementButton("Vent", 0))
-        self.add_item(ElementButton("Terre", 1))
-        self.add_item(ElementButton("Espace", 1))
-
-    async def add_sub_element(self, interaction: discord.Interaction, element: str, sub_element: str):
-        message_id = str(interaction.message.id)
-        data = self.cog.get_message_data(message_id)
-
-        if not data:
-            await interaction.followup.send("Message data not found.", ephemeral=True)
-            return
-
-        if interaction.user.id != data['user_id']:
-            await interaction.followup.send("Tu n'es pas autorisé à ajouter des sous-éléments.", ephemeral=True)
-            return
-
-        data['elements'][element].append(sub_element)
-        self.cog.save_message_data(message_id, data)
-
-        await self.cog.update_message(interaction.message, data)
-        await interaction.followup.send(f"Sous-élément '{sub_element}' ajouté à {element}.", ephemeral=True)
-
-class ElementButton(discord.ui.Button):
-    def __init__(self, label, row):
-        super().__init__(label=label, style=discord.ButtonStyle.primary, custom_id=f"{label.lower()}_button", row=row)
-
-    async def callback(self, interaction: discord.Interaction):
-        modal = SubElementModal(self.view, self.label)
-        await interaction.response.send_modal(modal)
+        self.add_item(SubElementSelect())
 
 async def setup(bot):
     await bot.add_cog(SousElements(bot))
