@@ -301,19 +301,29 @@ class SousElements(commands.Cog):
     async def add_subelement(self, interaction: discord.Interaction):
         try:
             if not interaction.user.get_role(MJ_ROLE_ID):
-                await interaction.response.send_message("Cette commande est réservée aux MJ.", ephemeral=True)
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("Cette commande est réservée aux MJ.", ephemeral=True)
                 return
+            
+            # Utiliser defer au lieu de send_message initial
+            await interaction.response.defer(ephemeral=True)
                 
             view = AddSubElementView(self)
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Sélectionnez l'élément principal du sous-élément :", 
                 view=view, 
                 ephemeral=True
             )
+            
         except Exception as e:
-            print(f"Erreur lors de l'ajout du sous-élément: {e}")
+            print(f"Erreur détaillée lors de l'ajout du sous-élément: {str(e)}")
             if not interaction.response.is_done():
                 await interaction.response.send_message(
+                    "Une erreur est survenue lors de l'ajout du sous-élément.",
+                    ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
                     "Une erreur est survenue lors de l'ajout du sous-élément.",
                     ephemeral=True
                 )
