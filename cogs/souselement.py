@@ -360,20 +360,23 @@ class SousElements(commands.Cog):
             await interaction.followup.send(f"Une erreur est survenue: {e}", ephemeral=True)
 
 class SubElementSelect(discord.ui.Select):
-    def __init__(self, options):
+    def __init__(self, element, options):
         super().__init__(
-            placeholder="Choisir un sous-élément à ajouter",
-            custom_id="subelement_select",
+            placeholder=f"Choisir un sous-élément de {element}",
+            custom_id=f"subelement_select_{element.lower()}",
             row=0,
             options=options,
             min_values=1,
             max_values=1
         )
+        self.element_type = element
 
     async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
         if self.values[0] == "none|none":
-            await interaction.response.send_message(
-                "Aucun sous-élément n'est disponible pour le moment.", 
+            await interaction.followup.send(
+                f"Aucun sous-élément de {self.element_type} n'est disponible pour le moment.", 
                 ephemeral=True
             )
             return
@@ -385,23 +388,27 @@ class SubElementSelect(discord.ui.Select):
             data = view.cog.get_message_data(message_id)
 
             if not data:
-                await interaction.response.send_message("Message data not found.", ephemeral=True)
+                await interaction.followup.send("Message data not found.", ephemeral=True)
                 return
 
             if interaction.user.id != data['user_id']:
-                await interaction.response.send_message("Tu n'es pas autorisé à ajouter des sous-éléments.", ephemeral=True)
+                await interaction.followup.send("Tu n'es pas autorisé à ajouter des sous-éléments.", ephemeral=True)
                 return
 
             if element not in data['elements']:
-                await interaction.response.send_message(f"Élément invalide: {element}", ephemeral=True)
+                await interaction.followup.send(f"Élément invalide: {element}", ephemeral=True)
                 return
 
             data['elements'][element].append(name)
             view.cog.save_message_data(message_id, data)
             await view.cog.update_message(interaction.message, data)
-            await interaction.response.send_message(f"Sous-élément '{name}' ajouté à {element}.", ephemeral=True)
+            await interaction.followup.send(f"Sous-élément '{name}' ajouté à {element}.", ephemeral=True)
         except Exception as e:
-            await interaction.response.send_message(f"Une erreur est survenue: {str(e)}", ephemeral=True)
+            print(f"Erreur dans le callback du select: {str(e)}")
+            await interaction.followup.send(
+                "Une erreur est survenue lors de l'ajout du sous-élément.",
+                ephemeral=True
+            )
 
 class SousElementsView(discord.ui.View):
     def __init__(self, cog, character_name):
@@ -409,59 +416,51 @@ class SousElementsView(discord.ui.View):
         self.cog = cog
         self.character_name = character_name
         
-        # Charger les options avant de créer le select
-        options = self.load_subelement_options()
-        print(f"Options chargées: {options}")  # Débogage
-        if not options:
-            options = [
-                discord.SelectOption(
-                    label="Aucun sous-élément disponible",
-                    value="none|none",
-                    description="Contactez un MJ pour ajouter des sous-éléments"
-                )
-            ]
-        
-        self.add_item(SubElementSelect(options))
+        # Charger les options pour chaque élément
+        for i, element in enumerate(['Eau', 'Feu', 'Vent', 'Terre', 'Espace']):
+            options = self.load_subelement_options(element)
+            if not options:
+                options = [
+                    discord.SelectOption(
+                        label=f"Aucun sous-élément de {element}",
+                        value="none|none",
+                        description=f"Contactez un MJ pour ajouter des sous-éléments de {element}"
+                    )
+                ]
+            self.add_item(SubElementSelect(element, options))
 
-    def load_subelement_options(self):
+    def load_subelement_options(self, element_filter):
         try:
             worksheet = self.cog.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT_LIST')).sheet1
             all_data = worksheet.get_all_values()
-            print(f"Données brutes: {all_data}")  # Débogage
             
-            if not all_data:  # Si la feuille est complètement vide
-                print("Feuille vide")
+            if len(all_data) <= 1:
                 return []
-                
-            # Si pas d'en-têtes, on considère l'ordre par défaut
-            if len(all_data) == 1:
-                print("Seulement en-têtes")
-                return []
-                
-            # Les indices sont fixes puisque nous définissons les en-têtes
-            name_index = 0  # 'name' est toujours la première colonne
-            element_index = 1  # 'element' est toujours la deuxième colonne
+            
+            # Les indices sont fixes
+            name_index = 0
+            element_index = 1
             
             options = []
             for row in all_data[1:]:  # Skip header
                 if len(row) > max(name_index, element_index):
                     name = row[name_index].strip()
                     element = row[element_index].strip()
-                    if name and element:
-                        print(f"Ajout option: {name} ({element})")
+                    # Filtrer par élément
+                    if name and element and element == element_filter:
                         options.append(
                             discord.SelectOption(
                                 label=name,
                                 value=f"{element}|{name}",
-                                description=f"Élément: {element}"
+                                description=f"Sous-élément de {element}"
                             )
                         )
             
-            print(f"Total options chargées: {len(options)}")
+            print(f"Options chargées pour {element_filter}: {len(options)}")
             return options
             
         except Exception as e:
-            print(f"Erreur chargement sous-éléments: {e}")
+            print(f"Erreur chargement sous-éléments pour {element_filter}: {e}")
             import traceback
             traceback.print_exc()
             return []
