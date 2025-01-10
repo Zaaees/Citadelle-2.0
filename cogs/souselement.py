@@ -394,6 +394,7 @@ class SousElementsView(discord.ui.View):
         
         # Charger les options avant de créer le select
         options = self.load_subelement_options()
+        print(f"Options chargées: {options}")  # Débogage
         if not options:
             options = [
                 discord.SelectOption(
@@ -408,16 +409,23 @@ class SousElementsView(discord.ui.View):
     def load_subelement_options(self):
         try:
             worksheet = self.cog.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT_LIST')).sheet1
-            all_data = worksheet.get_all_values()[1:]  # Skip header
+            all_data = worksheet.get_all_values()
+            print(f"Données brutes: {all_data}")  # Débogage
             
-            if not all_data:  # Si la feuille est vide (sauf l'en-tête)
+            if len(all_data) <= 1:  # Si pas de données ou juste l'en-tête
                 return []
-                
+            
+            headers = all_data[0]  # Récupérer les en-têtes
+            name_index = headers.index('name') if 'name' in headers else 0
+            element_index = headers.index('element') if 'element' in headers else 1
+            
             options = []
-            for row in all_data:
-                if len(row) >= 2:  # Vérifier qu'on a au moins le nom et l'élément
-                    name, element = row[0], row[1]
-                    if name and element:  # Vérifier que les valeurs ne sont pas vides
+            for row in all_data[1:]:  # Skip header
+                if len(row) > max(name_index, element_index):
+                    name = row[name_index].strip()
+                    element = row[element_index].strip()
+                    if name and element:
+                        print(f"Ajout de l'option: {name} - {element}")  # Débogage
                         options.append(
                             discord.SelectOption(
                                 label=name,
@@ -425,9 +433,12 @@ class SousElementsView(discord.ui.View):
                                 description=f"Élément: {element}"
                             )
                         )
+            print(f"Options finales: {options}")  # Débogage
             return options
         except Exception as e:
-            print(f"Erreur lors du chargement des sous-éléments: {e}")
+            print(f"Erreur détaillée lors du chargement des sous-éléments: {str(e)}")
+            import traceback
+            traceback.print_exc()  # Afficher la stack trace complète
             return []
 
 async def setup(bot):
