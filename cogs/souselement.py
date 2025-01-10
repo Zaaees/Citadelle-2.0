@@ -49,26 +49,17 @@ class SelectSubElementModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer()
         
-        # Récupération du forum
-        forum_channel = interaction.guild.get_channel(FORUM_ID)
-        if not forum_channel:
-            await interaction.followup.send(
-                "Erreur : Impossible de trouver le forum. Contactez un administrateur.",
-                ephemeral=True
-            )
-            return
-            
-        # Récupération du thread via le forum
-        thread = forum_channel.get_thread(THREAD_CHANNELS[self.element])
-        if not thread:
-            await interaction.followup.send(
-                f"Erreur : Impossible de trouver le thread pour l'élément {self.element}. "
-                "Contactez un administrateur.",
-                ephemeral=True
-            )
-            return
-        
         try:
+            # Récupération directe du thread via l'ID
+            thread = await interaction.guild.fetch_channel(THREAD_CHANNELS[self.element])
+            if not thread:
+                await interaction.followup.send(
+                    f"Erreur : Impossible de trouver le thread pour l'élément {self.element}. "
+                    "Contactez un administrateur.",
+                    ephemeral=True
+                )
+                return
+
             embed = discord.Embed(
                 title=self.name.value,
                 description=f"**Définition :** {self.definition.value}\n\n"
@@ -77,7 +68,6 @@ class SelectSubElementModal(discord.ui.Modal):
                 color=0x8543f7
             )
             
-            # Envoi du message dans le thread existant
             await thread.send(embed=embed)
             
             data = {
