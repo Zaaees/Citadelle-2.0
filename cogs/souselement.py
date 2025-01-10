@@ -278,24 +278,41 @@ class SousElements(commands.Cog):
             print(f"Erreur mise à jour message: {e}")
 
     async def save_subelement(self, data):
-        # Nouvelle méthode pour sauvegarder un sous-élément dans la liste principale
-        worksheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT_LIST')).sheet1
-        row = [data['name'], data['element'], data['definition'], 
-               data['emotional_state'], data['emotional_desc']]
-        worksheet.append_row(row)
+        try:
+            worksheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT_LIST')).sheet1
+            
+            # Vérifier si la feuille est vide et ajouter les en-têtes si nécessaire
+            if not worksheet.get_all_values():
+                headers = ['name', 'element', 'definition', 'emotional_state', 'emotional_desc']
+                worksheet.append_row(headers)
+            
+            row = [data['name'], data['element'], data['definition'], 
+                   data['emotional_state'], data['emotional_desc']]
+            worksheet.append_row(row)
+        except Exception as e:
+            print(f"Erreur lors de la sauvegarde du sous-élément: {e}")
+            raise e
 
     @app_commands.command(name='ajouter-sous-element', description="Ajouter un nouveau sous-élément à la liste (MJ uniquement)")
     async def add_subelement(self, interaction: discord.Interaction):
-        if not interaction.user.get_role(MJ_ROLE_ID):
-            await interaction.response.send_message("Cette commande est réservée aux MJ.", ephemeral=True)
-            return
-            
-        view = AddSubElementView(self)
-        await interaction.response.send_message(
-            "Sélectionnez l'élément principal du sous-élément :", 
-            view=view, 
-            ephemeral=True
-        )
+        try:
+            if not interaction.user.get_role(MJ_ROLE_ID):
+                await interaction.response.send_message("Cette commande est réservée aux MJ.", ephemeral=True)
+                return
+                
+            view = AddSubElementView(self)
+            await interaction.response.send_message(
+                "Sélectionnez l'élément principal du sous-élément :", 
+                view=view, 
+                ephemeral=True
+            )
+        except Exception as e:
+            print(f"Erreur lors de l'ajout du sous-élément: {e}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Une erreur est survenue lors de l'ajout du sous-élément.",
+                    ephemeral=True
+                )
 
     @app_commands.command(name='sous-éléments', description="Créer un message pour gérer les sous-éléments d'un personnage")
     async def sous_elements(self, interaction: discord.Interaction, character_name: str):
@@ -412,12 +429,18 @@ class SousElementsView(discord.ui.View):
             all_data = worksheet.get_all_values()
             print(f"Données brutes: {all_data}")  # Débogage
             
-            if len(all_data) <= 1:  # Si pas de données ou juste l'en-tête
+            if not all_data:  # Si la feuille est complètement vide
+                print("Feuille vide")
                 return []
-            
-            headers = all_data[0]  # Récupérer les en-têtes
-            name_index = headers.index('name') if 'name' in headers else 0
-            element_index = headers.index('element') if 'element' in headers else 1
+                
+            # Si pas d'en-têtes, on considère l'ordre par défaut
+            if len(all_data) == 1:
+                print("Seulement en-têtes")
+                return []
+                
+            # Les indices sont fixes puisque nous définissons les en-têtes
+            name_index = 0  # 'name' est toujours la première colonne
+            element_index = 1  # 'element' est toujours la deuxième colonne
             
             options = []
             for row in all_data[1:]:  # Skip header
@@ -425,7 +448,7 @@ class SousElementsView(discord.ui.View):
                     name = row[name_index].strip()
                     element = row[element_index].strip()
                     if name and element:
-                        print(f"Ajout de l'option: {name} - {element}")  # Débogage
+                        print(f"Ajout option: {name} ({element})")
                         options.append(
                             discord.SelectOption(
                                 label=name,
@@ -433,12 +456,14 @@ class SousElementsView(discord.ui.View):
                                 description=f"Élément: {element}"
                             )
                         )
-            print(f"Options finales: {options}")  # Débogage
+            
+            print(f"Total options chargées: {len(options)}")
             return options
+            
         except Exception as e:
-            print(f"Erreur détaillée lors du chargement des sous-éléments: {str(e)}")
+            print(f"Erreur chargement sous-éléments: {e}")
             import traceback
-            traceback.print_exc()  # Afficher la stack trace complète
+            traceback.print_exc()
             return []
 
 async def setup(bot):
