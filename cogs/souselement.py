@@ -348,27 +348,43 @@ class SubElementSelect(discord.ui.Select):
             placeholder="Choisir un sous-élément à ajouter",
             custom_id="subelement_select",
             row=0,
-            options=options  # Passer les options directement au constructeur
+            options=options,
+            min_values=1,
+            max_values=1
         )
 
     async def callback(self, interaction: discord.Interaction):
-        element, name = self.values[0].split("|")
-        view = self.view
-        message_id = str(interaction.message.id)
-        data = view.cog.get_message_data(message_id)
-
-        if not data:
-            await interaction.response.send_message("Message data not found.", ephemeral=True)
+        if self.values[0] == "none|none":
+            await interaction.response.send_message(
+                "Aucun sous-élément n'est disponible pour le moment.", 
+                ephemeral=True
+            )
             return
 
-        if interaction.user.id != data['user_id']:
-            await interaction.response.send_message("Tu n'es pas autorisé à ajouter des sous-éléments.", ephemeral=True)
-            return
+        try:
+            element, name = self.values[0].split("|")
+            view = self.view
+            message_id = str(interaction.message.id)
+            data = view.cog.get_message_data(message_id)
 
-        data['elements'][element].append(name)
-        view.cog.save_message_data(message_id, data)
-        await view.cog.update_message(interaction.message, data)
-        await interaction.response.send_message(f"Sous-élément '{name}' ajouté à {element}.", ephemeral=True)
+            if not data:
+                await interaction.response.send_message("Message data not found.", ephemeral=True)
+                return
+
+            if interaction.user.id != data['user_id']:
+                await interaction.response.send_message("Tu n'es pas autorisé à ajouter des sous-éléments.", ephemeral=True)
+                return
+
+            if element not in data['elements']:
+                await interaction.response.send_message(f"Élément invalide: {element}", ephemeral=True)
+                return
+
+            data['elements'][element].append(name)
+            view.cog.save_message_data(message_id, data)
+            await view.cog.update_message(interaction.message, data)
+            await interaction.response.send_message(f"Sous-élément '{name}' ajouté à {element}.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"Une erreur est survenue: {str(e)}", ephemeral=True)
 
 class SousElementsView(discord.ui.View):
     def __init__(self, cog, character_name):
@@ -391,25 +407,24 @@ class SousElementsView(discord.ui.View):
 
     def load_subelement_options(self):
         try:
-            gc = gspread.authorize(Credentials.from_service_account_info(
-                eval(os.getenv('SERVICE_ACCOUNT_JSON')),
-                ['https://spreadsheets.google.com/feeds',
-                'https://www.googleapis.com/auth/spreadsheets',
-                'https://www.googleapis.com/auth/drive']
-            ))
-            worksheet = gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT_LIST')).sheet1
+            worksheet = self.cog.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT_LIST')).sheet1
             all_data = worksheet.get_all_values()[1:]  # Skip header
             
+            if not all_data:  # Si la feuille est vide (sauf l'en-tête)
+                return []
+                
             options = []
             for row in all_data:
-                name, element = row[0], row[1]
-                options.append(
-                    discord.SelectOption(
-                        label=name,
-                        value=f"{element}|{name}",
-                        description=f"Élément: {element}"
-                    )
-                )
+                if len(row) >= 2:  # Vérifier qu'on a au moins le nom et l'élément
+                    name, element = row[0], row[1]
+                    if name and element:  # Vérifier que les valeurs ne sont pas vides
+                        options.append(
+                            discord.SelectOption(
+                                label=name,
+                                value=f"{element}|{name}",
+                                description=f"Élément: {element}"
+                            )
+                        )
             return options
         except Exception as e:
             print(f"Erreur lors du chargement des sous-éléments: {e}")
