@@ -7,7 +7,8 @@ import gspread
 from google.oauth2.service_account import Credentials
 from dotenv import load_dotenv
 
-FORUM_CHANNELS = {
+FORUM_ID = 1137670941820846150
+THREAD_CHANNELS = {
     'Feu': 1137675742499573861,
     'Terre': 1137675703630970891,
     'Eau': 1137675658609303552,
@@ -48,31 +49,52 @@ class SelectSubElementModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer()
         
-        channel = interaction.guild.get_channel(FORUM_CHANNELS[self.element])
-        embed = discord.Embed(
-            title=self.name.value,
-            description=f"**Définition :** {self.definition.value}\n\n"
-                       f"**État émotionnel :** {self.emotional_state.value}\n"
-                       f"**Description :** {self.emotional_desc.value}",
-            color=0x8543f7
-        )
+        # Récupération du thread existant
+        thread_channel = interaction.guild.get_channel(THREAD_CHANNELS[self.element])
+        if not thread_channel:
+            await interaction.followup.send(
+                f"Erreur : Impossible de trouver le thread pour l'élément {self.element}. "
+                "Contactez un administrateur.",
+                ephemeral=True
+            )
+            return
         
-        thread = await channel.create_thread(
-            name=self.name.value,
-            embed=embed,
-            content=embed.description
-        )
-        
-        data = {
-            'name': self.name.value,
-            'element': self.element,
-            'definition': self.definition.value,
-            'emotional_state': self.emotional_state.value,
-            'emotional_desc': self.emotional_desc.value
-        }
-        await self.view.cog.save_subelement(data)
-        
-        await interaction.followup.send("Sous-élément ajouté avec succès!", ephemeral=True)
+        try:
+            embed = discord.Embed(
+                title=self.name.value,
+                description=f"**Définition :** {self.definition.value}\n\n"
+                           f"**État émotionnel :** {self.emotional_state.value}\n"
+                           f"**Description :** {self.emotional_desc.value}",
+                color=0x8543f7
+            )
+            
+            # Envoi du message dans le thread existant
+            await thread_channel.send(embed=embed)
+            
+            data = {
+                'name': self.name.value,
+                'element': self.element,
+                'definition': self.definition.value,
+                'emotional_state': self.emotional_state.value,
+                'emotional_desc': self.emotional_desc.value
+            }
+            await self.view.cog.save_subelement(data)
+            
+            await interaction.followup.send(
+                f"Sous-élément ajouté avec succès dans le thread {thread_channel.mention}!", 
+                ephemeral=True
+            )
+            
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "Je n'ai pas les permissions nécessaires pour envoyer des messages dans le thread.",
+                ephemeral=True
+            )
+        except Exception as e:
+            await interaction.followup.send(
+                f"Une erreur est survenue lors de l'envoi du message : {str(e)}",
+                ephemeral=True
+            )
 
 class ElementSelect(discord.ui.Select):
     def __init__(self):
