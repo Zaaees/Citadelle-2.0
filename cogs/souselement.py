@@ -320,8 +320,8 @@ class SousElements(commands.Cog):
 
     @app_commands.command(name='sous-éléments', description="Créer un message pour gérer les sous-éléments d'un personnage")
     async def sous_elements(self, interaction: discord.Interaction, character_name: str):
-        await interaction.response.defer()
         try:
+            # On reporte le defer après la création de la vue
             description = (
                 "# Sous-éléments :\n"
                 "** **\n"
@@ -338,11 +338,16 @@ class SousElements(commands.Cog):
             )
             embed = discord.Embed(
                 title=f"Sous-éléments de {character_name}", 
-                description=description, 
+                description=description,
                 color=0x8543f7
             )
         
             view = SousElementsView(self, character_name)
+            # Initialiser les menus avant d'envoyer le message
+            await view.setup_menus()
+            
+            # Maintenant on peut defer et envoyer le message
+            await interaction.response.defer()
             message = await interaction.followup.send(embed=embed, view=view)
 
             data = {
@@ -361,7 +366,17 @@ class SousElements(commands.Cog):
             self.save_message_data(message.id, data)
             self.bot.add_view(view, message_id=message.id)
         except Exception as e:
-            await interaction.followup.send(f"Une erreur est survenue: {e}", ephemeral=True)
+            # S'assurer que nous répondons toujours à l'interaction
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    f"Une erreur est survenue: {str(e)}", 
+                    ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    f"Une erreur est survenue: {str(e)}", 
+                    ephemeral=True
+                )
 
     async def get_all_subelements(self):
         current_time = int(time.time())
@@ -459,9 +474,10 @@ class SousElementsView(discord.ui.View):
         super().__init__(timeout=None)
         self.cog = cog
         self.character_name = character_name
-        self.setup_selects()
-
-    async def setup_selects(self):
+        # Supprimé: self.setup_selects()
+        
+    async def setup_menus(self):
+        """Initialise les menus de sélection de manière asynchrone"""
         elements_rows = {
             'Eau': 0, 'Feu': 1, 'Vent': 2, 'Terre': 3, 'Espace': 4
         }
