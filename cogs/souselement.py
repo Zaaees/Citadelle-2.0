@@ -6,6 +6,7 @@ import asyncio
 import gspread
 from google.oauth2.service_account import Credentials
 from dotenv import load_dotenv
+import time
 
 FORUM_ID = 1137670941820846150
 THREAD_CHANNELS = {
@@ -135,6 +136,9 @@ class SousElements(commands.Cog):
         self.bot = bot
         self.setup_google_sheets()
         self.setup_views()
+        self.subelements_cache = {}  # Cache pour les sous-éléments
+        self.last_cache_update = 0  # Timestamp de la dernière mise à jour du cache
+        self.cache_duration = 60  # Durée du cache en secondes
         
     def setup_google_sheets(self):
         scope = ['https://spreadsheets.google.com/feeds',
@@ -359,6 +363,46 @@ class SousElements(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"Une erreur est survenue: {e}", ephemeral=True)
 
+    async def get_all_subelements(self):
+        current_time = int(time.time())
+        
+        # Si le cache est encore valide, on l'utilise
+        if self.subelements_cache and (current_time - self.last_cache_update) < self.cache_duration:
+            return self.subelements_cache
+            
+        try:
+            worksheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT_LIST')).sheet1
+            all_data = worksheet.get_all_values()
+            
+            # Organiser les données par élément
+            elements_data = {
+                'Eau': [], 'Feu': [], 'Vent': [], 'Terre': [], 'Espace': []
+            }
+            
+            if len(all_data) > 1:  # S'il y a des données après l'en-tête
+                for row in all_data[1:]:
+                    if len(row) >= 2:
+                        name = row[0].strip()
+                        element = row[1].strip()
+                        if element in elements_data and name:
+                            elements_data[element].append({
+                                'name': name,
+                                'value': f"{element}|{name}",
+                                'description': f"Sous-élément de {element}"
+                            })
+            
+            # Mettre à jour le cache
+            self.subelements_cache = elements_data
+            self.last_cache_update = current_time
+            
+            return elements_data
+            
+        except Exception as e:
+            print(f"Erreur lors du chargement des sous-éléments: {e}")
+            return self.subelements_cache if self.subelements_cache else {
+                'Eau': [], 'Feu': [], 'Vent': [], 'Terre': [], 'Espace': []
+            }
+
 class SubElementSelect(discord.ui.Select):
     def __init__(self, element, options, row_number):  # Ajout du paramètre row_number
         super().__init__(
@@ -415,18 +459,25 @@ class SousElementsView(discord.ui.View):
         super().__init__(timeout=None)
         self.cog = cog
         self.character_name = character_name
-        
-        # Charger les options pour chaque élément
-        elements_rows = {  # Définir la ligne pour chaque élément
-            'Eau': 0,
-            'Feu': 1,
-            'Vent': 2,
-            'Terre': 3,
-            'Espace': 4
+        self.setup_selects()
+
+    async def setup_selects(self):
+        elements_rows = {
+            'Eau': 0, 'Feu': 1, 'Vent': 2, 'Terre': 3, 'Espace': 4
         }
         
+        all_subelements = await self.cog.get_all_subelements()
+        
         for element, row in elements_rows.items():
-            options = self.load_subelement_options(element)
+            options = [
+                discord.SelectOption(
+                    label=item['name'],
+                    value=item['value'],
+                    description=item['description']
+                )
+                for item in all_subelements[element]
+            ]
+            
             if not options:
                 options = [
                     discord.SelectOption(
@@ -435,43 +486,8 @@ class SousElementsView(discord.ui.View):
                         description=f"Contactez un MJ pour ajouter des sous-éléments de {element}"
                     )
                 ]
-            self.add_item(SubElementSelect(element, options, row))  # Passer le numéro de ligne
-
-    def load_subelement_options(self, element_filter):
-        try:
-            worksheet = self.cog.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT_LIST')).sheet1
-            all_data = worksheet.get_all_values()
             
-            if len(all_data) <= 1:
-                return []
-            
-            # Les indices sont fixes
-            name_index = 0
-            element_index = 1
-            
-            options = []
-            for row in all_data[1:]:  # Skip header
-                if len(row) > max(name_index, element_index):
-                    name = row[name_index].strip()
-                    element = row[element_index].strip()
-                    # Filtrer par élément
-                    if name and element and element == element_filter:
-                        options.append(
-                            discord.SelectOption(
-                                label=name,
-                                value=f"{element}|{name}",
-                                description=f"Sous-élément de {element}"
-                            )
-                        )
-            
-            print(f"Options chargées pour {element_filter}: {len(options)}")
-            return options
-            
-        except Exception as e:
-            print(f"Erreur chargement sous-éléments pour {element_filter}: {e}")
-            import traceback
-            traceback.print_exc()
-            return []
+            self.add_item(SubElementSelect(element, options, row))
 
 async def setup(bot):
     await bot.add_cog(SousElements(bot))
