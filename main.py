@@ -48,7 +48,6 @@ class CustomBot(commands.Bot):
         await self.load_extension('cogs.souselement')
         await self.load_extension('cogs.ticket')
         await self.load_extension('cogs.validation')
-        await self.load_extension('cogs.stats')  # Nouvelle ligne
 
         # Synchroniser les commandes
         await self.tree.sync()
