@@ -22,18 +22,45 @@ class Stats(commands.Cog):
         await interaction.response.defer()
         
         lengths = []
+        total_channels = len(interaction.guild.text_channels)
         progress_message = await interaction.followup.send("Analyse en cours... Veuillez patienter.")
         
+        update_threshold = 1000  # Mettre à jour tous les 1000 messages
+        last_update = 0
+        current_channel = ""
+        
         # Analyser tous les canaux textuels du serveur
-        for channel in interaction.guild.text_channels:
+        for idx, channel in enumerate(interaction.guild.text_channels, 1):
             try:
+                current_channel = channel.name
                 async for message in channel.history(limit=None):
-                    if message.content and not message.author.bot:  # Ignorer messages vides et messages de bots
+                    if message.content and not message.author.bot:
                         lengths.append(len(message.content))
-                await progress_message.edit(content=f"Analyse en cours... {len(lengths)} messages analysés.")
+                        
+                        # Mettre à jour le message de progression moins fréquemment
+                        if len(lengths) - last_update >= update_threshold:
+                            await progress_message.edit(content=(
+                                f"Analyse en cours...\n"
+                                f"Canal actuel ({idx}/{total_channels}) : {current_channel}\n"
+                                f"Messages analysés : {len(lengths)}"
+                            ))
+                            last_update = len(lengths)
+                            
             except discord.Forbidden:
-                continue  # Ignorer les canaux inaccessibles
-            
+                print(f"Accès refusé au canal : {channel.name}")
+                continue
+            except Exception as e:
+                print(f"Erreur dans le canal {channel.name}: {str(e)}")
+                continue
+
+        # Message final avant l'analyse
+        await progress_message.edit(content=(
+            f"Analyse terminée !\n"
+            f"Canaux analysés : {idx}/{total_channels}\n"
+            f"Total messages : {len(lengths)}\n"
+            f"Génération du graphique en cours..."
+        ))
+
         if not lengths:
             await progress_message.edit(content="Aucun message trouvé pour l'analyse.")
             return
