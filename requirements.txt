@@ -7,3 +7,5 @@ google-api-python-client
 gspread==3.7.0
 pytz
 oauth2client
+numpy
+matplotlib
