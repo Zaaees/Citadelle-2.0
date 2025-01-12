@@ -9,31 +9,215 @@ from google.oauth2.service_account import Credentials as ServiceAccountCredentia
 TROUBLES = [
     {
         "nom": "Trouble de l'anxiété généralisée",
-        "lien": "https://www.psychologies.com/Dico-Psycho/Anxiete-generalisee"
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_anxieux_g%C3%A9n%C3%A9ralis%C3%A9"
     },
     {
         "nom": "Trouble obsessionnel compulsif",
-        "lien": "https://www.psychologies.com/Dico-Psycho/TOC-trouble-obsessionnel-compulsif"
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_obsessionnel_compulsif"
     },
     {
         "nom": "Trouble de la personnalité borderline",
-        "lien": "https://www.psychologies.com/Dico-Psycho/Borderline"
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_de_la_personnalit%C3%A9_borderline"
     },
     {
         "nom": "Syndrome de stress post-traumatique",
-        "lien": "https://www.psychologies.com/Dico-Psycho/Stress-post-traumatique"
+        "lien": "https://fr.wikipedia.org/wiki/État_de_stress_post-traumatique"
     },
     {
         "nom": "Trouble bipolaire",
-        "lien": "https://www.psychologies.com/Dico-Psycho/Bipolarite"
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_bipolaire"
     },
     {
         "nom": "Trouble dissociatif de l'identité",
-        "lien": "https://www.psychologies.com/Dico-Psycho/Trouble-dissociatif-de-l-identite"
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_dissociatif_de_l%27identit%C3%A9"
     },
     {
         "nom": "Trouble du contrôle des impulsions",
-        "lien": "https://www.psychologies.com/Dico-Psycho/Impulsivite"
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_du_contrôle_des_impulsions"
+    },
+    {
+        "nom": "Dépression majeure",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_dépressif_caractérisé"
+    },
+    {
+        "nom": "Schizophrénie",
+        "lien": "https://fr.wikipedia.org/wiki/Schizophrénie"
+    },
+    {
+        "nom": "Trouble panique",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_panique"
+    },
+    {
+        "nom": "Trouble du déficit de l'attention avec hyperactivité",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_du_déficit_de_l%27attention_avec_ou_sans_hyperactivité"
+    },
+    {
+        "nom": "Anorexie mentale",
+        "lien": "https://fr.wikipedia.org/wiki/Anorexie_mentale"
+    },
+    {
+        "nom": "Boulimie",
+        "lien": "https://fr.wikipedia.org/wiki/Boulimie"
+    },
+    {
+        "nom": "Trouble de la personnalité narcissique",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_de_la_personnalité_narcissique"
+    },
+    {
+        "nom": "Trouble de la personnalité antisociale",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_de_la_personnalité_antisociale"
+    },
+    {
+        "nom": "Agoraphobie",
+        "lien": "https://fr.wikipedia.org/wiki/Agoraphobie"
+    },
+    {
+        "nom": "Phobie sociale",
+        "lien": "https://fr.wikipedia.org/wiki/Phobie_sociale"
+    },
+    {
+        "nom": "Trouble du spectre de l'autisme",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_du_spectre_de_l%27autisme"
+    },
+    {
+        "nom": "Trouble dysphorique prémenstruel",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_dysphorique_prémenstruel"
+    },
+    {
+        "nom": "Kleptomanie",
+        "lien": "https://fr.wikipedia.org/wiki/Kleptomanie"
+    },
+    {
+        "nom": "Trichotillomanie",
+        "lien": "https://fr.wikipedia.org/wiki/Trichotillomanie"
+    },
+    {
+        "nom": "Trouble de la personnalité histrionique",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_de_la_personnalité_histrionique"
+    },
+    {
+        "nom": "Trouble de la personnalité évitante",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_de_la_personnalité_évitante"
+    },
+    {
+        "nom": "Trouble de la personnalité dépendante",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_de_la_personnalité_dépendante"
+    },
+    {
+        "nom": "Trouble de la personnalité paranoïaque",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_de_la_personnalité_paranoïaque"
+    },
+    {
+        "nom": "Trouble de la personnalité schizoïde",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_de_la_personnalité_schizoïde"
+    },
+    {
+        "nom": "Trouble de la personnalité schizotypique",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_de_la_personnalité_schizotypique"
+    },
+    {
+        "nom": "Trouble du comportement alimentaire non spécifié",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_des_conduites_alimentaires_non_spécifié"
+    },
+    {
+        "nom": "Trouble d'hyperphagie boulimique",
+        "lien": "https://fr.wikipedia.org/wiki/Hyperphagie_boulimique"
+    },
+    {
+        "nom": "Trouble de l'adaptation",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_de_l%27adaptation"
+    },
+    {
+        "nom": "Trouble de la communication sociale",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_de_la_communication_sociale"
+    },
+    {
+        "nom": "Trouble du développement de la coordination",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_développemental_de_la_coordination"
+    },
+    {
+        "nom": "Trouble spécifique des apprentissages",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_spécifique_des_apprentissages"
+    },
+    {
+        "nom": "Trouble de la régulation émotionnelle",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_de_la_régulation_émotionnelle"
+    },
+    {
+        "nom": "Trouble de l'attachement",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_de_l%27attachement"
+    },
+    {
+        "nom": "Trouble du sommeil",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_du_sommeil"
+    },
+    {
+        "nom": "Trouble de stress aigu",
+        "lien": "https://fr.wikipedia.org/wiki/État_de_stress_aigu"
+    },
+    {
+        "nom": "Trouble de conversion",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_de_conversion"
+    },
+    {
+        "nom": "Trouble factice",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_factice"
+    },
+    {
+        "nom": "Trouble de l'identité sexuelle",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_de_l%27identité_sexuelle"
+    },
+    {
+        "nom": "Trouble de la préférence sexuelle",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_de_la_préférence_sexuelle"
+    },
+    {
+        "nom": "Trouble de l'excitation sexuelle",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_de_l%27excitation_sexuelle"
+    },
+    {
+        "nom": "Trouble dysthymique",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_dysthymique"
+    },
+    {
+        "nom": "Trouble cyclothymique",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_cyclothymique"
+    },
+    {
+        "nom": "Trouble de la personnalité obsessionnelle-compulsive",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_de_la_personnalité_obsessionnelle-compulsive"
+    },
+    {
+        "nom": "Trouble oppositionnel avec provocation",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_oppositionnel_avec_provocation"
+    },
+    {
+        "nom": "Trouble explosif intermittent",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_explosif_intermittent"
+    },
+    {
+        "nom": "Trouble de l'usage de substances",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_de_l%27usage_d%27une_substance"
+    },
+    {
+        "nom": "Trouble neurocognitif",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_neurocognitif"
+    },
+    {
+        "nom": "Trouble somatoforme",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_somatoforme"
+    },
+    {
+        "nom": "Trouble délirant",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_délirant"
+    },
+    {
+        "nom": "Trouble catatonique",
+        "lien": "https://fr.wikipedia.org/wiki/Catatonie"
+    },
+    {
+        "nom": "Trouble de la personnalité mixte",
+        "lien": "https://fr.wikipedia.org/wiki/Trouble_de_la_personnalité_mixte"
     }
 ]
 
