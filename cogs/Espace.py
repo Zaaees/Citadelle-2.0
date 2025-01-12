@@ -44,37 +44,50 @@ class Espace(commands.Cog):
     async def espace(self, interaction: discord.Interaction, personnage: str = None):
         await interaction.response.defer()
         
-        # Récupérer toutes les données
         troubles_data = self.sheet.get_all_values()
         
         if not personnage:
-            # Afficher tous les troubles de l'utilisateur
-            user_troubles = [row for row in troubles_data if row[0] == str(interaction.user.id)]
-            if not user_troubles:
+            # Regrouper les troubles par personnage
+            user_troubles_dict = {}
+            for row in troubles_data:
+                if row[0] == str(interaction.user.id):
+                    if row[1] not in user_troubles_dict:
+                        user_troubles_dict[row[1]] = []
+                    user_troubles_dict[row[1]].append(row[2])
+            
+            if not user_troubles_dict:
                 await interaction.followup.send("Vous n'avez aucun personnage avec des troubles.")
                 return
                 
             embed = discord.Embed(title="Troubles psychologiques de vos personnages", color=0x2F3136)
-            for row in user_troubles:
-                embed.add_field(name=row[1], value=row[2], inline=False)
+            for perso, troubles in user_troubles_dict.items():
+                embed.add_field(name=perso, value="\n".join([f"• {t}" for t in troubles]), inline=False)
             await interaction.followup.send(embed=embed)
             return
 
-        # Récupérer les troubles existants du personnage
+        # Normaliser le nom du personnage (mettre en minuscule pour la comparaison)
+        personnage_norm = personnage.lower()
+        
+        # Récupérer tous les troubles existants du personnage
         existing_troubles = [row[2] for row in troubles_data 
                            if row[0] == str(interaction.user.id) 
-                           and row[1].lower() == personnage.lower()]
+                           and row[1].lower() == personnage_norm]
 
         # Calculer les troubles disponibles
         available_troubles = [t for t in TROUBLES if t not in existing_troubles]
         
         if not available_troubles:
-            await interaction.followup.send(f"**{personnage}** a déjà tous les troubles possibles !")
+            troubles_list = "\n".join([f"• {t}" for t in existing_troubles])
+            await interaction.followup.send(f"**{personnage}** a déjà tous les troubles possibles !\n\nTroubles actuels :\n{troubles_list}")
             return
 
         # Déterminer si le personnage développe un nouveau trouble (1 chance sur 5)
         if random.randint(1, 5) != 1:
-            await interaction.followup.send(f"**{personnage}** ne développe pas de nouveau trouble psychologique.")
+            if existing_troubles:
+                troubles_list = "\n".join([f"• {t}" for t in existing_troubles])
+                await interaction.followup.send(f"**{personnage}** ne développe pas de nouveau trouble psychologique.\n\nTroubles actuels :\n{troubles_list}")
+            else:
+                await interaction.followup.send(f"**{personnage}** ne développe pas de trouble psychologique.")
             return
 
         # Attribuer un nouveau trouble aléatoire parmi ceux disponibles
@@ -83,13 +96,10 @@ class Espace(commands.Cog):
         # Ajouter à la feuille
         self.sheet.append_row([str(interaction.user.id), personnage, nouveau_trouble])
         
-        # Créer le message de réponse
-        if existing_troubles:
-            message = f"**{personnage}** développe un nouveau trouble : {nouveau_trouble}\n"
-            message += f"Troubles actuels : {', '.join(existing_troubles + [nouveau_trouble])}"
-        else:
-            message = f"**{personnage}** développe le trouble suivant : {nouveau_trouble}"
-            
+        # Créer le message de réponse avec la liste complète des troubles
+        troubles_list = "\n".join([f"• {t}" for t in existing_troubles + [nouveau_trouble]])
+        message = f"**{personnage}** développe un nouveau trouble : {nouveau_trouble}\n\nTroubles actuels :\n{troubles_list}"
+        
         await interaction.followup.send(message)
 
     @espace.error
