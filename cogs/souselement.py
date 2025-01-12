@@ -367,7 +367,12 @@ class SousElements(commands.Cog):
                     if message_id:
                         forum = self.bot.get_channel(FORUM_ID)
                         if forum:
-                            thread = forum.get_thread_channel(THREAD_CHANNELS[element])
+                            # Modification ici : Chercher le thread directement
+                            thread = None
+                            threads = [t for t in forum.threads if t.id == THREAD_CHANNELS[element]]
+                            if threads:
+                                thread = threads[0]
+                                
                             if thread:
                                 try:
                                     message = await thread.fetch_message(message_id)
@@ -384,7 +389,6 @@ class SousElements(commands.Cog):
                                         new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by}"
                                         embed.description = new_desc
                                         
-                                        # Éditer le message au lieu de le reposter
                                         await message.edit(embed=embed)
                                         
                                 except discord.NotFound:
@@ -690,7 +694,12 @@ class RemoveSubElementSelect(discord.ui.Select):
                 # Mise à jour dans le thread des sous-éléments
                 forum = interaction.guild.get_channel(FORUM_ID)
                 if forum:
-                    thread = forum.get_thread_channel(THREAD_CHANNELS[element])
+                    # Modification ici : Chercher le thread directement
+                    thread = None
+                    threads = [t for t in forum.threads if t.id == THREAD_CHANNELS[element]]
+                    if threads:
+                        thread = threads[0]
+                        
                     if thread:
                         async for message in thread.history():
                             if message.embeds and message.embeds[0].title == subelement:
@@ -827,7 +836,12 @@ class SubElementSelect(discord.ui.Select):
                 # Mettre à jour l'embed du sous-élément dans le thread correspondant
                 forum = interaction.guild.get_channel(FORUM_ID)
                 if forum:
-                    thread = forum.get_thread_channel(THREAD_CHANNELS[element])
+                    # Modification ici : Chercher le thread directement
+                    thread = None
+                    threads = [t for t in forum.threads if t.id == THREAD_CHANNELS[element]]
+                    if threads:
+                        thread = threads[0]
+                        
                     if thread:
                         async for message in thread.history():
                             if message.embeds and message.embeds[0].title == name:
@@ -841,7 +855,8 @@ class SubElementSelect(discord.ui.Select):
                                 else:
                                     # Supprimer les tirets et les retours à la ligne
                                     current_users = [u.strip('- \n') for u in used_by_text.split(',')]
-                                    current_users.append(data['character_name'])
+                                    if data['character_name'] not in current_users:
+                                        current_users.append(data['character_name'])
                                     used_by_text = ", ".join(current_users)
                                 
                                 new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by_text}"
