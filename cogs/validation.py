@@ -343,6 +343,25 @@ class Validation(commands.Cog):
         self.sheet.update_cell(cell.row, 4, str(message.id))
 
     @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        # Ignorer les messages du bot
+        if message.author.bot:
+            return
+            
+        # Vérifier si c'est un salon de validation
+        if not isinstance(message.channel, discord.TextChannel) or not message.channel.name.startswith("【🎭】"):
+            return
+            
+        # Vérifier si le message contient un lien Google Docs
+        if "https://docs.google.com/" in message.content:
+            try:
+                await message.pin()
+            except discord.Forbidden:
+                print(f"Impossible d'épingler le message dans {message.channel.name}: Permission manquante")
+            except discord.HTTPException as e:
+                print(f"Erreur lors de l'épinglage du message: {e}")
+
+    @commands.Cog.listener()
     async def on_guild_channel_update(self, before, after):
         # Vérifie si c'est un canal texte et si le nom a été modifié
         if isinstance(after, discord.TextChannel):
