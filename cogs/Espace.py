@@ -40,7 +40,7 @@ class Espace(commands.Cog):
             return None
 
     @app_commands.command(name="espace", description="Détermine ou consulte les troubles psychologiques d'un personnage")
-    @app_commands.checks.has_role('1328059488615534683')
+    @app_commands.checks.has_role(1328059488615534683)  # Changement ici: suppression des guillemets
     async def espace(self, interaction: discord.Interaction, personnage: str = None):
         await interaction.response.defer()
         
