@@ -18,6 +18,7 @@ THREAD_CHANNELS = {
 }
 
 MJ_ROLE_ID = 1018179623886000278
+ALLOWED_CATEGORY_ID = 1020820787583799358
 
 class SubElementModal(discord.ui.Modal):
     def __init__(self, cog, element):
@@ -372,7 +373,14 @@ class SousElements(commands.Cog):
                                         desc_parts = embed.description.split("**Utilisé par :**")
                                         new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by}"
                                         embed.description = new_desc
-                                        await message.edit(embed=embed)
+                                        
+                                        # Reposter le message et supprimer l'ancien
+                                        new_message = await thread.send(embed=embed)
+                                        await message.delete()
+                                        
+                                        # Mettre à jour l'ID du message dans la base de données
+                                        worksheet.update_cell(idx, 9, str(new_message.id))
+                                        
                                 except discord.NotFound:
                                     print(f"Message {message_id} non trouvé dans le thread {element}")
                     break
@@ -421,6 +429,13 @@ class SousElements(commands.Cog):
     @app_commands.command(name='sous-éléments', description="Créer un message pour gérer les sous-éléments d'un personnage")
     async def sous_elements(self, interaction: discord.Interaction, character_name: str):
         try:
+            if interaction.channel.category_id != ALLOWED_CATEGORY_ID:
+                await interaction.response.send_message(
+                    "Cette commande ne peut être utilisée que dans la catégorie appropriée.",
+                    ephemeral=True
+                )
+                return
+            
             await interaction.response.defer()
             
             description = (
@@ -576,12 +591,125 @@ class AddSubElementButton(discord.ui.Button):
             ephemeral=True
         )
 
+class RemoveSubElementSelect(discord.ui.Select):
+    def __init__(self, data):
+        options = []
+        for element, subelements in data['elements'].items():
+            for subelement in subelements:
+                options.append(
+                    discord.SelectOption(
+                        label=subelement,
+                        value=f"{element}|{subelement}",
+                        description=f"Sous-élément de {element}"
+                    )
+                )
+        
+        if not options:
+            options = [
+                discord.SelectOption(
+                    label="Aucun sous-élément",
+                    value="none",
+                    description="Vous n'avez aucun sous-élément à supprimer"
+                )
+            ]
+            
+        super().__init__(
+            placeholder="Choisissez un sous-élément à supprimer",
+            options=options,
+            min_values=1,
+            max_values=1
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        if self.values[0] == "none":
+            await interaction.response.send_message(
+                "Vous n'avez aucun sous-élément à supprimer.",
+                ephemeral=True
+            )
+            return
+
+        element, subelement = self.values[0].split("|")
+        view: SousElementsView = self.view
+        data = view.cog.get_message_data(str(interaction.message.id))
+
+        if subelement in data['elements'][element]:
+            data['elements'][element].remove(subelement)
+            view.cog.save_message_data(str(interaction.message.id), data)
+            
+            # Mise à jour du message principal
+            await view.cog.update_message(interaction.message, data)
+            
+            # Mise à jour dans le thread des sous-éléments
+            forum = interaction.guild.get_channel(FORUM_ID)
+            if forum:
+                thread = forum.get_thread(THREAD_CHANNELS[element])
+                if thread:
+                    async for message in thread.history():
+                        if message.embeds and message.embeds[0].title == subelement:
+                            embed = message.embeds[0]
+                            desc_parts = embed.description.split("**Utilisé par :**")
+                            used_by_text = desc_parts[1].strip() if len(desc_parts) > 1 else ""
+                            
+                            current_users = [u.strip() for u in used_by_text.split(",") if u.strip() != "-" and u.strip() != data['character_name']]
+                            used_by_text = ", ".join(current_users) if current_users else "-"
+                            
+                            new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by_text}"
+                            embed.description = new_desc
+                            new_message = await thread.send(embed=embed)
+                            await message.delete()
+                            break
+            
+            # Mise à jour de la base de données
+            await view.cog.update_subelement_users(
+                element,
+                subelement,
+                interaction.user.id,
+                data['character_name'],
+                adding=False
+            )
+            
+            await interaction.response.send_message(
+                f"Le sous-élément '{subelement}' a été supprimé de votre liste.",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                f"Ce sous-élément n'est pas dans votre liste.",
+                ephemeral=True
+            )
+
+class RemoveSubElementButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(
+            style=discord.ButtonStyle.danger,
+            label="Supprimer sous-élément",
+            custom_id="remove_subelement"
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        message_data = self.view.cog.get_message_data(str(interaction.message.id))
+        if not message_data or interaction.user.id != message_data['user_id']:
+            await interaction.response.send_message(
+                "Tu n'es pas autorisé à modifier ces sous-éléments.",
+                ephemeral=True
+            )
+            return
+
+        view = discord.ui.View(timeout=60)
+        view.add_item(RemoveSubElementSelect(message_data))
+        await interaction.response.send_message(
+            "Sélectionnez le sous-élément à supprimer :",
+            view=view,
+            ephemeral=True
+        )
+
 class SousElementsView(discord.ui.View):
     def __init__(self, cog, character_name):
         super().__init__(timeout=None)
         self.cog = cog
         self.character_name = character_name
         self.add_item(AddSubElementButton())
+        self.add_item(RemoveSubElementButton())
 
 class SubElementSelect(discord.ui.Select):
     def __init__(self, element, options, row_number, main_message_id, user_id):
