@@ -287,22 +287,22 @@ class SousElements(commands.Cog):
         try:
             def format_elements(elements):
                 if not elements:
-                    return "-\n"
-                return ''.join(f'- {item}\n' for item in elements)
+                    return "-\n\n"  # Ajout d'un saut de ligne supplémentaire
+                return ''.join(f'- {item}\n' for item in elements) + '\n'  # Ajout d'un saut de ligne à la fin
 
             description = (
                 "# Sous-éléments :\n"
                 "** **\n"
                 "## __Eau :__\n"
-                f"{format_elements(data['elements']['Eau'])}\n"
+                f"{format_elements(data['elements']['Eau'])}"
                 "## __Feu :__\n"
-                f"{format_elements(data['elements']['Feu'])}\n"
+                f"{format_elements(data['elements']['Feu'])}"
                 "## __Vent :__\n"
-                f"{format_elements(data['elements']['Vent'])}\n"
+                f"{format_elements(data['elements']['Vent'])}"
                 "## __Terre :__\n"
-                f"{format_elements(data['elements']['Terre'])}\n"
+                f"{format_elements(data['elements']['Terre'])}"
                 "## __Espace :__\n"
-                f"{format_elements(data['elements']['Espace'])}\n"
+                f"{format_elements(data['elements']['Espace'])}"
             )
             
             embed = discord.Embed(
@@ -752,7 +752,7 @@ class AddSubElementProcess:
         
         success_embed = discord.Embed(
             title="Sous-élément créé !",
-            description=f"Le sous-élément a été ajouté avec succès dans {thread.mention}",
+            description=f"Le sous-élément **{self.data['name']}** a été ajouté avec succès dans le salon {thread.mention}",
             color=0x00FF00
         )
         await self.current_message.edit(embed=success_embed)
