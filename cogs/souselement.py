@@ -612,23 +612,25 @@ class AddSubElementButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        # Récupérer les données du message pour vérifier le propriétaire
         message_data = self.view.cog.get_message_data(str(interaction.message.id))
         if not message_data or interaction.user.id != message_data['user_id']:
-            await interaction.response.send_message(
+            response = await interaction.response.send_message(
                 "Tu n'es pas autorisé à modifier ces sous-éléments.",
                 ephemeral=True
             )
+            await asyncio.sleep(2)  # Attendre 5 secondes
+            await response.delete()
             return
 
         await interaction.response.defer(ephemeral=True)
         select_view = SubElementSelectView(self.view.cog, interaction.message.id, interaction.user.id)
         await select_view.setup_menus()
-        await interaction.followup.send(
+        response = await interaction.followup.send(
             "Sélectionnez un sous-élément à ajouter :",
             view=select_view,
             ephemeral=True
         )
+        # Le message sera supprimé après utilisation dans le callback du SubElementSelect
 
 class RemoveSubElementSelect(discord.ui.Select):
     def __init__(self, data, cog):  # Ajout du cog comme paramètre
@@ -664,10 +666,12 @@ class RemoveSubElementSelect(discord.ui.Select):
         await interaction.response.defer(ephemeral=True)  # Ajouter defer pour éviter l'erreur 404
         
         if self.values[0] == "none":
-            await interaction.followup.send(
+            response = await interaction.followup.send(
                 "Vous n'avez aucun sous-élément à supprimer.",
                 ephemeral=True
             )
+            await asyncio.sleep(2)
+            await response.delete()
             return
 
         try:
@@ -712,21 +716,27 @@ class RemoveSubElementSelect(discord.ui.Select):
                     adding=False
                 )
                 
-                await interaction.followup.send(
+                response = await interaction.followup.send(
                     f"Le sous-élément '{subelement}' a été supprimé de votre liste.",
                     ephemeral=True
                 )
+                await asyncio.sleep(2)
+                await response.delete()
             else:
-                await interaction.followup.send(
+                response = await interaction.followup.send(
                     f"Ce sous-élément n'est pas dans votre liste.",
                     ephemeral=True
                 )
+                await asyncio.sleep(2)
+                await response.delete()
         except Exception as e:
             print(f"Erreur lors de la suppression du sous-élément: {e}")
-            await interaction.followup.send(
+            response = await interaction.followup.send(
                 "Une erreur est survenue lors de la suppression du sous-élément.",
                 ephemeral=True
             )
+            await asyncio.sleep(2)
+            await response.delete()
 
 class RemoveSubElementButton(discord.ui.Button):
     def __init__(self):
@@ -739,20 +749,23 @@ class RemoveSubElementButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         message_data = self.view.cog.get_message_data(str(interaction.message.id))
         if not message_data or interaction.user.id != message_data['user_id']:
-            await interaction.response.send_message(
+            response = await interaction.response.send_message(
                 "Tu n'es pas autorisé à modifier ces sous-éléments.",
                 ephemeral=True
             )
+            await asyncio.sleep(2)
+            await response.delete()
             return
 
         view = discord.ui.View(timeout=60)
         # Passer le cog au select
         view.add_item(RemoveSubElementSelect(message_data, self.view.cog))
-        await interaction.response.send_message(
+        response = await interaction.response.send_message(
             "Sélectionnez le sous-élément à supprimer :",
             view=view,
             ephemeral=True
         )
+        # Le message sera supprimé après utilisation dans le callback du RemoveSubElementSelect
 
 class SousElementsView(discord.ui.View):
     def __init__(self, cog, character_name):
@@ -778,19 +791,23 @@ class SubElementSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message(
+            response = await interaction.response.send_message(
                 "Tu n'es pas autorisé à modifier ces sous-éléments.",
                 ephemeral=True
             )
+            await asyncio.sleep(2)
+            await response.delete()
             return
 
         await interaction.response.defer(ephemeral=True)
         
         if self.values[0] == "none|none":
-            await interaction.followup.send(
+            response = await interaction.followup.send(
                 f"Aucun sous-élément de {self.element_type} n'est disponible pour le moment.", 
                 ephemeral=True
             )
+            await asyncio.sleep(2)
+            await response.delete()
             return
 
         try:
@@ -844,22 +861,28 @@ class SubElementSelect(discord.ui.Select):
                     adding=True
                 )
                 
-                await interaction.followup.send(
+                response = await interaction.followup.send(
                     f"Sous-élément '{name}' ajouté à {element}.", 
                     ephemeral=True
                 )
+                await asyncio.sleep(2)
+                await response.delete()
             else:
-                await interaction.followup.send(
+                response = await interaction.followup.send(
                     f"Le sous-élément '{name}' est déjà dans votre liste.", 
                     ephemeral=True
                 )
+                await asyncio.sleep(2)
+                await response.delete()
 
         except Exception as e:
             print(f"Erreur dans le callback du select: {str(e)}")
-            await interaction.followup.send(
+            response = await interaction.followup.send(
                 "Une erreur est survenue lors de l'ajout du sous-élément.",
                 ephemeral=True
             )
+            await asyncio.sleep(2)
+            await response.delete()
 
 class AddSubElementProcess:
     def __init__(self, bot, interaction, element, cog):
