@@ -687,7 +687,7 @@ class AddSubElementProcess:
         self.bot = bot
         self.interaction = interaction
         self.element = element
-        self.cog = cog  # Store cog reference
+        self.cog = cog
         self.data = {
             'name': None,
             'definition': None,
@@ -698,10 +698,11 @@ class AddSubElementProcess:
         }
         self.questions = [
             ("name", "Quel est le nom du sous-élément ?"),
-            ("definition", "Quelle est la définition du sous-élément ?"),
+            ("definition", "Quelle est la définition scientifique du sous-élément ?"),
             ("emotional_state", "Quel est l'état émotionnel associé ?"),
             ("emotional_desc", "Quelle est la description de cet état émotionnel ?"),
-            ("discovered_by", "Qui a découvert ce sous-élément ? (format: ID|Nom du personnage)"),
+            ("discovered_by", "Qui a découvert ce sous-élément ? (mentionnez le joueur)"),
+            ("character_name", "Quel est le nom du personnage qui a découvert ce sous-élément ?"),
         ]
         self.current_message = None
         self.current_question = 0
@@ -744,20 +745,17 @@ class AddSubElementProcess:
             
             if field == "discovered_by":
                 try:
-                    user_id, char_name = response.content.split('|')
-                    user_id = int(user_id.strip())
-                    char_name = char_name.strip()
+                    # Extraire l'ID de la mention
+                    mentioned_id = int(''.join(filter(str.isdigit, response.content)))
+                    discoverer = await self.interaction.guild.fetch_member(mentioned_id)
                     
-                    # Vérifier si l'utilisateur existe
-                    discoverer = await self.interaction.guild.fetch_member(user_id)
                     if not discoverer:
-                        await self.handle_error("Utilisateur introuvable. Format attendu: ID|Nom du personnage")
+                        await self.handle_error("Utilisateur introuvable. Veuillez mentionner un utilisateur valide.")
                         return
                         
                     self.data['discovered_by'] = discoverer
-                    self.data['character_name'] = char_name
                 except ValueError:
-                    await self.handle_error("Format incorrect. Utilisez le format: ID|Nom du personnage")
+                    await self.handle_error("Format incorrect. Veuillez mentionner l'utilisateur (@User).")
                     return
             else:
                 self.data[field] = response.content
