@@ -66,7 +66,7 @@ class SelectSubElementModal(discord.ui.Modal):
                 description=f"**Définition :** {self.definition.value}\n\n"
                            f"**État émotionnel :** {self.emotional_state.value}\n"
                            f"**Description :** {self.emotional_desc.value}",
-                color=0x8543f7
+                color=0x6d5380
             )
             
             await thread.send(embed=embed)
@@ -275,7 +275,7 @@ class SousElements(commands.Cog):
             embed = discord.Embed(
                 title=f"Sous-éléments de {data['character_name']}", 
                 description=description,
-                color=0x8543f7
+                color=0x6d5380
             )
             await message.edit(embed=embed)
         except Exception as e:
@@ -347,7 +347,7 @@ class SousElements(commands.Cog):
             embed = discord.Embed(
                 title=f"Sous-éléments de {character_name}", 
                 description=description,
-                color=0x8543f7
+                color=0x6d5380
             )
         
             view = SousElementsView(self, character_name)

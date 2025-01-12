@@ -78,7 +78,7 @@ class RPTracker(commands.Cog):
 
         recent_channels, old_channels = await self.get_active_channels()
 
-        embed = discord.Embed(title="Salons RP actifs ces 7 derniers jours", color=0x8543f7)
+        embed = discord.Embed(title="Salons RP actifs ces 7 derniers jours", color=0x6d5380)
     
         if recent_channels:
             recent_content = "\n".join([f"• {channel.mention} - {self.format_time_ago(last_activity)}" for channel, last_activity in recent_channels])

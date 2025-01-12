@@ -31,7 +31,7 @@ class VocabulaireView(View):
         await interaction.followup.send("## Voici 5 mots aléatoires :")
     
         for mot, info in mots:
-            embed = discord.Embed(title=mot.upper(), color=0x8543f7)
+            embed = discord.Embed(title=mot.upper(), color=0x6d5380)
             embed.add_field(name="Définition", value=info['definition'], inline=False)
             embed.add_field(name="Extrait", value=f"*{info['extrait']}*", inline=False)
             await interaction.channel.send(embed=embed)
@@ -167,7 +167,7 @@ class Vocabulaire(commands.Cog):
             # Envoyer dans le canal Discord
             channel = self.bot.get_channel(self.vocabulary_channel_id)
             if channel:
-                embed = discord.Embed(title=mot.upper(), color=0x8543f7)
+                embed = discord.Embed(title=mot.upper(), color=0x6d5380)
                 embed.add_field(name="Définition", value=definition, inline=False)
                 embed.add_field(name="Extrait", value=f"*{extrait}*", inline=False)
                 await channel.send(embed=embed)
@@ -178,7 +178,7 @@ class Vocabulaire(commands.Cog):
         return random.sample(list(self.vocabulary.items()), min(n, len(self.vocabulary)))
 
     def create_words_embed(self, words):
-        embed = discord.Embed(title="Vocabulaire", color=0x8543f7)
+        embed = discord.Embed(title="Vocabulaire", color=0x6d5380)
         for i, (mot, info) in enumerate(words):
             # Ajouter une ligne de séparation avant chaque mot, sauf le premier
             if i > 0:
@@ -262,7 +262,7 @@ class Vocabulaire(commands.Cog):
             # Envoyer le nouveau mot dans le salon spécifié
             channel = self.bot.get_channel(self.vocabulary_channel_id)
             if channel:
-                embed = discord.Embed(title=mot.upper(), color=0x8543f7)
+                embed = discord.Embed(title=mot.upper(), color=0x6d5380)
                 embed.add_field(name="Définition", value=definition, inline=False)
                 embed.add_field(name="Extrait", value=f"*{extrait}*", inline=False)
                 await channel.send(embed=embed)

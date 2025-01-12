@@ -130,7 +130,7 @@ class ValidationView(discord.ui.View):
             # Message principal
             main_embed = discord.Embed(
                 title="__État de la validation__",
-                color=discord.Color.blue(),
+                color=discord.Color.from_str("#6d5380"),
                 timestamp=datetime.now()
             )
 
@@ -331,7 +331,7 @@ class Validation(commands.Cog):
         
         embed = discord.Embed(
             title="État de la validation",
-            color=discord.Color.blue(),
+            color=discord.Color.from_str("#6d5380"),
             timestamp=datetime.now()
         )
         
@@ -373,7 +373,7 @@ class Validation(commands.Cog):
                 except gspread.exceptions.CellNotFound:
                     embed = discord.Embed(
                         title="État de la validation",
-                        color=discord.Color.blue(),
+                        color=discord.Color.from_str("#6d5380"),
                         timestamp=datetime.now()
                     )
                     view = ValidationView(self)

@@ -196,7 +196,7 @@ class Inventory(commands.Cog):
                 embed = discord.Embed(
                     title=nom,
                     description=f"**{montant}** médailles ajoutées. Total actuel : **{new_medals}** médailles.",
-                    color=0x8543f7
+                    color=0x6d5380
                 )
                 embeds.append(embed)
                 
@@ -245,13 +245,13 @@ class Inventory(commands.Cog):
                         embed = discord.Embed(
                             title=nom,
                             description=f"**{montant}** médailles retirées. {nom} a été supprimé de la liste car son total est de 0 ou moins.",
-                            color=0xFF0000
+                            color=0x6d5380
                         )
                     except gspread.exceptions.CellNotFound:
                         embed = discord.Embed(
                             title="Erreur",
                             description=f"Impossible de trouver {nom} dans la feuille pour suppression.",
-                            color=0xFF0000
+                            color=0x6d5380
                         )
                 else:
                     # Mettre à jour le nombre de médailles si > 0
@@ -259,14 +259,14 @@ class Inventory(commands.Cog):
                     embed = discord.Embed(
                         title=nom,
                         description=f"**{montant}** médailles retirées. Total actuel : **{students[nom]['medals']}** médailles.",
-                        color=0x8543f7
+                        color=0x6d5380
                     )
             else:
                 # Si l'élève n'est pas trouvé dans la liste
                 embed = discord.Embed(
                     title="Erreur",
                     description=f"{nom} n'est pas dans la liste des élèves.",
-                    color=0xFF0000
+                    color=0x6d5380
                 )
             
             embeds.append(embed)
@@ -297,7 +297,7 @@ class Inventory(commands.Cog):
         embed = discord.Embed(
             title="Association réussie",
             description=f"Le personnage **{nom}** a été associé à {utilisateur.mention}",
-            color=0x00FF00
+            color=0x6d5380
         )
         await interaction.followup.send(embed=embed)
 
