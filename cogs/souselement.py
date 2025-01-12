@@ -154,8 +154,9 @@ class ElementSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         try:
-            modal = SubElementModal(self.view.cog, self.values[0])
-            await interaction.response.send_modal(modal)
+            await interaction.response.defer(ephemeral=True)
+            process = AddSubElementProcess(self.view.bot, interaction, self.values[0], self.view.cog)
+            await process.start()
         except Exception as e:
             await interaction.response.send_message(
                 f"Une erreur est survenue : {str(e)}",
@@ -898,7 +899,7 @@ class AddSubElementProcess:
             ("definition", "Quelle est la définition scientifique du sous-élément ?"),
             ("emotional_state", "Quel est l'état émotionnel associé ?"),
             ("emotional_desc", "Quelle est la description de cet état émotionnel ?"),
-            ("discovered_by_id", "Qui a découvert ce sous-élément ? (mentionnez le joueur)"),
+            ("discovered_by_id", "Qui a découvert ce sous-élément ? (mentionnez le joueur en le ping @)"),
             ("discovered_by_char", "Quel est le nom du personnage qui a fait la découverte ?")
         ]
         self.current_question = 0
@@ -923,9 +924,12 @@ class AddSubElementProcess:
                 inline=False
             )
         
-        # Ajouter la question courante
+        # Ajouter la question courante et une note sur comment annuler
         if self.current_question < len(self.questions):
-            embed.description = f"**{self.questions[self.current_question][1]}**"
+            embed.description = (
+                f"**{self.questions[self.current_question][1]}**\n\n"
+                "*Tapez 'annuler' pour arrêter le processus*"
+            )
             
         return embed
 
@@ -946,33 +950,47 @@ class AddSubElementProcess:
 
         try:
             response = await self.bot.wait_for('message', timeout=300.0, check=check)
-            await response.delete()
+            
+            # Vérifier si l'utilisateur veut annuler
+            if response.content.lower() == 'annuler':
+                await response.delete()
+                await self.message.edit(
+                    embed=discord.Embed(
+                        title="Processus annulé",
+                        description="La création du sous-élément a été annulée.",
+                        color=0xFF0000
+                    )
+                )
+                return
             
             field = self.questions[self.current_question][0]
             
             # Traitement spécial pour le champ discovered_by_id
             if field == "discovered_by_id":
                 try:
-                    # Extraire l'ID de la mention
-                    user_id = int(''.join(filter(str.isdigit, response.content)))
-                    member = await self.interaction.guild.fetch_member(user_id)
-                    if not member:
-                        raise ValueError
-                    self.data[field] = user_id
-                except (ValueError, discord.NotFound):
-                    await self.message.edit(
-                        embed=discord.Embed(
-                            title="Erreur",
-                            description="Veuillez mentionner un utilisateur valide.",
-                            color=0xFF0000
-                        )
+                    # Vérifier qu'il y a bien une mention
+                    if not response.mentions:
+                        raise ValueError("Aucune mention trouvée")
+                    
+                    member = response.mentions[0]
+                    self.data[field] = member.id
+                    
+                    await response.delete()
+                except (ValueError, IndexError):
+                    await response.delete()
+                    error_embed = discord.Embed(
+                        title="Erreur",
+                        description="Veuillez mentionner un utilisateur valide en utilisant @.",
+                        color=0xFF0000
                     )
+                    await self.message.edit(embed=error_embed)
                     await asyncio.sleep(3)
-                    await self.message.edit(embed=self.create_embed())
+                    await self.message.edit(self.create_embed())
                     await self.wait_for_next_answer()
                     return
             else:
                 self.data[field] = response.content
+                await response.delete()
 
             self.current_question += 1
             await self.message.edit(embed=self.create_embed())
