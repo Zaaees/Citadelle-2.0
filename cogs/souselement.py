@@ -924,24 +924,31 @@ class AddSubElementProcess:
             color=0x6d5380
         )
 
-        # Affichage des réponses précédentes
+        # Mettre les réponses longues dans la description
+        description = ""
+        fields = []
+
         for field, question in self.questions[:self.current_question]:
             value = self.data[field]
             if value is not None:
-                # Tronquer la valeur si elle est trop longue
-                display_value = value
-                if field == "discovered_by_id":
-                    display_value = f"<@{value}>"
-                
-                # Limiter la longueur à 1000 caractères
-                if len(display_value) > 1000:
-                    display_value = display_value[:997] + "..."
-                
-                embed.add_field(
-                    name=question,
-                    value=display_value,
-                    inline=False
-                )
+                if field in ["definition", "emotional_desc"]:
+                    # Ajouter les textes longs à la description
+                    description += f"**{question}**\n{value}\n\n"
+                else:
+                    # Ajouter les textes courts aux fields
+                    display_value = f"<@{value}>" if field == "discovered_by_id" else value
+                    fields.append((question, display_value))
+
+        if description:
+            embed.description = description
+
+        # Ajouter les fields courts
+        for question, value in fields:
+            embed.add_field(
+                name=question,
+                value=value,
+                inline=False
+            )
 
         # Affichage de la question actuelle
         if self.current_question < len(self.questions):
