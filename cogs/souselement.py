@@ -1004,8 +1004,13 @@ class AddSubElementProcess:
             if not forum:
                 raise ValueError(f"Forum introuvable (ID: {FORUM_ID})")
 
-            # Utiliser get_channel au lieu de get_thread
-            thread = self.interaction.guild.get_channel(THREAD_CHANNELS[self.element])
+            # Modification ici : Utiliser get_thread_channel au lieu de get_channel
+            thread = forum.get_thread(THREAD_CHANNELS[self.element])
+            if not thread:
+                # Si le thread n'est pas trouvé, essayons de le chercher dans tous les threads du forum
+                threads = [t for t in forum.threads if t.id == THREAD_CHANNELS[self.element]]
+                thread = threads[0] if threads else None
+
             if not thread:
                 raise ValueError(f"Thread introuvable pour l'élément {self.element} (ID: {THREAD_CHANNELS[self.element]})")
 
