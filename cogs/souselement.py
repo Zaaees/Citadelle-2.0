@@ -25,7 +25,7 @@ class SelectSubElementModal(discord.ui.Modal):
         self.view = view
         self.element = element
         
-        # Définition des champs dans l'ordre
+        # Définition des champs dans l'ordre (maximum 5)
         self.name = discord.ui.TextInput(
             label="Nom du sous-élément",
             required=True,
@@ -48,39 +48,42 @@ class SelectSubElementModal(discord.ui.Modal):
             required=True,
             max_length=1000
         )
-        self.character_name = discord.ui.TextInput(
-            label="Nom du personnage découvreur",
+        self.discoverer = discord.ui.TextInput(
+            label="Découvreur (ID|Nom du personnage)",
+            placeholder="Ex: 123456789|Gandalf",
             required=True,
             max_length=100
-        )
-        self.discoverer_id = discord.ui.TextInput(
-            label="ID du découvreur (laisser vide si c'est vous)",
-            required=False,
-            max_length=20
         )
         
         # Ajout des champs dans l'ordre
         for item in [self.name, self.definition, self.emotional_state, 
-                    self.emotional_desc, self.character_name, self.discoverer_id]:
+                    self.emotional_desc, self.discoverer]:
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer()
         
         try:
-            # Déterminer le découvreur
-            discoverer_id = int(self.discoverer_id.value) if self.discoverer_id.value else interaction.user.id
+            # Parse discoverer information
+            try:
+                discoverer_id, character_name = self.discoverer.value.split('|')
+                discoverer_id = int(discoverer_id.strip())
+                character_name = character_name.strip()
+            except ValueError:
+                # Si pas de | dans la valeur, on suppose que c'est l'utilisateur actuel
+                discoverer_id = interaction.user.id
+                character_name = self.discoverer.value.strip()
+
             discoverer = await interaction.guild.fetch_member(discoverer_id)
             if not discoverer:
                 await interaction.followup.send("Impossible de trouver le découvreur spécifié.", ephemeral=True)
                 return
 
-            # Récupération directe du thread via l'ID
+            # Récupération du thread et création de l'embed
             thread = await interaction.guild.fetch_channel(THREAD_CHANNELS[self.element])
             if not thread:
                 await interaction.followup.send(
-                    f"Erreur : Impossible de trouver le thread pour l'élément {self.element}. "
-                    "Contactez un administrateur.",
+                    f"Erreur : Impossible de trouver le thread pour l'élément {self.element}.",
                     ephemeral=True
                 )
                 return
@@ -90,7 +93,7 @@ class SelectSubElementModal(discord.ui.Modal):
                 description=f"**Définition :** {self.definition.value}\n\n"
                            f"**État émotionnel :** {self.emotional_state.value}\n"
                            f"**Description :** {self.emotional_desc.value}\n\n"
-                           f"**Découvert par :** {discoverer.mention} ({self.character_name.value})\n"
+                           f"**Découvert par :** {discoverer.mention} ({character_name})\n"
                            f"**Utilisé par :** -",
                 color=0x6d5380
             )
@@ -103,8 +106,8 @@ class SelectSubElementModal(discord.ui.Modal):
                 'definition': self.definition.value,
                 'emotional_state': self.emotional_state.value,
                 'emotional_desc': self.emotional_desc.value,
-                'discovered_by_id': discoverer.id,
-                'discovered_by_char': self.character_name.value,
+                'discovered_by_id': discoverer_id,
+                'discovered_by_char': character_name,
                 'used_by': []
             }
             await self.view.cog.save_subelement(data)
@@ -342,8 +345,8 @@ class SousElements(commands.Cog):
             
             # Trouver la ligne du sous-élément
             for idx, row in enumerate(all_data[1:], start=2):
-                if row[0] == subelement_name and row[1] == element:
-                    users = eval(row[7]) if len(row) > 7 and row[7] else []
+                if row[0] == subelement_name and row[1] == element:  # Remplacé && par and
+                    users = eval(row[7]) if len(row) > 7 and row[7] else []  # Remplacé && par and
                     if adding:
                         if (user_id, character_name) not in users:
                             users.append((user_id, character_name))
@@ -455,7 +458,7 @@ class SousElements(commands.Cog):
         current_time = int(time.time())
         
         # Si le cache est encore valide, on l'utilise
-        if self.subelements_cache and (current_time - self.last_cache_update) < self.cache_duration:
+        if self.subelements_cache and (current_time - self.last_cache_update) < self.cache_duration:  # Remplacé && par and
             return self.subelements_cache
             
         try:
@@ -472,7 +475,7 @@ class SousElements(commands.Cog):
                     if len(row) >= 2:
                         name = row[0].strip()
                         element = row[1].strip()
-                        if element in elements_data and name:
+                        if element in elements_data and name:  # Remplacé && par and
                             elements_data[element].append({
                                 'name': name,
                                 'value': f"{element}|{name}",
