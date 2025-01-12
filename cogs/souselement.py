@@ -367,7 +367,7 @@ class SousElements(commands.Cog):
                     if message_id:
                         forum = self.bot.get_channel(FORUM_ID)
                         if forum:
-                            thread = forum.get_thread(THREAD_CHANNELS[element])
+                            thread = forum.get_thread_channel(THREAD_CHANNELS[element])
                             if thread:
                                 try:
                                     message = await thread.fetch_message(message_id)
@@ -691,7 +691,7 @@ class RemoveSubElementSelect(discord.ui.Select):
                 # Mise à jour dans le thread des sous-éléments
                 forum = interaction.guild.get_channel(FORUM_ID)
                 if forum:
-                    thread = forum.get_thread(THREAD_CHANNELS[element])
+                    thread = forum.get_thread_channel(THREAD_CHANNELS[element])
                     if thread:
                         async for message in thread.history():
                             if message.embeds and message.embeds[0].title == subelement:
@@ -828,7 +828,7 @@ class SubElementSelect(discord.ui.Select):
                 # Mettre à jour l'embed du sous-élément dans le thread correspondant
                 forum = interaction.guild.get_channel(FORUM_ID)
                 if forum:
-                    thread = forum.get_thread(THREAD_CHANNELS[element])
+                    thread = forum.get_thread_channel(THREAD_CHANNELS[element])
                     if thread:
                         async for message in thread.history():
                             if message.embeds and message.embeds[0].title == name:
