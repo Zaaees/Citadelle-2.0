@@ -433,8 +433,6 @@ class SousElements(commands.Cog):
                 )
                 return
             
-            await interaction.response.defer()
-            
             description = (
                 "# Sous-éléments :\n"
                 "** **\n"
@@ -456,7 +454,8 @@ class SousElements(commands.Cog):
             )
         
             view = SousElementsView(self, character_name)
-            message = await interaction.followup.send(embed=embed, view=view)
+            await interaction.response.send_message(embed=embed, view=view)
+            message = await interaction.original_response()
 
             data = {
                 "channel_id": interaction.channel.id,
