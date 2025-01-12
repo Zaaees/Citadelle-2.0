@@ -410,18 +410,30 @@ class SousElements(commands.Cog):
                 view=view, 
                 ephemeral=True
             )
+        except discord.NotFound:
+            try:
+                await interaction.followup.send(
+                    "Sélectionnez l'élément principal du sous-élément :", 
+                    view=view, 
+                    ephemeral=True
+                )
+            except Exception as e:
+                print(f"Erreur secondaire lors de l'ajout du sous-élément: {str(e)}")
         except Exception as e:
             print(f"Erreur lors de l'ajout du sous-élément: {str(e)}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    f"Une erreur est survenue : {str(e)}", 
-                    ephemeral=True
-                )
-            else:
-                await interaction.followup.send(
-                    f"Une erreur est survenue : {str(e)}", 
-                    ephemeral=True
-                )
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(
+                        f"Une erreur est survenue : {str(e)}", 
+                        ephemeral=True
+                    )
+                else:
+                    await interaction.followup.send(
+                        f"Une erreur est survenue : {str(e)}", 
+                        ephemeral=True
+                    )
+            except Exception as e2:
+                print(f"Erreur lors de l'envoi du message d'erreur: {str(e2)}")
 
     @app_commands.command(name='sous-éléments', description="Créer un message pour gérer les sous-éléments d'un personnage")
     async def sous_elements(self, interaction: discord.Interaction, character_name: str):
@@ -908,12 +920,12 @@ class AddSubElementProcess:
             'discovered_by_char': None
         }
         self.questions = [
-            ("name", "Quel est le nom du sous-élément ?"),
-            ("definition", "Quelle est la définition scientifique du sous-élément ?"),
-            ("emotional_state", "Quel est l'état émotionnel associé ?"),
-            ("emotional_desc", "Quelle est la description de cet état émotionnel ?"),
-            ("discovered_by_id", "Qui a découvert ce sous-élément ? (mentionnez le joueur en le ping @)"),
-            ("discovered_by_char", "Quel est le nom du personnage qui a fait la découverte ?")
+            ("name", "Quel est le nom du sous-élément ?", 100),  # Ajout des limites
+            ("definition", "Quelle est la définition scientifique du sous-élément ?", 2000),
+            ("emotional_state", "Quel est l'état émotionnel associé ?", 100),
+            ("emotional_desc", "Quelle est la description de cet état émotionnel ?", 2000),
+            ("discovered_by_id", "Qui a découvert ce sous-élément ? (mentionnez le joueur en le ping @)", 100),
+            ("discovered_by_char", "Quel est le nom du personnage qui a fait la découverte ?", 100)
         ]
         self.current_question = 0
         self.message = None
@@ -990,7 +1002,7 @@ class AddSubElementProcess:
                 )
                 return
 
-            field = self.questions[self.current_question][0]
+            field, question, max_length = self.questions[self.current_question]
             
             if field == "discovered_by_id":
                 try:
@@ -1009,6 +1021,18 @@ class AddSubElementProcess:
                     await self.wait_for_next_answer()
                     return
             else:
+                # Vérifier la longueur de la réponse
+                if len(response.content) > max_length:
+                    error_embed = self.create_embed()
+                    error_embed.add_field(
+                        name="Erreur",
+                        value=f"La réponse est trop longue (maximum {max_length} caractères).",
+                        inline=False
+                    )
+                    await self.message.edit(embed=error_embed)
+                    await self.wait_for_next_answer()
+                    return
+                
                 self.data[field] = response.content
 
             self.current_question += 1
