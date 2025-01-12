@@ -53,18 +53,28 @@ class SelectSubElementModal(discord.ui.Modal):
             required=True,
             max_length=100
         )
+        self.discoverer_id = discord.ui.TextInput(
+            label="ID du découvreur (laisser vide si c'est vous)",
+            required=False,
+            max_length=20
+        )
         
         # Ajout des champs dans l'ordre
-        self.add_item(self.name)
-        self.add_item(self.definition)
-        self.add_item(self.emotional_state)
-        self.add_item(self.emotional_desc)
-        self.add_item(self.character_name)
+        for item in [self.name, self.definition, self.emotional_state, 
+                    self.emotional_desc, self.character_name, self.discoverer_id]:
+            self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer()
         
         try:
+            # Déterminer le découvreur
+            discoverer_id = int(self.discoverer_id.value) if self.discoverer_id.value else interaction.user.id
+            discoverer = await interaction.guild.fetch_member(discoverer_id)
+            if not discoverer:
+                await interaction.followup.send("Impossible de trouver le découvreur spécifié.", ephemeral=True)
+                return
+
             # Récupération directe du thread via l'ID
             thread = await interaction.guild.fetch_channel(THREAD_CHANNELS[self.element])
             if not thread:
@@ -80,7 +90,7 @@ class SelectSubElementModal(discord.ui.Modal):
                 description=f"**Définition :** {self.definition.value}\n\n"
                            f"**État émotionnel :** {self.emotional_state.value}\n"
                            f"**Description :** {self.emotional_desc.value}\n\n"
-                           f"**Découvert par :** {interaction.user.mention} ({self.character_name.value})\n"
+                           f"**Découvert par :** {discoverer.mention} ({self.character_name.value})\n"
                            f"**Utilisé par :** -",
                 color=0x6d5380
             )
@@ -93,7 +103,7 @@ class SelectSubElementModal(discord.ui.Modal):
                 'definition': self.definition.value,
                 'emotional_state': self.emotional_state.value,
                 'emotional_desc': self.emotional_desc.value,
-                'discovered_by_id': interaction.user.id,
+                'discovered_by_id': discoverer.id,
                 'discovered_by_char': self.character_name.value,
                 'used_by': []
             }
@@ -588,14 +598,34 @@ class SubElementSelect(discord.ui.Select):
                 await interaction.followup.send("Message data not found.", ephemeral=True)
                 return
 
-            data['elements'][element].append(name)
-            self.view.cog.save_message_data(str(self.main_message_id), data)
-            
-            # Mettre à jour le message principal
-            main_message = await interaction.channel.fetch_message(self.main_message_id)
-            await self.view.cog.update_message(main_message, data)
-            
-            await interaction.followup.send(f"Sous-élément '{name}' ajouté à {element}.", ephemeral=True)
+            # Vérifier si le sous-élément n'est pas déjà dans la liste
+            if name not in data['elements'][element]:
+                data['elements'][element].append(name)
+                self.view.cog.save_message_data(str(self.main_message_id), data)
+                
+                # Mettre à jour le message principal
+                main_message = await interaction.channel.fetch_message(self.main_message_id)
+                await self.view.cog.update_message(main_message, data)
+                
+                # Mettre à jour la liste des utilisateurs dans le thread
+                await self.view.cog.update_subelement_users(
+                    element,
+                    name,
+                    interaction.user.id,
+                    data['character_name'],
+                    adding=True
+                )
+                
+                await interaction.followup.send(
+                    f"Sous-élément '{name}' ajouté à {element}.", 
+                    ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    f"Le sous-élément '{name}' est déjà dans votre liste.", 
+                    ephemeral=True
+                )
+
         except Exception as e:
             print(f"Erreur dans le callback du select: {str(e)}")
             await interaction.followup.send(
