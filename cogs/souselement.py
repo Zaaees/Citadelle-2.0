@@ -158,7 +158,7 @@ class ElementSelect(discord.ui.Select):
             process = AddSubElementProcess(self.view.bot, interaction, self.values[0], self.view.cog)
             await process.start()
         except Exception as e:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"Une erreur est survenue : {str(e)}",
                 ephemeral=True
             )
@@ -904,31 +904,27 @@ class AddSubElementProcess:
         ]
         self.current_question = 0
         self.message = None
-        self.question_message = None
 
     def create_embed(self):
         embed = discord.Embed(
             title=f"Création d'un sous-élément - {self.element}",
-            description="Aperçu du sous-élément en cours de création :",
             color=0x6d5380
         )
 
-        # Aperçu du sous-élément en construction
+        # Affichage des réponses précédentes
         preview = ""
-        if self.data['name']:
-            preview += f"**Nom :** {self.data['name']}\n\n"
-        if self.data['definition']:
-            preview += f"**Définition :** {self.data['definition']}\n\n"
-        if self.data['emotional_state']:
-            preview += f"**État émotionnel :** {self.data['emotional_state']}\n"
-        if self.data['emotional_desc']:
-            preview += f"**Description émotionnelle :** {self.data['emotional_desc']}\n\n"
-        if self.data['discovered_by_id'] and self.data['discovered_by_char']:
-            preview += f"**Découvert par :** <@{self.data['discovered_by_id']}> ({self.data['discovered_by_char']})"
+        for field, question in self.questions[:self.current_question]:
+            value = self.data[field]
+            if value is not None:
+                if field == "discovered_by_id":
+                    preview += f"**{question}** <@{value}>\n\n"
+                else:
+                    preview += f"**{question}** {value}\n\n"
 
         if preview:
-            embed.add_field(name="Aperçu", value=preview, inline=False)
+            embed.add_field(name="Réponses précédentes", value=preview, inline=False)
 
+        # Affichage de la question actuelle
         if self.current_question < len(self.questions):
             embed.add_field(
                 name="Question actuelle",
@@ -940,7 +936,8 @@ class AddSubElementProcess:
 
     async def start(self):
         self.message = await self.interaction.followup.send(
-            embed=self.create_embed()
+            embed=self.create_embed(),
+            ephemeral=True
         )
         await self.wait_for_next_answer()
 
@@ -955,9 +952,9 @@ class AddSubElementProcess:
 
         try:
             response = await self.bot.wait_for('message', timeout=300.0, check=check)
-            
+            await response.delete()
+
             if response.content.lower() == 'annuler':
-                await response.delete()
                 await self.message.edit(
                     embed=discord.Embed(
                         title="Processus annulé",
@@ -976,22 +973,18 @@ class AddSubElementProcess:
                     member = response.mentions[0]
                     self.data[field] = member.id
                 except (ValueError, IndexError):
-                    await response.delete()
-                    error_embed = discord.Embed(
-                        title="Erreur",
-                        description="Veuillez mentionner un utilisateur valide en utilisant @.",
-                        color=0xFF0000
+                    error_embed = self.create_embed()
+                    error_embed.add_field(
+                        name="Erreur",
+                        value="Veuillez mentionner un utilisateur valide en utilisant @.",
+                        inline=False
                     )
-                    temp_msg = await self.interaction.channel.send(embed=error_embed)
-                    await asyncio.sleep(3)
-                    await temp_msg.delete()
-                    await self.message.edit(embed=self.create_embed())
+                    await self.message.edit(embed=error_embed)
                     await self.wait_for_next_answer()
                     return
             else:
                 self.data[field] = response.content
 
-            await response.delete()
             self.current_question += 1
             await self.message.edit(embed=self.create_embed())
             await self.wait_for_next_answer()
