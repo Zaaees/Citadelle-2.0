@@ -151,10 +151,22 @@ class ElementSelect(discord.ui.Select):
         ]
         super().__init__(
             placeholder="Choisir l'élément principal",
-            options=options,
-            min_values=1,
-            max_values=1
-        )  # Supprimé custom_id car pas besoin de persistance
+            options=options
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        try:
+            await interaction.response.defer()
+            modal = SelectSubElementModal(self.view, self.values[0])
+            await interaction.followup.send("Formulaire en cours d'ouverture...", ephemeral=True)
+            await interaction.channel.send("Test modal", ephemeral=True)
+            await interaction.followup.modal(modal)
+        except Exception as e:
+            print(f"Erreur dans ElementSelect callback: {str(e)}")
+            await interaction.followup.send(
+                f"Une erreur est survenue: {str(e)}", 
+                ephemeral=True
+            )
 
 class AddSubElementView(discord.ui.View):
     def __init__(self, cog):
@@ -402,8 +414,6 @@ class SousElements(commands.Cog):
                 return
                 
             view = AddSubElementView(self)
-            # Modification pour enregistrer la vue globalement
-            self.bot.add_view(view)
             await interaction.response.send_message(
                 "Sélectionnez l'élément principal du sous-élément :", 
                 view=view, 
@@ -412,14 +422,10 @@ class SousElements(commands.Cog):
             
         except Exception as e:
             print(f"Erreur détaillée lors de l'ajout du sous-élément: {str(e)}")
-            try:
-                if not interaction.response.is_done():
-                    await interaction.response.send_message(
-                        "Une erreur est survenue lors de l'ajout du sous-élément.",
-                        ephemeral=True
-                    )
-            except:
-                pass  # Si on ne peut pas envoyer de message, on ignore silencieusement
+            await interaction.response.send_message(
+                f"Une erreur est survenue lors de l'ajout du sous-élément: {str(e)}",
+                ephemeral=True
+            )
 
     @app_commands.command(name='sous-éléments', description="Créer un message pour gérer les sous-éléments d'un personnage")
     async def sous_elements(self, interaction: discord.Interaction, character_name: str):
