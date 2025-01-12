@@ -151,11 +151,12 @@ class ElementSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         try:
-            modal = SubElementModal(self.view.cog, self.values[0])
-            await interaction.response.send_modal(modal)
+            await interaction.response.defer(ephemeral=True)
+            process = AddSubElementProcess(self.view.cog.bot, interaction, self.values[0], self.view.cog)
+            await process.start()
         except Exception as e:
-            await interaction.response.send_message(
-                f"Erreur : {str(e)}", 
+            await interaction.followup.send(
+                f"Une erreur est survenue : {str(e)}",
                 ephemeral=True
             )
 
@@ -676,6 +677,164 @@ class SubElementSelect(discord.ui.Select):
                 "Une erreur est survenue lors de l'ajout du sous-élément.",
                 ephemeral=True
             )
+
+class AddSubElementProcess:
+    def __init__(self, bot, interaction, element, cog):
+        self.bot = bot
+        self.interaction = interaction
+        self.element = element
+        self.cog = cog
+        self.data = {
+            'name': None,
+            'definition': None,
+            'emotional_state': None,
+            'emotional_desc': None,
+            'discovered_by_id': None,
+            'discovered_by_char': None
+        }
+        self.questions = [
+            ("name", "Quel est le nom du sous-élément ?"),
+            ("definition", "Quelle est la définition scientifique du sous-élément ?"),
+            ("emotional_state", "Quel est l'état émotionnel associé ?"),
+            ("emotional_desc", "Quelle est la description de cet état émotionnel ?"),
+            ("discovered_by_id", "Qui a découvert ce sous-élément ? (mentionnez le joueur)"),
+            ("discovered_by_char", "Quel est le nom du personnage qui a fait la découverte ?")
+        ]
+        self.current_question = 0
+        self.message = None
+
+    def create_embed(self):
+        embed = discord.Embed(
+            title=f"Création d'un sous-élément - {self.element}",
+            color=0x6d5380
+        )
+        
+        # Ajouter les réponses déjà données
+        for field, question in self.questions[:self.current_question]:
+            value = self.data[field]
+            if field == "discovered_by_id" and value:
+                value = f"<@{value}>"
+            elif value is None:
+                value = "Non défini"
+            embed.add_field(
+                name=question, 
+                value=value,
+                inline=False
+            )
+        
+        # Ajouter la question courante
+        if self.current_question < len(self.questions):
+            embed.description = f"**{self.questions[self.current_question][1]}**"
+            
+        return embed
+
+    async def start(self):
+        self.message = await self.interaction.followup.send(
+            embed=self.create_embed()
+        )
+        await self.wait_for_next_answer()
+
+    async def wait_for_next_answer(self):
+        if self.current_question >= len(self.questions):
+            await self.finish()
+            return
+
+        def check(m):
+            return (m.author == self.interaction.user and 
+                   m.channel == self.interaction.channel)
+
+        try:
+            response = await self.bot.wait_for('message', timeout=300.0, check=check)
+            await response.delete()
+            
+            field = self.questions[self.current_question][0]
+            
+            # Traitement spécial pour le champ discovered_by_id
+            if field == "discovered_by_id":
+                try:
+                    # Extraire l'ID de la mention
+                    user_id = int(''.join(filter(str.isdigit, response.content)))
+                    member = await self.interaction.guild.fetch_member(user_id)
+                    if not member:
+                        raise ValueError
+                    self.data[field] = user_id
+                except (ValueError, discord.NotFound):
+                    await self.message.edit(
+                        embed=discord.Embed(
+                            title="Erreur",
+                            description="Veuillez mentionner un utilisateur valide.",
+                            color=0xFF0000
+                        )
+                    )
+                    await asyncio.sleep(3)
+                    await self.message.edit(embed=self.create_embed())
+                    await self.wait_for_next_answer()
+                    return
+            else:
+                self.data[field] = response.content
+
+            self.current_question += 1
+            await self.message.edit(embed=self.create_embed())
+            await self.wait_for_next_answer()
+
+        except asyncio.TimeoutError:
+            await self.message.edit(
+                embed=discord.Embed(
+                    title="Temps écoulé",
+                    description="Le processus a été annulé car vous avez mis trop de temps à répondre.",
+                    color=0xFF0000
+                )
+            )
+
+    async def finish(self):
+        try:
+            thread = self.interaction.guild.get_channel(THREAD_CHANNELS[self.element])
+            if not thread:
+                raise ValueError(f"Thread introuvable pour l'élément {self.element}")
+
+            embed = discord.Embed(
+                title=self.data['name'],
+                description=(
+                    f"**Définition :** {self.data['definition']}\n\n"
+                    f"**État émotionnel :** {self.data['emotional_state']}\n"
+                    f"**Description :** {self.data['emotional_desc']}\n\n"
+                    f"**Découvert par :** <@{self.data['discovered_by_id']}> ({self.data['discovered_by_char']})\n"
+                    f"**Utilisé par :** -"
+                ),
+                color=0x6d5380
+            )
+            
+            msg = await thread.send(embed=embed)
+            
+            # Préparation des données pour la sauvegarde
+            save_data = {
+                'name': self.data['name'],
+                'element': self.element,
+                'definition': self.data['definition'],
+                'emotional_state': self.data['emotional_state'],
+                'emotional_desc': self.data['emotional_desc'],
+                'discovered_by_id': self.data['discovered_by_id'],
+                'discovered_by_char': self.data['discovered_by_char'],
+                'used_by': [],
+                'message_id': msg.id
+            }
+            
+            await self.cog.save_subelement(save_data)
+            
+            final_embed = discord.Embed(
+                title="Sous-élément créé avec succès !",
+                description=f"Le sous-élément a été ajouté dans {thread.mention}",
+                color=0x00FF00
+            )
+            await self.message.edit(embed=final_embed)
+
+        except Exception as e:
+            error_embed = discord.Embed(
+                title="Erreur",
+                description=f"Une erreur est survenue : {str(e)}",
+                color=0xFF0000
+            )
+            await self.message.edit(embed=error_embed)
 
 async def setup(bot):
     await bot.add_cog(SousElements(bot))
