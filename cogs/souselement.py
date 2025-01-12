@@ -538,22 +538,34 @@ class SousElements(commands.Cog):
         if isinstance(message.channel, discord.Thread):
             # Vérifier si c'est un thread de sous-éléments
             if message.channel.id in THREAD_CHANNELS.values():
+                await asyncio.sleep(0.5)  # Attendre un peu que le message soit bien envoyé
+                
                 # Chercher le dernier message embed dans ce thread
+                last_embed = None
+                last_embed_msg = None
+                
                 async for msg in message.channel.history(limit=50):
                     if msg.embeds and msg.author == self.bot.user:
-                        # Reposter l'embed et supprimer l'ancien
-                        new_message = await message.channel.send(embed=msg.embeds[0])
-                        await msg.delete()
+                        last_embed = msg.embeds[0]
+                        last_embed_msg = msg
+                        break
+                
+                if last_embed:
+                    # Reposter l'embed après le nouveau message
+                    try:
+                        new_message = await message.channel.send(embed=last_embed)
+                        await last_embed_msg.delete()
                         
                         # Mettre à jour l'ID dans la base de données
                         worksheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT_LIST')).sheet1
                         all_data = worksheet.get_all_values()
                         
                         for idx, row in enumerate(all_data[1:], start=2):
-                            if str(msg.id) == row[8]:  # message_id est dans la colonne 9
+                            if str(last_embed_msg.id) == row[8]:
                                 worksheet.update_cell(idx, 9, str(new_message.id))
                                 break
-                        break
+                    except Exception as e:
+                        print(f"Erreur lors du repost de l'embed: {e}")
 
 class SubElementSelectView(discord.ui.View):
     def __init__(self, cog, main_message_id, user_id):
@@ -656,15 +668,17 @@ class RemoveSubElementSelect(discord.ui.Select):
             return
 
         element, subelement = self.values[0].split("|")
-        # On utilise directement self.cog au lieu de view.cog
-        data = self.cog.get_message_data(str(interaction.message.id))
+        # Récupérer l'ID du message parent au lieu du message éphémère
+        parent_message_id = str(interaction.message.reference.message_id if interaction.message.reference else interaction.message.id)
+        data = self.cog.get_message_data(parent_message_id)
 
         if subelement in data['elements'][element]:
             data['elements'][element].remove(subelement)
-            self.cog.save_message_data(str(interaction.message.id), data)
+            self.cog.save_message_data(parent_message_id, data)
             
             # Mise à jour du message principal
-            await self.cog.update_message(interaction.message, data)
+            parent_message = await interaction.channel.fetch_message(int(parent_message_id))
+            await self.cog.update_message(parent_message, data)
             
             # Mise à jour dans le thread des sous-éléments
             forum = interaction.guild.get_channel(FORUM_ID)
