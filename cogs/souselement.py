@@ -402,45 +402,41 @@ class SousElements(commands.Cog):
 
     @app_commands.command(name='ajouter-sous-element', description="Ajouter un nouveau sous-élément à la liste (MJ uniquement)")
     async def add_subelement(self, interaction: discord.Interaction):
-        try:
-            if not interaction.user.get_role(MJ_ROLE_ID):
-                await interaction.response.send_message(
-                    "Cette commande est réservée aux MJ.", 
-                    ephemeral=True
-                )
-                return
-                
-            view = AddSubElementView(self)
-            try:
-                await interaction.response.send_message(
-                    "Sélectionnez l'élément principal du sous-élément :", 
-                    view=view, 
-                    ephemeral=True
-                )
-            except discord.errors.NotFound:
-                # If the initial response fails, try following up
-                await interaction.followup.send(
-                    "Sélectionnez l'élément principal du sous-élément :", 
-                    view=view, 
-                    ephemeral=True
-                )
+        if not interaction.user.get_role(MJ_ROLE_ID):
+            await interaction.response.send_message(
+                "Cette commande est réservée aux MJ.", 
+                ephemeral=True
+            )
+            return
             
+        view = AddSubElementView(self)
+        try:
+            await interaction.response.send_message(
+                "Sélectionnez l'élément principal du sous-élément :", 
+                view=view, 
+                ephemeral=True
+            )
         except Exception as e:
+            error_msg = f"Une erreur est survenue lors de l'ajout du sous-élément: {str(e)}"
             print(f"Erreur détaillée lors de l'ajout du sous-élément: {str(e)}")
+            
             try:
+                if isinstance(e, discord.errors.NotFound) and "Unknown interaction" in str(e):
+                    # If interaction is expired/unknown, log it and return
+                    print("Interaction expired or unknown")
+                    return
+                    
                 if not interaction.response.is_done():
-                    await interaction.response.send_message(
-                        f"Une erreur est survenue lors de l'ajout du sous-élément: {str(e)}",
-                        ephemeral=True
-                    )
+                    await interaction.response.send_message(error_msg, ephemeral=True)
                 else:
-                    await interaction.followup.send(
-                        f"Une erreur est survenue lors de l'ajout du sous-élément: {str(e)}",
-                        ephemeral=True
-                    )
-            except discord.errors.HTTPException:
-                # If all else fails, just log the error
-                print(f"Could not send error message to user: {str(e)}")
+                    # Try using followup if the interaction was already acknowledged
+                    try:
+                        await interaction.followup.send(error_msg, ephemeral=True)
+                    except discord.errors.HTTPException:
+                        # If we can't send a followup, just log the error
+                        print("Could not send error message via followup")
+            except Exception as inner_e:
+                print(f"Error handling failed: {inner_e}")
 
     @app_commands.command(name='sous-éléments', description="Créer un message pour gérer les sous-éléments d'un personnage")
     async def sous_elements(self, interaction: discord.Interaction, character_name: str):
@@ -831,6 +827,150 @@ class AddSubElementProcess:
             color=0x00FF00
         )
         await self.current_message.edit(embed=success_embed)
+
+class NewSubElementModal(discord.ui.Modal):
+    def __init__(self, element, cog):
+        super().__init__(title=f"Ajouter un sous-élément - {element}")
+        self.element = element
+        self.cog = cog
+        
+        self.name = discord.ui.TextInput(
+            label="Nom du sous-élément",
+            required=True,
+            max_length=100
+        )
+        self.definition = discord.ui.TextInput(
+            label="Définition",
+            style=discord.TextStyle.paragraph,
+            required=True,
+            max_length=1000
+        )
+        self.emotional_state = discord.ui.TextInput(
+            label="État émotionnel",
+            required=True,
+            max_length=100
+        )
+        self.emotional_desc = discord.ui.TextInput(
+            label="Description émotionnelle",
+            style=discord.TextStyle.paragraph,
+            required=True,
+            max_length=1000
+        )
+        self.discoverer = discord.ui.TextInput(
+            label="Découvreur (ID|Nom du personnage)",
+            placeholder="Ex: 123456789|Gandalf",
+            required=True,
+            max_length=100
+        )
+        
+        for item in [self.name, self.definition, self.emotional_state, 
+                    self.emotional_desc, self.discoverer]:
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            discoverer_input = self.discoverer.value.strip()
+            try:
+                discoverer_id = int(discoverer_input.split('|')[0].strip())
+                character_name = discoverer_input.split('|')[1].strip()
+            except (ValueError, IndexError):
+                await interaction.followup.send(
+                    "Format incorrect. Utilisez: ID|Nom du personnage",
+                    ephemeral=True
+                )
+                return
+
+            thread = interaction.guild.get_channel(THREAD_CHANNELS[self.element])
+            if not thread:
+                await interaction.followup.send(
+                    f"Erreur : Thread introuvable pour {self.element}",
+                    ephemeral=True
+                )
+                return
+
+            embed = discord.Embed(
+                title=self.name.value,
+                description=f"**Définition :** {self.definition.value}\n\n"
+                           f"**État émotionnel :** {self.emotional_state.value}\n"
+                           f"**Description :** {self.emotional_desc.value}\n\n"
+                           f"**Découvert par :** <@{discoverer_id}> ({character_name})\n"
+                           f"**Utilisé par :** -",
+                color=0x6d5380
+            )
+            
+            msg = await thread.send(embed=embed)
+            
+            data = {
+                'name': self.name.value,
+                'element': self.element,
+                'definition': self.definition.value,
+                'emotional_state': self.emotional_state.value,
+                'emotional_desc': self.emotional_desc.value,
+                'discovered_by_id': discoverer_id,
+                'discovered_by_char': character_name,
+                'used_by': [],
+                'message_id': msg.id
+            }
+            await self.cog.save_subelement(data)
+            
+            await interaction.followup.send(
+                f"✅ Sous-élément ajouté avec succès!", 
+                ephemeral=True
+            )
+            
+        except Exception as e:
+            await interaction.followup.send(
+                f"Erreur: {str(e)}",
+                ephemeral=True
+            )
+
+class ElementButton(discord.ui.Button):
+    def __init__(self, element):
+        super().__init__(
+            style=discord.ButtonStyle.primary,
+            label=element,
+            custom_id=f"element_{element.lower()}"
+        )
+        self.element = element
+
+    async def callback(self, interaction: discord.Interaction):
+        try:
+            modal = NewSubElementModal(self.element, self.view.cog)
+            await interaction.response.send_modal(modal)
+        except Exception as e:
+            await interaction.response.send_message(f"Erreur: {str(e)}", ephemeral=True)
+
+class ElementSelectView(discord.ui.View):
+    def __init__(self, cog):
+        super().__init__(timeout=300)
+        self.cog = cog
+        for element in ['Feu', 'Eau', 'Terre', 'Vent', 'Espace']:
+            self.add_item(ElementButton(element))
+
+# Remplacer la commande add_subelement existante par celle-ci:
+    @app_commands.command(name='ajouter-sous-element', description="Ajouter un nouveau sous-élément à la liste (MJ uniquement)")
+    async def add_subelement(self, interaction: discord.Interaction):
+        if not interaction.user.get_role(MJ_ROLE_ID):
+            await interaction.response.send_message(
+                "Cette commande est réservée aux MJ.", 
+                ephemeral=True
+            )
+            return
+
+        try:
+            view = ElementSelectView(self)
+            await interaction.response.send_message(
+                "Choisissez l'élément principal :",
+                view=view,
+                ephemeral=True
+            )
+        except Exception as e:
+            await interaction.response.send_message(
+                f"Une erreur est survenue: {str(e)}",
+                ephemeral=True
+            )
 
 async def setup(bot):
     await bot.add_cog(SousElements(bot))
