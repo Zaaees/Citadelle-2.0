@@ -19,13 +19,12 @@ THREAD_CHANNELS = {
 
 MJ_ROLE_ID = 1018179623886000278
 
-class SelectSubElementModal(discord.ui.Modal):
-    def __init__(self, view, element):
+class SubElementModal(discord.ui.Modal):
+    def __init__(self, cog, element):
         super().__init__(title=f"Ajouter un sous-élément - {element}")
-        self.view = view
+        self.cog = cog
         self.element = element
         
-        # Définition des champs dans l'ordre (maximum 5)
         self.name = discord.ui.TextInput(
             label="Nom du sous-élément",
             required=True,
@@ -55,44 +54,39 @@ class SelectSubElementModal(discord.ui.Modal):
             max_length=100
         )
         
-        # Ajout des champs dans l'ordre
         for item in [self.name, self.definition, self.emotional_state, 
                     self.emotional_desc, self.discoverer]:
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         
         try:
-            # Extraire l'ID utilisateur de la mention ou chercher par ID direct
+            # Validation du découvreur
             discoverer_input = self.discoverer.value.strip()
             try:
-                if '<@' in discoverer_input:
-                    # Extraire l'ID de la mention
-                    discoverer_id = int(''.join(filter(str.isdigit, discoverer_input.split('|')[0])))
-                    character_name = discoverer_input.split('|')[1].strip()
-                else:
-                    # Format ID|Nom
-                    discoverer_id = int(discoverer_input.split('|')[0].strip())
-                    character_name = discoverer_input.split('|')[1].strip()
-            except (ValueError, IndexError):
+                if '|' not in discoverer_input:
+                    raise ValueError("Format incorrect")
+                discoverer_id = int(discoverer_input.split('|')[0].strip())
+                character_name = discoverer_input.split('|')[1].strip()
+                
+                # Vérifier que l'utilisateur existe
+                discoverer = await interaction.guild.fetch_member(discoverer_id)
+                if not discoverer:
+                    raise ValueError("Utilisateur introuvable")
+                
+            except (ValueError, IndexError) as e:
                 await interaction.followup.send(
-                    "Format incorrect. Utilisez soit une mention suivie du nom du personnage (<@ID>|Nom) "
-                    "ou un ID suivi du nom (ID|Nom)",
+                    "Format incorrect. Utilisez: ID|Nom du personnage",
                     ephemeral=True
                 )
                 return
 
-            discoverer = await interaction.guild.fetch_member(discoverer_id)
-            if not discoverer:
-                await interaction.followup.send("Impossible de trouver l'utilisateur spécifié.", ephemeral=True)
-                return
-
-            # Récupération du thread et création de l'embed
+            # Création de l'embed dans le thread approprié
             thread = interaction.guild.get_channel(THREAD_CHANNELS[self.element])
             if not thread:
                 await interaction.followup.send(
-                    f"Erreur : Impossible de trouver le thread pour l'élément {self.element}.",
+                    f"Erreur : Thread introuvable pour {self.element}",
                     ephemeral=True
                 )
                 return
@@ -102,13 +96,14 @@ class SelectSubElementModal(discord.ui.Modal):
                 description=f"**Définition :** {self.definition.value}\n\n"
                            f"**État émotionnel :** {self.emotional_state.value}\n"
                            f"**Description :** {self.emotional_desc.value}\n\n"
-                           f"**Découvert par :** {discoverer.mention} ({character_name})\n"
+                           f"**Découvert par :** <@{discoverer_id}> ({character_name})\n"
                            f"**Utilisé par :** -",
                 color=0x6d5380
             )
             
             msg = await thread.send(embed=embed)
             
+            # Sauvegarde dans la base de données
             data = {
                 'name': self.name.value,
                 'element': self.element,
@@ -118,16 +113,16 @@ class SelectSubElementModal(discord.ui.Modal):
                 'discovered_by_id': discoverer_id,
                 'discovered_by_char': character_name,
                 'used_by': [],
-                'message_id': msg.id  # Ajout de l'ID du message
+                'message_id': msg.id
             }
-            await self.view.cog.save_subelement(data)
+            await self.cog.save_subelement(data)
             
             await interaction.followup.send(
-                f"✅ Sous-élément ajouté avec succès dans le thread {thread.mention}!", 
+                f"✅ Sous-élément ajouté avec succès dans {thread.mention}!", 
                 ephemeral=True
             )
             
-            # Notifier le découvreur
+            # Notification au découvreur
             if discoverer_id != interaction.user.id:
                 try:
                     await discoverer.send(
@@ -139,7 +134,7 @@ class SelectSubElementModal(discord.ui.Modal):
             
         except Exception as e:
             await interaction.followup.send(
-                f"Une erreur est survenue lors de l'ajout du sous-élément : {str(e)}",
+                f"Erreur lors de la création du sous-élément : {str(e)}",
                 ephemeral=True
             )
 
@@ -156,37 +151,19 @@ class ElementSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         try:
-            modal = SelectSubElementModal(self.view, self.values[0])
+            modal = SubElementModal(self.view.cog, self.values[0])
             await interaction.response.send_modal(modal)
         except Exception as e:
-            print(f"Erreur dans ElementSelect callback: {str(e)}")
             await interaction.response.send_message(
-                f"Une erreur est survenue: {str(e)}", 
+                f"Erreur : {str(e)}", 
                 ephemeral=True
             )
 
 class AddSubElementView(discord.ui.View):
     def __init__(self, cog):
-        super().__init__()  # Supprimé timeout=None car pas besoin de persistance
+        super().__init__()
         self.cog = cog
         self.add_item(ElementSelect())
-
-class SubElementModal(discord.ui.Modal):
-    def __init__(self, view, element):
-        super().__init__(title=f"Ajouter un sous-élément pour {element}")
-        self.view = view
-        self.element = element
-        self.sub_element = discord.ui.TextInput(
-            label="Sous-élément",
-            placeholder="Entrez le nom du sous-élément",
-            required=True,
-            max_length=100
-        )
-        self.add_item(self.sub_element)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        await self.view.add_sub_element(interaction, self.element, self.sub_element.value)
 
 class SousElements(commands.Cog):
     def __init__(self, bot):
@@ -697,278 +674,6 @@ class SubElementSelect(discord.ui.Select):
             print(f"Erreur dans le callback du select: {str(e)}")
             await interaction.followup.send(
                 "Une erreur est survenue lors de l'ajout du sous-élément.",
-                ephemeral=True
-            )
-
-class AddSubElementProcess:
-    def __init__(self, bot, interaction, element, cog):
-        self.bot = bot
-        self.interaction = interaction
-        self.element = element
-        self.cog = cog
-        self.data = {
-            'name': None,
-            'definition': None,
-            'emotional_state': None,
-            'emotional_desc': None,
-            'discovered_by': None,
-            'character_name': None
-        }
-        self.questions = [
-            ("name", "Quel est le nom du sous-élément ?"),
-            ("definition", "Quelle est la définition scientifique du sous-élément ?"),
-            ("emotional_state", "Quel est l'état émotionnel associé ?"),
-            ("emotional_desc", "Quelle est la description de cet état émotionnel ?"),
-            ("discovered_by", "Qui a découvert ce sous-élément ? (mentionnez le joueur)"),
-            ("character_name", "Quel est le nom du personnage qui a découvert ce sous-élément ?"),
-        ]
-        self.current_message = None
-        self.current_question = 0
-
-    def create_question_embed(self, question):
-        return discord.Embed(
-            title="Création d'un sous-élément",
-            description=question,
-            color=0x6d5380
-        ).add_field(
-            name="Élément", 
-            value=self.element
-        ).add_field(
-            name="Note", 
-            value="Tapez votre réponse dans le chat. Le message sera automatiquement supprimé."
-        )
-
-    async def start(self):
-        await self.interaction.response.defer(ephemeral=True)
-        await self.ask_next_question()
-
-    async def ask_next_question(self):
-        if self.current_question >= len(self.questions):
-            await self.finish()
-            return
-
-        field, question = self.questions[self.current_question]
-        embed = self.create_question_embed(question)
-        
-        if self.current_message:
-            await self.current_message.edit(embed=embed)
-        else:
-            self.current_message = await self.interaction.followup.send(embed=embed)
-
-        def check(m):
-            return m.author == self.interaction.user and m.channel == self.interaction.channel
-
-        try:
-            response = await self.bot.wait_for('message', timeout=300.0, check=check)
-            await response.delete()
-            
-            if (field == "discovered_by"):
-                try:
-                    # Extraire l'ID de la mention
-                    mentioned_id = int(''.join(filter(str.isdigit, response.content)))
-                    discoverer = await self.interaction.guild.fetch_member(mentioned_id)
-                    
-                    if not discoverer:
-                        await self.handle_error("Utilisateur introuvable. Veuillez mentionner un utilisateur valide.")
-                        return
-                        
-                    self.data['discovered_by'] = discoverer
-                except ValueError:
-                    await self.handle_error("Format incorrect. Veuillez mentionner l'utilisateur (@User).")
-                    return
-            else:
-                self.data[field] = response.content
-
-            self.current_question += 1
-            await self.ask_next_question()
-
-        except asyncio.TimeoutError:
-            await self.handle_error("Temps écoulé. Processus annulé.")
-
-    async def handle_error(self, error_message):
-        error_embed = discord.Embed(
-            title="Erreur",
-            description=error_message,
-            color=0xFF0000
-        )
-        await self.current_message.edit(embed=error_embed)
-
-    async def finish(self):
-        thread = await self.interaction.guild.fetch_channel(THREAD_CHANNELS[self.element])
-        embed = discord.Embed(
-            title=self.data['name'],
-            description=f"**Définition :** {self.data['definition']}\n\n"
-                       f"**État émotionnel :** {self.data['emotional_state']}\n"
-                       f"**Description :** {self.data['emotional_desc']}\n\n"
-                       f"**Découvert par :** {self.data['discovered_by'].mention} ({self.data['character_name']})\n"
-                       f"**Utilisé par :** -",
-            color=0x6d5380
-        )
-        
-        msg = await thread.send(embed=embed)
-        
-        data = {
-            'name': self.data['name'],
-            'element': self.element,
-            'definition': self.data['definition'],
-            'emotional_state': self.data['emotional_state'],
-            'emotional_desc': self.data['emotional_desc'],
-            'discovered_by_id': self.data['discovered_by'].id,
-            'discovered_by_char': self.data['character_name'],
-            'used_by': [],
-            'message_id': msg.id  # Ajout de l'ID du message
-        }
-        
-        await self.cog.save_subelement(data)  # Use stored cog reference
-        
-        success_embed = discord.Embed(
-            title="Sous-élément créé !",
-            description=f"Le sous-élément **{self.data['name']}** a été ajouté avec succès dans le salon {thread.mention}",
-            color=0x00FF00
-        )
-        await self.current_message.edit(embed=success_embed)
-
-class NewSubElementModal(discord.ui.Modal):
-    def __init__(self, element, cog):
-        super().__init__(title=f"Ajouter un sous-élément - {element}")
-        self.element = element
-        self.cog = cog
-        
-        self.name = discord.ui.TextInput(
-            label="Nom du sous-élément",
-            required=True,
-            max_length=100
-        )
-        self.definition = discord.ui.TextInput(
-            label="Définition",
-            style=discord.TextStyle.paragraph,
-            required=True,
-            max_length=1000
-        )
-        self.emotional_state = discord.ui.TextInput(
-            label="État émotionnel",
-            required=True,
-            max_length=100
-        )
-        self.emotional_desc = discord.ui.TextInput(
-            label="Description émotionnelle",
-            style=discord.TextStyle.paragraph,
-            required=True,
-            max_length=1000
-        )
-        self.discoverer = discord.ui.TextInput(
-            label="Découvreur (ID|Nom du personnage)",
-            placeholder="Ex: 123456789|Gandalf",
-            required=True,
-            max_length=100
-        )
-        
-        for item in [self.name, self.definition, self.emotional_state, 
-                    self.emotional_desc, self.discoverer]:
-            self.add_item(item)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        
-        try:
-            discoverer_input = self.discoverer.value.strip()
-            try:
-                discoverer_id = int(discoverer_input.split('|')[0].strip())
-                character_name = discoverer_input.split('|')[1].strip()
-            except (ValueError, IndexError):
-                await interaction.followup.send(
-                    "Format incorrect. Utilisez: ID|Nom du personnage",
-                    ephemeral=True
-                )
-                return
-
-            thread = interaction.guild.get_channel(THREAD_CHANNELS[self.element])
-            if not thread:
-                await interaction.followup.send(
-                    f"Erreur : Thread introuvable pour {self.element}",
-                    ephemeral=True
-                )
-                return
-
-            embed = discord.Embed(
-                title=self.name.value,
-                description=f"**Définition :** {self.definition.value}\n\n"
-                           f"**État émotionnel :** {self.emotional_state.value}\n"
-                           f"**Description :** {self.emotional_desc.value}\n\n"
-                           f"**Découvert par :** <@{discoverer_id}> ({character_name})\n"
-                           f"**Utilisé par :** -",
-                color=0x6d5380
-            )
-            
-            msg = await thread.send(embed=embed)
-            
-            data = {
-                'name': self.name.value,
-                'element': self.element,
-                'definition': self.definition.value,
-                'emotional_state': self.emotional_state.value,
-                'emotional_desc': self.emotional_desc.value,
-                'discovered_by_id': discoverer_id,
-                'discovered_by_char': character_name,
-                'used_by': [],
-                'message_id': msg.id
-            }
-            await self.cog.save_subelement(data)
-            
-            await interaction.followup.send(
-                f"✅ Sous-élément ajouté avec succès!", 
-                ephemeral=True
-            )
-            
-        except Exception as e:
-            await interaction.followup.send(
-                f"Erreur: {str(e)}",
-                ephemeral=True
-            )
-
-class ElementButton(discord.ui.Button):
-    def __init__(self, element):
-        super().__init__(
-            style=discord.ButtonStyle.primary,
-            label=element,
-            custom_id=f"element_{element.lower()}"
-        )
-        self.element = element
-
-    async def callback(self, interaction: discord.Interaction):
-        try:
-            modal = NewSubElementModal(self.element, self.view.cog)
-            await interaction.response.send_modal(modal)
-        except Exception as e:
-            await interaction.response.send_message(f"Erreur: {str(e)}", ephemeral=True)
-
-class ElementSelectView(discord.ui.View):
-    def __init__(self, cog):
-        super().__init__(timeout=300)
-        self.cog = cog
-        for element in ['Feu', 'Eau', 'Terre', 'Vent', 'Espace']:
-            self.add_item(ElementButton(element))
-
-# Remplacer la commande add_subelement existante par celle-ci:
-    @app_commands.command(name='ajouter-sous-element', description="Ajouter un nouveau sous-élément à la liste (MJ uniquement)")
-    async def add_subelement(self, interaction: discord.Interaction):
-        if not interaction.user.get_role(MJ_ROLE_ID):
-            await interaction.response.send_message(
-                "Cette commande est réservée aux MJ.", 
-                ephemeral=True
-            )
-            return
-
-        try:
-            view = ElementSelectView(self)
-            await interaction.response.send_message(
-                "Choisissez l'élément principal :",
-                view=view,
-                ephemeral=True
-            )
-        except Exception as e:
-            await interaction.response.send_message(
-                f"Une erreur est survenue: {str(e)}",
                 ephemeral=True
             )
 
