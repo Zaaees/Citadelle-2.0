@@ -147,19 +147,28 @@ class ElementSelect(discord.ui.Select):
         ]
         super().__init__(
             placeholder="Choisir l'élément principal",
-            options=options
+            options=options,
+            min_values=1,
+            max_values=1
         )
 
     async def callback(self, interaction: discord.Interaction):
         try:
-            await interaction.response.defer(ephemeral=True)
-            process = AddSubElementProcess(self.view.cog.bot, interaction, self.values[0], self.view.cog)
+            # Démarrer directement le processus de création
+            process = AddSubElementProcess(self.view.bot, interaction, self.values[0], self.view.cog)
             await process.start()
         except Exception as e:
-            await interaction.followup.send(
+            await interaction.response.send_message(
                 f"Une erreur est survenue : {str(e)}",
                 ephemeral=True
             )
+
+class AddElementView(discord.ui.View):
+    def __init__(self, bot, cog):
+        super().__init__(timeout=300)
+        self.bot = bot
+        self.cog = cog
+        self.add_item(ElementSelect())
 
 class AddSubElementView(discord.ui.View):
     def __init__(self, cog):
@@ -394,7 +403,7 @@ class SousElements(commands.Cog):
             )
             return
             
-        view = AddSubElementView(self)
+        view = AddElementView(self.bot, self)
         try:
             await interaction.response.send_message(
                 "Sélectionnez l'élément principal du sous-élément :", 
@@ -402,26 +411,12 @@ class SousElements(commands.Cog):
                 ephemeral=True
             )
         except Exception as e:
-            error_msg = f"Une erreur est survenue lors de l'ajout du sous-élément: {str(e)}"
-            print(f"Erreur détaillée lors de l'ajout du sous-élément: {str(e)}")
-            
-            try:
-                if isinstance(e, discord.errors.NotFound) and "Unknown interaction" in str(e):
-                    # If interaction is expired/unknown, log it and return
-                    print("Interaction expired or unknown")
-                    return
-                    
-                if not interaction.response.is_done():
-                    await interaction.response.send_message(error_msg, ephemeral=True)
-                else:
-                    # Try using followup if the interaction was already acknowledged
-                    try:
-                        await interaction.followup.send(error_msg, ephemeral=True)
-                    except discord.errors.HTTPException:
-                        # If we can't send a followup, just log the error
-                        print("Could not send error message via followup")
-            except Exception as inner_e:
-                print(f"Error handling failed: {inner_e}")
+            print(f"Erreur lors de l'ajout du sous-élément: {str(e)}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    f"Une erreur est survenue : {str(e)}", 
+                    ephemeral=True
+                )
 
     @app_commands.command(name='sous-éléments', description="Créer un message pour gérer les sous-éléments d'un personnage")
     async def sous_elements(self, interaction: discord.Interaction, character_name: str):
