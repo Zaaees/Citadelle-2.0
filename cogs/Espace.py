@@ -60,24 +60,37 @@ class Espace(commands.Cog):
             await interaction.followup.send(embed=embed)
             return
 
-        # Vérifier si le personnage a déjà un trouble
-        existing_trouble = next((row for row in troubles_data if row[0] == str(interaction.user.id) and row[1].lower() == personnage.lower()), None)
-        if existing_trouble:
-            await interaction.followup.send(f"**{personnage}** a déjà un trouble : {existing_trouble[2]}")
+        # Récupérer les troubles existants du personnage
+        existing_troubles = [row[2] for row in troubles_data 
+                           if row[0] == str(interaction.user.id) 
+                           and row[1].lower() == personnage.lower()]
+
+        # Calculer les troubles disponibles
+        available_troubles = [t for t in TROUBLES if t not in existing_troubles]
+        
+        if not available_troubles:
+            await interaction.followup.send(f"**{personnage}** a déjà tous les troubles possibles !")
             return
 
-        # Déterminer si le personnage aura un trouble (1 chance sur 5)
+        # Déterminer si le personnage développe un nouveau trouble (1 chance sur 5)
         if random.randint(1, 5) != 1:
-            await interaction.followup.send(f"**{personnage}** ne développe pas de trouble psychologique.")
+            await interaction.followup.send(f"**{personnage}** ne développe pas de nouveau trouble psychologique.")
             return
 
-        # Attribuer un trouble aléatoire
-        trouble = random.choice(TROUBLES)
+        # Attribuer un nouveau trouble aléatoire parmi ceux disponibles
+        nouveau_trouble = random.choice(available_troubles)
         
         # Ajouter à la feuille
-        self.sheet.append_row([str(interaction.user.id), personnage, trouble])
+        self.sheet.append_row([str(interaction.user.id), personnage, nouveau_trouble])
         
-        await interaction.followup.send(f"**{personnage}** développe le trouble suivant : {trouble}")
+        # Créer le message de réponse
+        if existing_troubles:
+            message = f"**{personnage}** développe un nouveau trouble : {nouveau_trouble}\n"
+            message += f"Troubles actuels : {', '.join(existing_troubles + [nouveau_trouble])}"
+        else:
+            message = f"**{personnage}** développe le trouble suivant : {nouveau_trouble}"
+            
+        await interaction.followup.send(message)
 
     @espace.error
     async def espace_error(self, interaction: discord.Interaction, error):
