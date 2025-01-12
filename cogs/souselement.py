@@ -560,7 +560,9 @@ class AddSubElementButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        if interaction.user.id != interaction.message.interaction.user.id:
+        # Récupérer les données du message pour vérifier le propriétaire
+        message_data = self.view.cog.get_message_data(str(interaction.message.id))
+        if not message_data or interaction.user.id != message_data['user_id']:
             await interaction.response.send_message(
                 "Tu n'es pas autorisé à modifier ces sous-éléments.",
                 ephemeral=True
@@ -568,7 +570,6 @@ class AddSubElementButton(discord.ui.Button):
             return
 
         await interaction.response.defer(ephemeral=True)
-        # Créer une nouvelle instance de SubElementSelectView au lieu d'utiliser self.view
         select_view = SubElementSelectView(self.view.cog, interaction.message.id, interaction.user.id)
         await select_view.setup_menus()
         await interaction.followup.send(
