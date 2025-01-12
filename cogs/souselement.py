@@ -138,7 +138,8 @@ class ElementSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        process = AddSubElementProcess(interaction.client, interaction, self.values[0])
+        cog = interaction.client.get_cog('SousElements')
+        process = AddSubElementProcess(interaction.client, interaction, self.values[0], cog)
         await process.start()
 
 class AddSubElementView(discord.ui.View):
@@ -631,10 +632,11 @@ class SubElementSelect(discord.ui.Select):
             )
 
 class AddSubElementProcess:
-    def __init__(self, bot, interaction, element):
+    def __init__(self, bot, interaction, element, cog):
         self.bot = bot
         self.interaction = interaction
         self.element = element
+        self.cog = cog  # Store cog reference
         self.data = {
             'name': None,
             'definition': None,
@@ -748,7 +750,7 @@ class AddSubElementProcess:
             'used_by': []
         }
         
-        await self.interaction.cog.save_subelement(data)
+        await self.cog.save_subelement(data)  # Use stored cog reference
         
         success_embed = discord.Embed(
             title="Sous-élément créé !",
