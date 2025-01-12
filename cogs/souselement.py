@@ -156,14 +156,11 @@ class ElementSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         try:
-            await interaction.response.defer()
             modal = SelectSubElementModal(self.view, self.values[0])
-            await interaction.followup.send("Formulaire en cours d'ouverture...", ephemeral=True)
-            await interaction.channel.send("Test modal", ephemeral=True)
-            await interaction.followup.modal(modal)
+            await interaction.response.send_modal(modal)
         except Exception as e:
             print(f"Erreur dans ElementSelect callback: {str(e)}")
-            await interaction.followup.send(
+            await interaction.response.send_message(
                 f"Une erreur est survenue: {str(e)}", 
                 ephemeral=True
             )
