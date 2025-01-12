@@ -554,19 +554,21 @@ class SousElements(commands.Cog):
                         color=0x6d5380
                     )
                     
-                    # Trouver et mettre à jour le message
-                    thread = interaction.guild.get_channel(THREAD_CHANNELS[element])
+                    # Obtenir le thread directement via son ID
+                    thread = self.bot.get_channel(THREAD_CHANNELS[element])
                     if thread:
                         try:
                             message = await thread.fetch_message(message_id)
                             await message.edit(embed=embed)
                             updated += 1
                         except discord.NotFound:
+                            print(f"Message {message_id} non trouvé dans le thread {element}")
                             not_found += 1
                         except Exception as e:
                             print(f"Erreur lors de la mise à jour de {name}: {e}")
                             failed += 1
                     else:
+                        print(f"Thread non trouvé pour l'élément {element}")
                         not_found += 1
                         
                 except Exception as e:
