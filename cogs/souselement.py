@@ -1005,11 +1005,10 @@ class AddSubElementProcess:
             if not forum:
                 raise ValueError(f"Forum introuvable (ID: {FORUM_ID})")
 
-            # Récupérer le thread (correction de la méthode d'accès)
-            thread_id = THREAD_CHANNELS[self.element]
-            thread = self.interaction.guild.get_channel(thread_id)
+            # Correction: Utiliser get_thread_channel sur l'objet forum
+            thread = forum.get_thread_channel(THREAD_CHANNELS[self.element])
             if not thread:
-                raise ValueError(f"Thread introuvable pour l'élément {self.element} (ID: {thread_id})")
+                raise ValueError(f"Thread introuvable pour l'élément {self.element} (ID: {THREAD_CHANNELS[self.element]})")
 
             # Le reste du processus
             embed = discord.Embed(
