@@ -1000,17 +1000,18 @@ class AddSubElementProcess:
 
     async def finish(self):
         try:
-            # Récupérer d'abord le forum
+            # Récupérer le forum
             forum = self.interaction.guild.get_channel(FORUM_ID)
             if not forum:
                 raise ValueError(f"Forum introuvable (ID: {FORUM_ID})")
 
-            # Récupérer le thread à partir du forum
-            thread = forum.get_thread(THREAD_CHANNELS[self.element])
+            # Récupérer le thread (correction de la méthode d'accès)
+            thread_id = THREAD_CHANNELS[self.element]
+            thread = self.interaction.guild.get_channel(thread_id)
             if not thread:
-                raise ValueError(f"Thread introuvable pour l'élément {self.element} (ID: {THREAD_CHANNELS[self.element]})")
+                raise ValueError(f"Thread introuvable pour l'élément {self.element} (ID: {thread_id})")
 
-            # Le reste du code reste identique
+            # Le reste du processus
             embed = discord.Embed(
                 title=self.data['name'],
                 description=(
