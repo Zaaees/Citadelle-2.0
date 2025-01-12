@@ -355,8 +355,8 @@ class SousElements(commands.Cog):
             
             # Trouver la ligne du sous-élément
             for idx, row in enumerate(all_data[1:], start=2):
-                if row[0] == subelement_name and row[1] == element:  # Remplacé && par and
-                    users = eval(row[7]) if len(row) > 7 and row[7] else []  # Remplacé && par and
+                if row[0] == subelement_name and row[1] == element:
+                    users = eval(row[7]) if len(row) > 7 and row[7] else []
                     if adding:
                         if (user_id, character_name) not in users:
                             users.append((user_id, character_name))
@@ -374,7 +374,13 @@ class SousElements(commands.Cog):
                                 message = await thread.fetch_message(message_id)
                                 if message:
                                     embed = message.embeds[0]
-                                    used_by = "- " if not users else "\n".join([f"- {char}" for _, char in users])
+                                    # Formatage de la liste avec des virgules
+                                    if not users:
+                                        used_by = "-"
+                                    else:
+                                        character_names = [char for _, char in users]
+                                        used_by = ", ".join(character_names)
+                                    
                                     desc_parts = embed.description.split("**Utilisé par :**")
                                     new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by}"
                                     embed.description = new_desc
