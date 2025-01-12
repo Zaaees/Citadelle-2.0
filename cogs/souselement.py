@@ -530,40 +530,40 @@ class SousElements(commands.Cog):
         if message.author.bot:
             return
             
-        # Vérifier si le message est dans un thread
-        if isinstance(message.channel, discord.Thread):
-            # Vérifier si c'est un thread de sous-éléments
-            if message.channel.id in THREAD_CHANNELS.values():
-                # Chercher le dernier message embed avant le nouveau message
-                last_embed = None
-                last_embed_msg = None
+        try:
+            # Vérifier si le message est dans un thread ou un salon avec une fiche
+            channel = message.channel
+            
+            # Chercher le dernier embed du bot avant le nouveau message
+            last_embed = None
+            last_embed_msg = None
+            
+            async for msg in channel.history(limit=50, before=message):
+                if msg.author == self.bot.user and msg.embeds:
+                    last_embed = msg.embeds[0]
+                    last_embed_msg = msg
+                    break
+            
+            if last_embed and last_embed_msg:
+                # Attendre un court instant
+                await asyncio.sleep(0.5)
                 
-                # On récupère tous les messages jusqu'au nouveau message
-                async for msg in message.channel.history(limit=100, before=message):
-                    if msg.embeds and msg.author == self.bot.user:
-                        last_embed = msg.embeds[0]
-                        last_embed_msg = msg
-                        break
+                # Envoyer le nouvel embed après le message
+                new_message = await channel.send(embed=last_embed, view=last_embed_msg.view)
+                await last_embed_msg.delete()
                 
-                if last_embed and last_embed_msg:
-                    try:
-                        # On attend un court instant pour s'assurer que le message est bien envoyé
-                        await asyncio.sleep(0.5)
-                        # On envoie l'embed après le nouveau message
-                        new_message = await message.channel.send(embed=last_embed)
-                        # On supprime l'ancien embed
-                        await last_embed_msg.delete()
-                        
-                        # Mise à jour de l'ID dans la base de données
-                        worksheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT_LIST')).sheet1
-                        all_data = worksheet.get_all_values()
-                        
-                        for idx, row in enumerate(all_data[1:], start=2):
-                            if str(last_embed_msg.id) == row[8]:
-                                worksheet.update_cell(idx, 9, str(new_message.id))
-                                break
-                    except Exception as e:
-                        print(f"Erreur lors du repost de l'embed: {e}")
+                # Si c'est dans un thread de sous-éléments, mettre à jour l'ID
+                if isinstance(channel, discord.Thread) and channel.id in THREAD_CHANNELS.values():
+                    worksheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT_LIST')).sheet1
+                    all_data = worksheet.get_all_values()
+                    
+                    for idx, row in enumerate(all_data[1:], start=2):
+                        if str(last_embed_msg.id) == row[8]:
+                            worksheet.update_cell(idx, 9, str(new_message.id))
+                            break
+                
+        except Exception as e:
+            print(f"Erreur dans on_message: {e}")
 
 class SubElementSelectView(discord.ui.View):
     def __init__(self, cog, main_message_id, user_id):
@@ -658,62 +658,70 @@ class RemoveSubElementSelect(discord.ui.Select):
         self.cog = cog  # Stockage du cog
 
     async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)  # Ajouter defer pour éviter l'erreur 404
+        
         if self.values[0] == "none":
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Vous n'avez aucun sous-élément à supprimer.",
                 ephemeral=True
             )
             return
 
-        element, subelement = self.values[0].split("|")
-        # Récupérer l'ID du message parent au lieu du message éphémère
-        parent_message_id = str(interaction.message.reference.message_id if interaction.message.reference else interaction.message.id)
-        data = self.cog.get_message_data(parent_message_id)
+        try:
+            element, subelement = self.values[0].split("|")
+            # Récupérer l'ID du message parent au lieu du message éphémère
+            parent_message_id = str(interaction.message.reference.message_id if interaction.message.reference else interaction.message.id)
+            data = self.cog.get_message_data(parent_message_id)
 
-        if subelement in data['elements'][element]:
-            data['elements'][element].remove(subelement)
-            self.cog.save_message_data(parent_message_id, data)
-            
-            # Mise à jour du message principal
-            parent_message = await interaction.channel.fetch_message(int(parent_message_id))
-            await self.cog.update_message(parent_message, data)
-            
-            # Mise à jour dans le thread des sous-éléments
-            forum = interaction.guild.get_channel(FORUM_ID)
-            if forum:
-                thread = forum.get_thread(THREAD_CHANNELS[element])
-                if thread:
-                    async for message in thread.history():
-                        if message.embeds and message.embeds[0].title == subelement:
-                            embed = message.embeds[0]
-                            desc_parts = embed.description.split("**Utilisé par :**")
-                            used_by_text = desc_parts[1].strip() if len(desc_parts) > 1 else ""
-                            
-                            current_users = [u.strip() for u in used_by_text.split(",") if u.strip() != "-" and u.strip() != data['character_name']]
-                            used_by_text = ", ".join(current_users) if current_users else "-"
-                            
-                            new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by_text}"
-                            embed.description = new_desc
-                            new_message = await thread.send(embed=embed)
-                            await message.delete()
-                            break
-            
-            # Mise à jour de la base de données
-            await self.cog.update_subelement_users(
-                element,
-                subelement,
-                interaction.user.id,
-                data['character_name'],
-                adding=False
-            )
-            
-            await interaction.response.send_message(
-                f"Le sous-élément '{subelement}' a été supprimé de votre liste.",
-                ephemeral=True
-            )
-        else:
-            await interaction.response.send_message(
-                f"Ce sous-élément n'est pas dans votre liste.",
+            if subelement in data['elements'][element]:
+                data['elements'][element].remove(subelement)
+                self.cog.save_message_data(parent_message_id, data)
+                
+                # Mise à jour du message principal
+                parent_message = await interaction.channel.fetch_message(int(parent_message_id))
+                await self.cog.update_message(parent_message, data)
+                
+                # Mise à jour dans le thread des sous-éléments
+                forum = interaction.guild.get_channel(FORUM_ID)
+                if forum:
+                    thread = forum.get_thread(THREAD_CHANNELS[element])
+                    if thread:
+                        async for message in thread.history():
+                            if message.embeds and message.embeds[0].title == subelement:
+                                embed = message.embeds[0]
+                                desc_parts = embed.description.split("**Utilisé par :**")
+                                used_by_text = desc_parts[1].strip() if len(desc_parts) > 1 else ""
+                                
+                                current_users = [u.strip() for u in used_by_text.split(",") if u.strip() != "-" and u.strip() != data['character_name']]
+                                used_by_text = ", ".join(current_users) if current_users else "-"
+                                
+                                new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by_text}"
+                                embed.description = new_desc
+                                await message.edit(embed=embed)  # Éditer au lieu de reposter
+                                break
+                
+                # Mise à jour de la base de données
+                await self.cog.update_subelement_users(
+                    element,
+                    subelement,
+                    interaction.user.id,
+                    data['character_name'],
+                    adding=False
+                )
+                
+                await interaction.followup.send(
+                    f"Le sous-élément '{subelement}' a été supprimé de votre liste.",
+                    ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    f"Ce sous-élément n'est pas dans votre liste.",
+                    ephemeral=True
+                )
+        except Exception as e:
+            print(f"Erreur lors de la suppression du sous-élément: {e}")
+            await interaction.followup.send(
+                "Une erreur est survenue lors de la suppression du sous-élément.",
                 ephemeral=True
             )
 
@@ -1018,6 +1026,7 @@ class AddSubElementProcess:
 async def setup(bot):
     await bot.add_cog(SousElements(bot))
     print("Cog Souselements chargé avec succès")
+
 
 
 
