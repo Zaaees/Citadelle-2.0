@@ -154,14 +154,24 @@ class ElementSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         try:
-            # Démarrer directement le processus de création
-            process = AddSubElementProcess(self.view.bot, interaction, self.values[0], self.view.cog)
-            await process.start()
+            await interaction.response.defer(ephemeral=True)
+            modal = SubElementModal(self.view.cog, self.values[0])
+            await interaction.followup.send_modal(modal)
         except Exception as e:
-            await interaction.response.send_message(
-                f"Une erreur est survenue : {str(e)}",
-                ephemeral=True
-            )
+            # Si l'interaction n'est pas déjà répondue
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    f"Une erreur est survenue : {str(e)}",
+                    ephemeral=True
+                )
+            else:
+                try:
+                    await interaction.followup.send(
+                        f"Une erreur est survenue : {str(e)}",
+                        ephemeral=True
+                    )
+                except:
+                    print(f"Impossible d'envoyer le message d'erreur: {str(e)}")
 
 class AddElementView(discord.ui.View):
     def __init__(self, bot, cog):
@@ -403,8 +413,8 @@ class SousElements(commands.Cog):
             )
             return
             
-        view = AddElementView(self.bot, self)
         try:
+            view = AddElementView(self.bot, self)
             await interaction.response.send_message(
                 "Sélectionnez l'élément principal du sous-élément :", 
                 view=view, 
@@ -414,6 +424,11 @@ class SousElements(commands.Cog):
             print(f"Erreur lors de l'ajout du sous-élément: {str(e)}")
             if not interaction.response.is_done():
                 await interaction.response.send_message(
+                    f"Une erreur est survenue : {str(e)}", 
+                    ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
                     f"Une erreur est survenue : {str(e)}", 
                     ephemeral=True
                 )
