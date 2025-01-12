@@ -175,6 +175,7 @@ class SousElements(commands.Cog):
         self.subelements_cache = {}  # Cache pour les sous-éléments
         self.last_cache_update = 0  # Timestamp de la dernière mise à jour du cache
         self.cache_duration = 60  # Durée du cache en secondes
+        self.bot.add_listener(self.on_message, 'on_message')
         
     def setup_google_sheets(self):
         scope = ['https://spreadsheets.google.com/feeds',
@@ -529,6 +530,31 @@ class SousElements(commands.Cog):
                 'Eau': [], 'Feu': [], 'Vent': [], 'Terre': [], 'Espace': []
             }
 
+    async def on_message(self, message):
+        if message.author.bot:
+            return
+            
+        # Vérifier si le message est dans un thread
+        if isinstance(message.channel, discord.Thread):
+            # Vérifier si c'est un thread de sous-éléments
+            if message.channel.id in THREAD_CHANNELS.values():
+                # Chercher le dernier message embed dans ce thread
+                async for msg in message.channel.history(limit=50):
+                    if msg.embeds and msg.author == self.bot.user:
+                        # Reposter l'embed et supprimer l'ancien
+                        new_message = await message.channel.send(embed=msg.embeds[0])
+                        await msg.delete()
+                        
+                        # Mettre à jour l'ID dans la base de données
+                        worksheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT_LIST')).sheet1
+                        all_data = worksheet.get_all_values()
+                        
+                        for idx, row in enumerate(all_data[1:], start=2):
+                            if str(msg.id) == row[8]:  # message_id est dans la colonne 9
+                                worksheet.update_cell(idx, 9, str(new_message.id))
+                                break
+                        break
+
 class SubElementSelectView(discord.ui.View):
     def __init__(self, cog, main_message_id, user_id):
         super().__init__(timeout=300)  # Timeout de 5 minutes
@@ -592,7 +618,7 @@ class AddSubElementButton(discord.ui.Button):
         )
 
 class RemoveSubElementSelect(discord.ui.Select):
-    def __init__(self, data):
+    def __init__(self, data, cog):  # Ajout du cog comme paramètre
         options = []
         for element, subelements in data['elements'].items():
             for subelement in subelements:
@@ -619,6 +645,7 @@ class RemoveSubElementSelect(discord.ui.Select):
             min_values=1,
             max_values=1
         )
+        self.cog = cog  # Stockage du cog
 
     async def callback(self, interaction: discord.Interaction):
         if self.values[0] == "none":
@@ -629,15 +656,15 @@ class RemoveSubElementSelect(discord.ui.Select):
             return
 
         element, subelement = self.values[0].split("|")
-        view: SousElementsView = self.view
-        data = view.cog.get_message_data(str(interaction.message.id))
+        # On utilise directement self.cog au lieu de view.cog
+        data = self.cog.get_message_data(str(interaction.message.id))
 
         if subelement in data['elements'][element]:
             data['elements'][element].remove(subelement)
-            view.cog.save_message_data(str(interaction.message.id), data)
+            self.cog.save_message_data(str(interaction.message.id), data)
             
             # Mise à jour du message principal
-            await view.cog.update_message(interaction.message, data)
+            await self.cog.update_message(interaction.message, data)
             
             # Mise à jour dans le thread des sous-éléments
             forum = interaction.guild.get_channel(FORUM_ID)
@@ -660,7 +687,7 @@ class RemoveSubElementSelect(discord.ui.Select):
                             break
             
             # Mise à jour de la base de données
-            await view.cog.update_subelement_users(
+            await self.cog.update_subelement_users(
                 element,
                 subelement,
                 interaction.user.id,
@@ -696,7 +723,8 @@ class RemoveSubElementButton(discord.ui.Button):
             return
 
         view = discord.ui.View(timeout=60)
-        view.add_item(RemoveSubElementSelect(message_data))
+        # Passer le cog au select
+        view.add_item(RemoveSubElementSelect(message_data, self.view.cog))
         await interaction.response.send_message(
             "Sélectionnez le sous-élément à supprimer :",
             view=view,
