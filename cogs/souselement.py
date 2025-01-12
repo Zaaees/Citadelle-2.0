@@ -638,14 +638,17 @@ class SubElementSelect(discord.ui.Select):
                     async for message in thread.history():
                         if message.embeds and message.embeds[0].title == name:
                             embed = message.embeds[0]
-                            # Mettre à jour la section "Utilisé par"
                             desc_parts = embed.description.split("**Utilisé par :**")
                             used_by_text = desc_parts[1].strip() if len(desc_parts) > 1 else ""
                             
-                            if used_by_text == "-":
-                                used_by_text = f"\n- {data['character_name']}"
+                            # Gérer la liste des utilisateurs avec des virgules
+                            if used_by_text == "-" or not used_by_text:
+                                used_by_text = data['character_name']
                             else:
-                                used_by_text += f"\n- {data['character_name']}"
+                                # Supprimer les tirets et les retours à la ligne
+                                current_users = [u.strip('- \n') for u in used_by_text.split(',')]
+                                current_users.append(data['character_name'])
+                                used_by_text = ", ".join(current_users)
                             
                             new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by_text}"
                             embed.description = new_desc
