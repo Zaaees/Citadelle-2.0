@@ -117,7 +117,8 @@ class SelectSubElementModal(discord.ui.Modal):
                 'emotional_desc': self.emotional_desc.value,
                 'discovered_by_id': discoverer_id,
                 'discovered_by_char': character_name,
-                'used_by': []
+                'used_by': [],
+                'message_id': msg.id  # Ajout de l'ID du message
             }
             await self.view.cog.save_subelement(data)
             
@@ -336,12 +337,12 @@ class SousElements(commands.Cog):
             # Vérifier si la feuille est vide et ajouter les en-têtes si nécessaire
             if not worksheet.get_all_values():
                 headers = ['name', 'element', 'definition', 'emotional_state', 'emotional_desc', 
-                          'discovered_by_id', 'discovered_by_char', 'used_by']
+                          'discovered_by_id', 'discovered_by_char', 'used_by', 'message_id']
                 worksheet.append_row(headers)
             
             row = [data['name'], data['element'], data['definition'], 
                    data['emotional_state'], data['emotional_desc'],
-                   str(data['discovered_by_id']), data['discovered_by_char'], '[]']
+                   str(data['discovered_by_id']), data['discovered_by_char'], '[]', str(data['message_id'])]
             worksheet.append_row(row)
         except Exception as e:
             print(f"Erreur lors de la sauvegarde du sous-élément: {e}")
@@ -364,16 +365,22 @@ class SousElements(commands.Cog):
                     
                     worksheet.update_cell(idx, 8, str(users))
                     
-                    # Mettre à jour tous les messages dans les threads
-                    thread = await self.bot.get_channel(THREAD_CHANNELS[element])
-                    async for message in thread.history():
-                        if message.embeds and message.embeds[0].title == subelement_name:
-                            embed = message.embeds[0]
-                            used_by = "- " if not users else "\n".join([f"- {char}" for _, char in users])
-                            desc_parts = embed.description.split("**Utilisé par :**")
-                            new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by}"
-                            embed.description = new_desc
-                            await message.edit(embed=embed)
+                    # Utiliser l'ID du message sauvegardé
+                    message_id = int(row[8]) if len(row) > 8 and row[8] else None
+                    if message_id:
+                        thread = self.bot.get_channel(THREAD_CHANNELS[element])
+                        if thread:
+                            try:
+                                message = await thread.fetch_message(message_id)
+                                if message:
+                                    embed = message.embeds[0]
+                                    used_by = "- " if not users else "\n".join([f"- {char}" for _, char in users])
+                                    desc_parts = embed.description.split("**Utilisé par :**")
+                                    new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by}"
+                                    embed.description = new_desc
+                                    await message.edit(embed=embed)
+                            except discord.NotFound:
+                                print(f"Message {message_id} non trouvé dans le thread {element}")
                     break
                     
         except Exception as e:
@@ -619,7 +626,27 @@ class SubElementSelect(discord.ui.Select):
                 main_message = await interaction.channel.fetch_message(self.main_message_id)
                 await self.view.cog.update_message(main_message, data)
                 
-                # Mettre à jour la liste des utilisateurs dans le thread
+                # Mettre à jour l'embed du sous-élément dans le thread correspondant
+                thread = interaction.guild.get_channel(THREAD_CHANNELS[element])
+                if thread:
+                    async for message in thread.history():
+                        if message.embeds and message.embeds[0].title == name:
+                            embed = message.embeds[0]
+                            # Mettre à jour la section "Utilisé par"
+                            desc_parts = embed.description.split("**Utilisé par :**")
+                            used_by_text = desc_parts[1].strip() if len(desc_parts) > 1 else ""
+                            
+                            if used_by_text == "-":
+                                used_by_text = f"\n- {data['character_name']}"
+                            else:
+                                used_by_text += f"\n- {data['character_name']}"
+                            
+                            new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by_text}"
+                            embed.description = new_desc
+                            await message.edit(embed=embed)
+                            break
+                
+                # Mettre à jour la liste des utilisateurs dans le système
                 await self.view.cog.update_subelement_users(
                     element,
                     name,
@@ -751,7 +778,7 @@ class AddSubElementProcess:
             color=0x6d5380
         )
         
-        await thread.send(embed=embed)
+        msg = await thread.send(embed=embed)
         
         data = {
             'name': self.data['name'],
@@ -761,7 +788,8 @@ class AddSubElementProcess:
             'emotional_desc': self.data['emotional_desc'],
             'discovered_by_id': self.data['discovered_by'].id,
             'discovered_by_char': self.data['character_name'],
-            'used_by': []
+            'used_by': [],
+            'message_id': msg.id  # Ajout de l'ID du message
         }
         
         await self.cog.save_subelement(data)  # Use stored cog reference
