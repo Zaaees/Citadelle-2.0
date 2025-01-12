@@ -152,7 +152,6 @@ class ElementSelect(discord.ui.Select):
         super().__init__(placeholder="Choisir l'élément principal", options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer()
         cog = interaction.client.get_cog('SousElements')
         process = AddSubElementProcess(interaction.client, interaction, self.values[0], cog)
         await process.start()
@@ -721,6 +720,7 @@ class AddSubElementProcess:
         )
 
     async def start(self):
+        await self.interaction.response.defer(ephemeral=True)
         await self.ask_next_question()
 
     async def ask_next_question(self):
