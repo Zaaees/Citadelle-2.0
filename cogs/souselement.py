@@ -175,7 +175,7 @@ class SousElements(commands.Cog):
         self.subelements_cache = {}  # Cache pour les sous-éléments
         self.last_cache_update = 0  # Timestamp de la dernière mise à jour du cache
         self.cache_duration = 60  # Durée du cache en secondes
-        self.bot.add_listener(self.on_message, 'on_message')
+        self.bot.add_listener(self.handle_character_sheet_message, 'on_message')
         
     def setup_google_sheets(self):
         scope = ['https://spreadsheets.google.com/feeds',
@@ -526,44 +526,47 @@ class SousElements(commands.Cog):
                 'Eau': [], 'Feu': [], 'Vent': [], 'Terre': [], 'Espace': []
             }
 
-    async def on_message(self, message):
+    async def handle_character_sheet_message(self, message):
         if message.author.bot:
             return
-            
+
         try:
-            # Vérifier si le message est dans un thread ou un salon avec une fiche
-            channel = message.channel
+            # Rechercher le dernier message contenant une fiche dans ce salon
+            sheet_message = None
+            sheet_data = None
             
-            # Chercher le dernier embed du bot avant le nouveau message
-            last_embed = None
-            last_embed_msg = None
-            
-            async for msg in channel.history(limit=50, before=message):
+            async for msg in message.channel.history(limit=50):
                 if msg.author == self.bot.user and msg.embeds:
-                    last_embed = msg.embeds[0]
-                    last_embed_msg = msg
-                    break
-            
-            if last_embed and last_embed_msg:
-                # Attendre un court instant
-                await asyncio.sleep(0.5)
-                
-                # Envoyer le nouvel embed après le message
-                new_message = await channel.send(embed=last_embed, view=last_embed_msg.view)
-                await last_embed_msg.delete()
-                
-                # Si c'est dans un thread de sous-éléments, mettre à jour l'ID
-                if isinstance(channel, discord.Thread) and channel.id in THREAD_CHANNELS.values():
-                    worksheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT_LIST')).sheet1
-                    all_data = worksheet.get_all_values()
-                    
-                    for idx, row in enumerate(all_data[1:], start=2):
-                        if str(last_embed_msg.id) == row[8]:
-                            worksheet.update_cell(idx, 9, str(new_message.id))
-                            break
-                
+                    # Vérifier si ce message est une fiche de sous-éléments
+                    data = self.get_message_data(str(msg.id))
+                    if data:
+                        sheet_message = msg
+                        sheet_data = data
+                        break
+
+            if sheet_message and sheet_data:
+                # Créer et envoyer le nouveau message
+                embed = sheet_message.embeds[0]
+                view = SousElementsView(self, sheet_data['character_name'])
+                new_message = await message.channel.send(embed=embed, view=view)
+
+                # Mettre à jour l'ID dans les données
+                sheet_data = self.get_message_data(str(sheet_message.id))
+                self.save_message_data(str(new_message.id), sheet_data)
+
+                # Supprimer l'ancien message
+                await sheet_message.delete()
+
+                # Mettre à jour l'ID du message dans le thread des sous-éléments si nécessaire
+                worksheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT_LIST')).sheet1
+                all_data = worksheet.get_all_values()
+
+                for idx, row in enumerate(all_data[1:], start=2):
+                    if str(sheet_message.id) == row[8]:
+                        worksheet.update_cell(idx, 9, str(new_message.id))
+
         except Exception as e:
-            print(f"Erreur dans on_message: {e}")
+            print(f"Erreur dans handle_character_sheet_message: {e}")
 
 class SubElementSelectView(discord.ui.View):
     def __init__(self, cog, main_message_id, user_id):
