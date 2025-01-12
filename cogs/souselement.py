@@ -641,13 +641,14 @@ class AddSubElementProcess:
             'emotional_state': None,
             'emotional_desc': None,
             'discovered_by': None,
+            'character_name': None
         }
         self.questions = [
             ("name", "Quel est le nom du sous-élément ?"),
             ("definition", "Quelle est la définition du sous-élément ?"),
             ("emotional_state", "Quel est l'état émotionnel associé ?"),
             ("emotional_desc", "Quelle est la description de cet état émotionnel ?"),
-            ("discovered_by", "Qui a découvert ce sous-élément ? (mentionnez la personne)")
+            ("discovered_by", "Qui a découvert ce sous-élément ? (format: ID|Nom du personnage)"),
         ]
         self.current_message = None
         self.current_question = 0
@@ -688,12 +689,23 @@ class AddSubElementProcess:
             response = await self.bot.wait_for('message', timeout=300.0, check=check)
             await response.delete()
             
-            # Traitement spécial pour le découvreur (mention)
             if field == "discovered_by":
-                if not response.mentions:
-                    await self.handle_error("Vous devez mentionner un utilisateur.")
+                try:
+                    user_id, char_name = response.content.split('|')
+                    user_id = int(user_id.strip())
+                    char_name = char_name.strip()
+                    
+                    # Vérifier si l'utilisateur existe
+                    discoverer = await self.interaction.guild.fetch_member(user_id)
+                    if not discoverer:
+                        await self.handle_error("Utilisateur introuvable. Format attendu: ID|Nom du personnage")
+                        return
+                        
+                    self.data['discovered_by'] = discoverer
+                    self.data['character_name'] = char_name
+                except ValueError:
+                    await self.handle_error("Format incorrect. Utilisez le format: ID|Nom du personnage")
                     return
-                self.data[field] = response.mentions[0]
             else:
                 self.data[field] = response.content
 
@@ -718,7 +730,7 @@ class AddSubElementProcess:
             description=f"**Définition :** {self.data['definition']}\n\n"
                        f"**État émotionnel :** {self.data['emotional_state']}\n"
                        f"**Description :** {self.data['emotional_desc']}\n\n"
-                       f"**Découvert par :** {self.data['discovered_by'].mention}\n"
+                       f"**Découvert par :** {self.data['discovered_by'].mention} ({self.data['character_name']})\n"
                        f"**Utilisé par :** -",
             color=0x6d5380
         )
@@ -732,7 +744,7 @@ class AddSubElementProcess:
             'emotional_state': self.data['emotional_state'],
             'emotional_desc': self.data['emotional_desc'],
             'discovered_by_id': self.data['discovered_by'].id,
-            'discovered_by_char': self.data['name'],  # À modifier si besoin
+            'discovered_by_char': self.data['character_name'],
             'used_by': []
         }
         
