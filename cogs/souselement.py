@@ -43,8 +43,12 @@ class SelectSubElementModal(discord.ui.Modal):
             style=discord.TextStyle.paragraph,
             required=True
         )
+        self.character_name = discord.ui.TextInput(
+            label="Nom du personnage découvreur",
+            required=True
+        )
         
-        for item in [self.name, self.definition, self.emotional_state, self.emotional_desc]:
+        for item in [self.name, self.definition, self.emotional_state, self.emotional_desc, self.character_name]:
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -65,7 +69,9 @@ class SelectSubElementModal(discord.ui.Modal):
                 title=self.name.value,
                 description=f"**Définition :** {self.definition.value}\n\n"
                            f"**État émotionnel :** {self.emotional_state.value}\n"
-                           f"**Description :** {self.emotional_desc.value}",
+                           f"**Description :** {self.emotional_desc.value}\n\n"
+                           f"**Découvert par :** {interaction.user.mention} ({self.character_name.value})\n"
+                           f"**Utilisé par :** -",
                 color=0x6d5380
             )
             
@@ -76,7 +82,10 @@ class SelectSubElementModal(discord.ui.Modal):
                 'element': self.element,
                 'definition': self.definition.value,
                 'emotional_state': self.emotional_state.value,
-                'emotional_desc': self.emotional_desc.value
+                'emotional_desc': self.emotional_desc.value,
+                'discovered_by_id': interaction.user.id,
+                'discovered_by_char': self.character_name.value,
+                'used_by': []
             }
             await self.view.cog.save_subelement(data)
             
@@ -287,15 +296,49 @@ class SousElements(commands.Cog):
             
             # Vérifier si la feuille est vide et ajouter les en-têtes si nécessaire
             if not worksheet.get_all_values():
-                headers = ['name', 'element', 'definition', 'emotional_state', 'emotional_desc']
+                headers = ['name', 'element', 'definition', 'emotional_state', 'emotional_desc', 
+                          'discovered_by_id', 'discovered_by_char', 'used_by']
                 worksheet.append_row(headers)
             
             row = [data['name'], data['element'], data['definition'], 
-                   data['emotional_state'], data['emotional_desc']]
+                   data['emotional_state'], data['emotional_desc'],
+                   str(data['discovered_by_id']), data['discovered_by_char'], '[]']
             worksheet.append_row(row)
         except Exception as e:
             print(f"Erreur lors de la sauvegarde du sous-élément: {e}")
             raise e
+
+    async def update_subelement_users(self, element, subelement_name, user_id, character_name, adding=True):
+        try:
+            worksheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT_LIST')).sheet1
+            all_data = worksheet.get_all_values()
+            
+            # Trouver la ligne du sous-élément
+            for idx, row in enumerate(all_data[1:], start=2):
+                if row[0] == subelement_name and row[1] == element:
+                    users = eval(row[7]) if len(row) > 7 and row[7] else []
+                    if adding:
+                        if (user_id, character_name) not in users:
+                            users.append((user_id, character_name))
+                    else:
+                        users = [(uid, char) for uid, char in users if uid != user_id]
+                    
+                    worksheet.update_cell(idx, 8, str(users))
+                    
+                    # Mettre à jour tous les messages dans les threads
+                    thread = await self.bot.get_channel(THREAD_CHANNELS[element])
+                    async for message in thread.history():
+                        if message.embeds and message.embeds[0].title == subelement_name:
+                            embed = message.embeds[0]
+                            used_by = "- " if not users else "\n".join([f"- {char}" for _, char in users])
+                            desc_parts = embed.description.split("**Utilisé par :**")
+                            new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by}"
+                            embed.description = new_desc
+                            await message.edit(embed=embed)
+                    break
+                    
+        except Exception as e:
+            print(f"Erreur lors de la mise à jour des utilisateurs: {e}")
 
     @app_commands.command(name='ajouter-sous-element', description="Ajouter un nouveau sous-élément à la liste (MJ uniquement)")
     async def add_subelement(self, interaction: discord.Interaction):
