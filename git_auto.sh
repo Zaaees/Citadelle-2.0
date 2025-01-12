@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Afficher les 5 derniers commits
+echo "Les 5 derniers commits :"
+echo "------------------------"
+git log -n 5 --pretty=format:"%h - %s (%cr)"
+echo -e "\n------------------------\n"
+
 echo "Entrez le message de commit :"
 read commit_message
 
