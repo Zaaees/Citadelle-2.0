@@ -354,25 +354,27 @@ class SousElements(commands.Cog):
                     # Utiliser l'ID du message sauvegardé
                     message_id = int(row[8]) if len(row) > 8 and row[8] else None
                     if message_id:
-                        thread = self.bot.get_channel(THREAD_CHANNELS[element])
-                        if thread:
-                            try:
-                                message = await thread.fetch_message(message_id)
-                                if message:
-                                    embed = message.embeds[0]
-                                    # Formatage de la liste avec des virgules
-                                    if not users:
-                                        used_by = "-"
-                                    else:
-                                        character_names = [char for _, char in users]
-                                        used_by = ", ".join(character_names)
-                                    
-                                    desc_parts = embed.description.split("**Utilisé par :**")
-                                    new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by}"
-                                    embed.description = new_desc
-                                    await message.edit(embed=embed)
-                            except discord.NotFound:
-                                print(f"Message {message_id} non trouvé dans le thread {element}")
+                        forum = self.bot.get_channel(FORUM_ID)
+                        if forum:
+                            thread = forum.get_thread(THREAD_CHANNELS[element])
+                            if thread:
+                                try:
+                                    message = await thread.fetch_message(message_id)
+                                    if message:
+                                        embed = message.embeds[0]
+                                        # Formatage de la liste avec des virgules
+                                        if not users:
+                                            used_by = "-"
+                                        else:
+                                            character_names = [char for _, char in users]
+                                            used_by = ", ".join(character_names)
+                                        
+                                        desc_parts = embed.description.split("**Utilisé par :**")
+                                        new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by}"
+                                        embed.description = new_desc
+                                        await message.edit(embed=embed)
+                                except discord.NotFound:
+                                    print(f"Message {message_id} non trouvé dans le thread {element}")
                     break
                     
         except Exception as e:
@@ -630,27 +632,29 @@ class SubElementSelect(discord.ui.Select):
                 await self.view.cog.update_message(main_message, data)
                 
                 # Mettre à jour l'embed du sous-élément dans le thread correspondant
-                thread = interaction.guild.get_channel(THREAD_CHANNELS[element])
-                if thread:
-                    async for message in thread.history():
-                        if message.embeds and message.embeds[0].title == name:
-                            embed = message.embeds[0]
-                            desc_parts = embed.description.split("**Utilisé par :**")
-                            used_by_text = desc_parts[1].strip() if len(desc_parts) > 1 else ""
-                            
-                            # Gérer la liste des utilisateurs avec des virgules
-                            if used_by_text == "-" or not used_by_text:
-                                used_by_text = data['character_name']
-                            else:
-                                # Supprimer les tirets et les retours à la ligne
-                                current_users = [u.strip('- \n') for u in used_by_text.split(',')]
-                                current_users.append(data['character_name'])
-                                used_by_text = ", ".join(current_users)
-                            
-                            new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by_text}"
-                            embed.description = new_desc
-                            await message.edit(embed=embed)
-                            break
+                forum = interaction.guild.get_channel(FORUM_ID)
+                if forum:
+                    thread = forum.get_thread(THREAD_CHANNELS[element])
+                    if thread:
+                        async for message in thread.history():
+                            if message.embeds and message.embeds[0].title == name:
+                                embed = message.embeds[0]
+                                desc_parts = embed.description.split("**Utilisé par :**")
+                                used_by_text = desc_parts[1].strip() if len(desc_parts) > 1 else ""
+                                
+                                # Gérer la liste des utilisateurs avec des virgules
+                                if used_by_text == "-" or not used_by_text:
+                                    used_by_text = data['character_name']
+                                else:
+                                    # Supprimer les tirets et les retours à la ligne
+                                    current_users = [u.strip('- \n') for u in used_by_text.split(',')]
+                                    current_users.append(data['character_name'])
+                                    used_by_text = ", ".join(current_users)
+                                
+                                new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by_text}"
+                                embed.description = new_desc
+                                await message.edit(embed=embed)
+                                break
                 
                 # Mettre à jour la liste des utilisateurs dans le système
                 await self.view.cog.update_subelement_users(
@@ -788,10 +792,17 @@ class AddSubElementProcess:
 
     async def finish(self):
         try:
-            thread = self.interaction.guild.get_channel(THREAD_CHANNELS[self.element])
-            if not thread:
-                raise ValueError(f"Thread introuvable pour l'élément {self.element}")
+            # Récupérer d'abord le forum
+            forum = self.interaction.guild.get_channel(FORUM_ID)
+            if not forum:
+                raise ValueError(f"Forum introuvable (ID: {FORUM_ID})")
 
+            # Récupérer le thread à partir du forum
+            thread = forum.get_thread(THREAD_CHANNELS[self.element])
+            if not thread:
+                raise ValueError(f"Thread introuvable pour l'élément {self.element} (ID: {THREAD_CHANNELS[self.element]})")
+
+            # Le reste du code reste identique
             embed = discord.Embed(
                 title=self.data['name'],
                 description=(
