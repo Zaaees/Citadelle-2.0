@@ -158,7 +158,7 @@ class ElementSelect(discord.ui.Select):
 
 class AddSubElementView(discord.ui.View):
     def __init__(self, cog):
-        super().__init__()
+        super().__init__(timeout=None)  # Ajout du timeout=None
         self.cog = cog
         self.add_item(ElementSelect())
 
