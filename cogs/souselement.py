@@ -487,6 +487,107 @@ class SousElements(commands.Cog):
                     ephemeral=True
                 )
 
+    @app_commands.command(
+        name='update-souselements',
+        description="Mettre à jour tous les messages de sous-éléments (MJ uniquement)"
+    )
+    async def update_souselements(self, interaction: discord.Interaction):
+        if not interaction.user.get_role(MJ_ROLE_ID):
+            await interaction.response.send_message(
+                "Cette commande est réservée aux MJ.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            # Récupérer tous les sous-éléments
+            worksheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT_LIST')).sheet1
+            all_data = worksheet.get_all_values()[1:]  # Skip header
+            
+            # Compteurs pour le rapport
+            updated = 0
+            failed = 0
+            not_found = 0
+            
+            for row in all_data:
+                try:
+                    name = row[0]
+                    element = row[1]
+                    definition = row[2]
+                    emotional_state = row[3]
+                    emotional_desc = row[4]
+                    discovered_by_id = int(row[5]) if row[5] != '0' else 0
+                    discovered_by_char = row[6]
+                    used_by = eval(row[7]) if row[7] else []
+                    message_id = int(row[8]) if row[8] else None
+                    
+                    if not message_id:
+                        not_found += 1
+                        continue
+                        
+                    # Construire le texte "Utilisé par"
+                    if not used_by:
+                        used_by_text = "-"
+                    else:
+                        character_names = [char for _, char in used_by]
+                        used_by_text = ", ".join(character_names)
+                    
+                    # Construire le texte "Découvert par"
+                    discovered_by_text = (
+                        f"<@{discovered_by_id}> ({discovered_by_char})" 
+                        if discovered_by_id != 0 
+                        else discovered_by_char
+                    )
+                    
+                    # Créer le nouvel embed
+                    embed = discord.Embed(
+                        title=name,
+                        description=(
+                            f"**Définition :** {definition}\n\n"
+                            f"**État émotionnel :** {emotional_state}\n"
+                            f"**Description :** {emotional_desc}\n\n"
+                            f"**Découvert par :** {discovered_by_text}\n"
+                            f"**Utilisé par :** {used_by_text}"
+                        ),
+                        color=0x6d5380
+                    )
+                    
+                    # Trouver et mettre à jour le message
+                    thread = interaction.guild.get_channel(THREAD_CHANNELS[element])
+                    if thread:
+                        try:
+                            message = await thread.fetch_message(message_id)
+                            await message.edit(embed=embed)
+                            updated += 1
+                        except discord.NotFound:
+                            not_found += 1
+                        except Exception as e:
+                            print(f"Erreur lors de la mise à jour de {name}: {e}")
+                            failed += 1
+                    else:
+                        not_found += 1
+                        
+                except Exception as e:
+                    print(f"Erreur lors du traitement d'une ligne: {e}")
+                    failed += 1
+            
+            # Envoyer le rapport
+            await interaction.followup.send(
+                f"Mise à jour terminée !\n"
+                f"✅ {updated} messages mis à jour\n"
+                f"❌ {failed} échecs\n"
+                f"⚠️ {not_found} messages non trouvés",
+                ephemeral=True
+            )
+            
+        except Exception as e:
+            await interaction.followup.send(
+                f"Une erreur est survenue : {str(e)}",
+                ephemeral=True
+            )
+
     async def get_all_subelements(self):
         current_time = int(time.time())
         
@@ -1065,7 +1166,11 @@ class AddSubElementProcess:
                 raise ValueError(f"Thread introuvable pour l'élément {self.element} (ID: {THREAD_CHANNELS[self.element]})")
 
             # Le reste du processus
-            discovered_by_text = f"<@{self.data['discovered_by_id']}>" if self.data['discovered_by_id'] != 0 else self.data['discovered_by_char']
+            discovered_by_text = (
+                f"<@{self.data['discovered_by_id']}> ({self.data['discovered_by_char']})" 
+                if self.data['discovered_by_id'] != 0 
+                else self.data['discovered_by_char']
+            )
             embed = discord.Embed(
                 title=self.data['name'],
                 description=(
@@ -1113,7 +1218,3 @@ class AddSubElementProcess:
 async def setup(bot):
     await bot.add_cog(SousElements(bot))
     print("Cog Souselements chargé avec succès")
-
-
-
-
