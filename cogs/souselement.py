@@ -365,34 +365,30 @@ class SousElements(commands.Cog):
                     # Utiliser l'ID du message sauvegardé
                     message_id = int(row[8]) if len(row) > 8 and row[8] else None
                     if message_id:
-                        forum = self.bot.get_channel(FORUM_ID)
-                        if forum:
-                            # Modification ici : Chercher le thread directement
-                            thread = None
-                            threads = [t for t in forum.threads if t.id == THREAD_CHANNELS[element]]
-                            if threads:
-                                thread = threads[0]
-                                
-                            if thread:
-                                try:
-                                    message = await thread.fetch_message(message_id)
-                                    if message:
-                                        embed = message.embeds[0]
-                                        # Formatage de la liste avec des virgules
-                                        if not users:
-                                            used_by = "-"
-                                        else:
-                                            character_names = [char for _, char in users]
-                                            used_by = ", ".join(character_names)
-                                        
-                                        desc_parts = embed.description.split("**Utilisé par :**")
-                                        new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by}"
-                                        embed.description = new_desc
-                                        
-                                        await message.edit(embed=embed)
-                                        
-                                except discord.NotFound:
-                                    print(f"Message {message_id} non trouvé dans le thread {element}")
+                        # Obtenir le thread directement à partir de son ID
+                        thread_id = THREAD_CHANNELS[element]
+                        thread = self.bot.get_channel(thread_id)
+                        
+                        if thread:
+                            try:
+                                message = await thread.fetch_message(message_id)
+                                if message:
+                                    embed = message.embeds[0]
+                                    # Formatage de la liste avec des virgules
+                                    if not users:
+                                        used_by = "-"
+                                    else:
+                                        character_names = [char for _, char in users]
+                                        used_by = ", ".join(character_names)
+                                    
+                                    desc_parts = embed.description.split("**Utilisé par :**")
+                                    new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by}"
+                                    embed.description = new_desc
+                                    
+                                    await message.edit(embed=embed)
+                                    
+                            except discord.NotFound:
+                                print(f"Message {message_id} non trouvé dans le thread {element}")
                     break
                     
         except Exception as e:

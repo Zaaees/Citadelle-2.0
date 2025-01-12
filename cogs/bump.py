@@ -103,7 +103,7 @@ class Bump(commands.Cog):
             elif time_since_last_bump >= timedelta(hours=2) and time_since_last_reminder >= timedelta(hours=2):
                 channel = self.bot.get_channel(self.channel_id)
                 if channel:
-                    await channel.send("Bump le serveur enculé")
+                    await channel.send("Bump le serveur")
                     self.last_reminder = now
                     self.save_last_reminder()
                     self.logger.info("Reminder sent successfully")
