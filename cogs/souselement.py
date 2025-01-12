@@ -930,21 +930,19 @@ class AddSubElementProcess:
         description = ""
         fields = []
 
-        for field, question in self.questions[:self.current_question]:
+        # Correction ici pour accéder correctement aux éléments du tuple
+        for field, question, _ in self.questions[:self.current_question]:
             value = self.data[field]
             if value is not None:
                 if field in ["definition", "emotional_desc"]:
-                    # Ajouter les textes longs à la description
                     description += f"**{question}**\n{value}\n\n"
                 else:
-                    # Ajouter les textes courts aux fields
                     display_value = f"<@{value}>" if field == "discovered_by_id" else value
                     fields.append((question, display_value))
 
         if description:
             embed.description = description
 
-        # Ajouter les fields courts
         for question, value in fields:
             embed.add_field(
                 name=question,
@@ -952,11 +950,12 @@ class AddSubElementProcess:
                 inline=False
             )
 
-        # Affichage de la question actuelle
+        # Correction ici aussi pour accéder à la question actuelle
         if self.current_question < len(self.questions):
+            current_field, current_question, _ = self.questions[self.current_question]
             embed.add_field(
                 name="Question actuelle",
-                value=f"**{self.questions[self.current_question][1]}**\n*Tapez 'annuler' pour arrêter le processus*",
+                value=f"**{current_question}**\n*Tapez 'annuler' pour arrêter le processus*",
                 inline=False
             )
 
