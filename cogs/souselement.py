@@ -937,7 +937,11 @@ class AddSubElementProcess:
                 if field in ["definition", "emotional_desc"]:
                     description += f"**{question}**\n{value}\n\n"
                 else:
-                    display_value = f"<@{value}>" if field == "discovered_by_id" else value
+                    # Modifier l'affichage pour le découvreur
+                    if field == "discovered_by_id":
+                        display_value = f"<@{value}>" if value != 0 else self.data.get('discovered_by_char', "Non spécifié")
+                    else:
+                        display_value = value
                     fields.append((question, display_value))
 
         if description:
@@ -994,21 +998,27 @@ class AddSubElementProcess:
             field, question, max_length = self.questions[self.current_question]
             
             if field == "discovered_by_id":
-                try:
-                    if not response.mentions:
-                        raise ValueError("Aucune mention trouvée")
+                if response.mentions:
+                    # Si une mention est présente, utiliser l'ID de l'utilisateur mentionné
                     member = response.mentions[0]
                     self.data[field] = member.id
-                except (ValueError, IndexError):
-                    error_embed = self.create_embed()
-                    error_embed.add_field(
-                        name="Erreur",
-                        value="Veuillez mentionner un utilisateur valide en utilisant @.",
-                        inline=False
-                    )
-                    await self.message.edit(embed=error_embed)
-                    await self.wait_for_next_answer()
-                    return
+                else:
+                    # Sinon, stocker simplement la réponse comme texte
+                    if len(response.content) > max_length:
+                        error_embed = self.create_embed()
+                        error_embed.add_field(
+                            name="Erreur",
+                            value=f"La réponse est trop longue (maximum {max_length} caractères).",
+                            inline=False
+                        )
+                        await self.message.edit(embed=error_embed)
+                        await self.wait_for_next_answer()
+                        return
+                    # Stocker 0 comme ID pour indiquer qu'il n'y a pas de mention
+                    self.data[field] = 0
+                    self.data['discovered_by_char'] = response.content
+                    # Passer la prochaine question puisqu'on a déjà le nom
+                    self.current_question += 1
             else:
                 # Vérifier la longueur de la réponse
                 if len(response.content) > max_length:
@@ -1055,13 +1065,14 @@ class AddSubElementProcess:
                 raise ValueError(f"Thread introuvable pour l'élément {self.element} (ID: {THREAD_CHANNELS[self.element]})")
 
             # Le reste du processus
+            discovered_by_text = f"<@{self.data['discovered_by_id']}>" if self.data['discovered_by_id'] != 0 else self.data['discovered_by_char']
             embed = discord.Embed(
                 title=self.data['name'],
                 description=(
                     f"**Définition :** {self.data['definition']}\n\n"
                     f"**État émotionnel :** {self.data['emotional_state']}\n"
                     f"**Description :** {self.data['emotional_desc']}\n\n"
-                    f"**Découvert par :** <@{self.data['discovered_by_id']}> ({self.data['discovered_by_char']})\n"
+                    f"**Découvert par :** {discovered_by_text}\n"
                     f"**Utilisé par :** -"
                 ),
                 color=0x6d5380
