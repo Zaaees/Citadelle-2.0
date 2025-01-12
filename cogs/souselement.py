@@ -64,23 +64,32 @@ class SelectSubElementModal(discord.ui.Modal):
         await interaction.response.defer()
         
         try:
-            # Parse discoverer information
+            # Extraire l'ID utilisateur de la mention ou chercher par ID direct
+            discoverer_input = self.discoverer.value.strip()
             try:
-                discoverer_id, character_name = self.discoverer.value.split('|')
-                discoverer_id = int(discoverer_id.strip())
-                character_name = character_name.strip()
-            except ValueError:
-                # Si pas de | dans la valeur, on suppose que c'est l'utilisateur actuel
-                discoverer_id = interaction.user.id
-                character_name = self.discoverer.value.strip()
+                if '<@' in discoverer_input:
+                    # Extraire l'ID de la mention
+                    discoverer_id = int(''.join(filter(str.isdigit, discoverer_input.split('|')[0])))
+                    character_name = discoverer_input.split('|')[1].strip()
+                else:
+                    # Format ID|Nom
+                    discoverer_id = int(discoverer_input.split('|')[0].strip())
+                    character_name = discoverer_input.split('|')[1].strip()
+            except (ValueError, IndexError):
+                await interaction.followup.send(
+                    "Format incorrect. Utilisez soit une mention suivie du nom du personnage (<@ID>|Nom) "
+                    "ou un ID suivi du nom (ID|Nom)",
+                    ephemeral=True
+                )
+                return
 
             discoverer = await interaction.guild.fetch_member(discoverer_id)
             if not discoverer:
-                await interaction.followup.send("Impossible de trouver le découvreur spécifié.", ephemeral=True)
+                await interaction.followup.send("Impossible de trouver l'utilisateur spécifié.", ephemeral=True)
                 return
 
             # Récupération du thread et création de l'embed
-            thread = await interaction.guild.fetch_channel(THREAD_CHANNELS[self.element])
+            thread = interaction.guild.get_channel(THREAD_CHANNELS[self.element])
             if not thread:
                 await interaction.followup.send(
                     f"Erreur : Impossible de trouver le thread pour l'élément {self.element}.",
@@ -98,7 +107,7 @@ class SelectSubElementModal(discord.ui.Modal):
                 color=0x6d5380
             )
             
-            await thread.send(embed=embed)
+            msg = await thread.send(embed=embed)
             
             data = {
                 'name': self.name.value,
@@ -113,18 +122,23 @@ class SelectSubElementModal(discord.ui.Modal):
             await self.view.cog.save_subelement(data)
             
             await interaction.followup.send(
-                f"Sous-élément ajouté avec succès dans le thread {thread.mention}!", 
+                f"✅ Sous-élément ajouté avec succès dans le thread {thread.mention}!", 
                 ephemeral=True
             )
             
-        except discord.Forbidden:
-            await interaction.followup.send(
-                "Je n'ai pas les permissions nécessaires pour envoyer des messages dans le thread.",
-                ephemeral=True
-            )
+            # Notifier le découvreur
+            if discoverer_id != interaction.user.id:
+                try:
+                    await discoverer.send(
+                        f"Votre personnage {character_name} a été enregistré comme découvreur "
+                        f"du sous-élément **{self.name.value}** ({self.element})"
+                    )
+                except discord.Forbidden:
+                    pass  # L'utilisateur a peut-être désactivé ses MPs
+            
         except Exception as e:
             await interaction.followup.send(
-                f"Une erreur est survenue lors de l'envoi du message : {str(e)}",
+                f"Une erreur est survenue lors de l'ajout du sous-élément : {str(e)}",
                 ephemeral=True
             )
 
