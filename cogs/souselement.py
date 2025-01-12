@@ -759,15 +759,18 @@ class RemoveSubElementButton(discord.ui.Button):
             await response.delete()
             return
 
+        # Modification ici : utiliser response puis original_response
         view = discord.ui.View(timeout=60)
         select = RemoveSubElementSelect(message_data, self.view.cog)
         view.add_item(select)
-        select_message = await interaction.response.send_message(
+        
+        await interaction.response.send_message(
             "Sélectionnez le sous-élément à supprimer :",
             view=view,
             ephemeral=True
         )
-        # Stocker l'ID du message pour pouvoir le supprimer plus tard
+        # Récupérer le message après l'envoi
+        select_message = await interaction.original_response()
         select.select_message_id = select_message.id
 
 class SousElementsView(discord.ui.View):
