@@ -925,17 +925,23 @@ class AddSubElementProcess:
         )
 
         # Affichage des réponses précédentes
-        preview = ""
         for field, question in self.questions[:self.current_question]:
             value = self.data[field]
             if value is not None:
+                # Tronquer la valeur si elle est trop longue
+                display_value = value
                 if field == "discovered_by_id":
-                    preview += f"**{question}** <@{value}>\n\n"
-                else:
-                    preview += f"**{question}** {value}\n\n"
-
-        if preview:
-            embed.add_field(name="Réponses précédentes", value=preview, inline=False)
+                    display_value = f"<@{value}>"
+                
+                # Limiter la longueur à 1000 caractères
+                if len(display_value) > 1000:
+                    display_value = display_value[:997] + "..."
+                
+                embed.add_field(
+                    name=question,
+                    value=display_value,
+                    inline=False
+                )
 
         # Affichage de la question actuelle
         if self.current_question < len(self.questions):
