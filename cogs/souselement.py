@@ -375,12 +375,8 @@ class SousElements(commands.Cog):
                                         new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by}"
                                         embed.description = new_desc
                                         
-                                        # Reposter le message et supprimer l'ancien
-                                        new_message = await thread.send(embed=embed)
-                                        await message.delete()
-                                        
-                                        # Mettre à jour l'ID du message dans la base de données
-                                        worksheet.update_cell(idx, 9, str(new_message.id))
+                                        # Éditer le message au lieu de le reposter
+                                        await message.edit(embed=embed)
                                         
                                 except discord.NotFound:
                                     print(f"Message {message_id} non trouvé dans le thread {element}")
@@ -538,25 +534,27 @@ class SousElements(commands.Cog):
         if isinstance(message.channel, discord.Thread):
             # Vérifier si c'est un thread de sous-éléments
             if message.channel.id in THREAD_CHANNELS.values():
-                await asyncio.sleep(0.5)  # Attendre un peu que le message soit bien envoyé
-                
-                # Chercher le dernier message embed dans ce thread
+                # Chercher le dernier message embed avant le nouveau message
                 last_embed = None
                 last_embed_msg = None
                 
-                async for msg in message.channel.history(limit=50):
+                # On récupère tous les messages jusqu'au nouveau message
+                async for msg in message.channel.history(limit=100, before=message):
                     if msg.embeds and msg.author == self.bot.user:
                         last_embed = msg.embeds[0]
                         last_embed_msg = msg
                         break
                 
-                if last_embed:
-                    # Reposter l'embed après le nouveau message
+                if last_embed and last_embed_msg:
                     try:
+                        # On attend un court instant pour s'assurer que le message est bien envoyé
+                        await asyncio.sleep(0.5)
+                        # On envoie l'embed après le nouveau message
                         new_message = await message.channel.send(embed=last_embed)
+                        # On supprime l'ancien embed
                         await last_embed_msg.delete()
                         
-                        # Mettre à jour l'ID dans la base de données
+                        # Mise à jour de l'ID dans la base de données
                         worksheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT_LIST')).sheet1
                         all_data = worksheet.get_all_values()
                         
