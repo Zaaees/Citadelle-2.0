@@ -25,31 +25,41 @@ class SelectSubElementModal(discord.ui.Modal):
         self.view = view
         self.element = element
         
+        # Définition des champs dans l'ordre
         self.name = discord.ui.TextInput(
             label="Nom du sous-élément",
-            required=True
+            required=True,
+            max_length=100
         )
         self.definition = discord.ui.TextInput(
             label="Définition",
             style=discord.TextStyle.paragraph,
-            required=True
+            required=True,
+            max_length=1000
         )
         self.emotional_state = discord.ui.TextInput(
             label="État émotionnel",
-            required=True
+            required=True,
+            max_length=100
         )
         self.emotional_desc = discord.ui.TextInput(
-            label="Description de l'état émotionnel",
+            label="Description émotionnelle",
             style=discord.TextStyle.paragraph,
-            required=True
+            required=True,
+            max_length=1000
         )
         self.character_name = discord.ui.TextInput(
             label="Nom du personnage découvreur",
-            required=True
+            required=True,
+            max_length=100
         )
         
-        for item in [self.name, self.definition, self.emotional_state, self.emotional_desc, self.character_name]:
-            self.add_item(item)
+        # Ajout des champs dans l'ordre
+        self.add_item(self.name)
+        self.add_item(self.definition)
+        self.add_item(self.emotional_state)
+        self.add_item(self.emotional_desc)
+        self.add_item(self.character_name)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -114,8 +124,15 @@ class ElementSelect(discord.ui.Select):
         super().__init__(placeholder="Choisir l'élément principal", options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        modal = SelectSubElementModal(self.view, self.values[0])
-        await interaction.response.send_modal(modal)
+        try:
+            modal = SelectSubElementModal(self.view, self.values[0])
+            await interaction.response.send_modal(modal)
+        except Exception as e:
+            print(f"Erreur lors de l'affichage du modal: {str(e)}")
+            await interaction.response.send_message(
+                "Une erreur est survenue lors de l'affichage du formulaire.",
+                ephemeral=True
+            )
 
 class AddSubElementView(discord.ui.View):
     def __init__(self, cog):
