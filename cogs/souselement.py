@@ -149,16 +149,16 @@ class ElementSelect(discord.ui.Select):
             discord.SelectOption(label=element, value=element)
             for element in ['Feu', 'Vent', 'Terre', 'Eau', 'Espace']
         ]
-        super().__init__(placeholder="Choisir l'élément principal", options=options)
-
-    async def callback(self, interaction: discord.Interaction):
-        cog = interaction.client.get_cog('SousElements')
-        process = AddSubElementProcess(interaction.client, interaction, self.values[0], cog)
-        await process.start()
+        super().__init__(
+            placeholder="Choisir l'élément principal",
+            options=options,
+            min_values=1,
+            max_values=1
+        )  # Supprimé custom_id car pas besoin de persistance
 
 class AddSubElementView(discord.ui.View):
     def __init__(self, cog):
-        super().__init__(timeout=None)  # Ajout du timeout=None
+        super().__init__()  # Supprimé timeout=None car pas besoin de persistance
         self.cog = cog
         self.add_item(ElementSelect())
 
@@ -402,6 +402,8 @@ class SousElements(commands.Cog):
                 return
                 
             view = AddSubElementView(self)
+            # Modification pour enregistrer la vue globalement
+            self.bot.add_view(view)
             await interaction.response.send_message(
                 "Sélectionnez l'élément principal du sous-élément :", 
                 view=view, 
@@ -479,7 +481,7 @@ class SousElements(commands.Cog):
         current_time = int(time.time())
         
         # Si le cache est encore valide, on l'utilise
-        if self.subelements_cache and (current_time - self.last_cache_update) < self.cache_duration:  # Remplacé && par and
+        if self.subelements_cache and (current_time - self.last_cache_update) < self.cache_duration:
             return self.subelements_cache
             
         try:
@@ -496,7 +498,7 @@ class SousElements(commands.Cog):
                     if len(row) >= 2:
                         name = row[0].strip()
                         element = row[1].strip()
-                        if element in elements_data and name:  # Remplacé && par and
+                        if element in elements_data and name:
                             elements_data[element].append({
                                 'name': name,
                                 'value': f"{element}|{name}",
@@ -743,7 +745,7 @@ class AddSubElementProcess:
             response = await self.bot.wait_for('message', timeout=300.0, check=check)
             await response.delete()
             
-            if field == "discovered_by":
+            if (field == "discovered_by"):
                 try:
                     # Extraire l'ID de la mention
                     mentioned_id = int(''.join(filter(str.isdigit, response.content)))
@@ -812,5 +814,6 @@ class AddSubElementProcess:
 async def setup(bot):
     await bot.add_cog(SousElements(bot))
     print("Cog Souselements chargé avec succès")
+
 
 
