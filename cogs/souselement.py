@@ -411,18 +411,36 @@ class SousElements(commands.Cog):
                 return
                 
             view = AddSubElementView(self)
-            await interaction.response.send_message(
-                "Sélectionnez l'élément principal du sous-élément :", 
-                view=view, 
-                ephemeral=True
-            )
+            try:
+                await interaction.response.send_message(
+                    "Sélectionnez l'élément principal du sous-élément :", 
+                    view=view, 
+                    ephemeral=True
+                )
+            except discord.errors.NotFound:
+                # If the initial response fails, try following up
+                await interaction.followup.send(
+                    "Sélectionnez l'élément principal du sous-élément :", 
+                    view=view, 
+                    ephemeral=True
+                )
             
         except Exception as e:
             print(f"Erreur détaillée lors de l'ajout du sous-élément: {str(e)}")
-            await interaction.response.send_message(
-                f"Une erreur est survenue lors de l'ajout du sous-élément: {str(e)}",
-                ephemeral=True
-            )
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(
+                        f"Une erreur est survenue lors de l'ajout du sous-élément: {str(e)}",
+                        ephemeral=True
+                    )
+                else:
+                    await interaction.followup.send(
+                        f"Une erreur est survenue lors de l'ajout du sous-élément: {str(e)}",
+                        ephemeral=True
+                    )
+            except discord.errors.HTTPException:
+                # If all else fails, just log the error
+                print(f"Could not send error message to user: {str(e)}")
 
     @app_commands.command(name='sous-éléments', description="Créer un message pour gérer les sous-éléments d'un personnage")
     async def sous_elements(self, interaction: discord.Interaction, character_name: str):
