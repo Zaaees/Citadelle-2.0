@@ -635,30 +635,36 @@ class SousElements(commands.Cog):
             return
 
         try:
+            # D'abord, on récupère tous les IDs des fiches de sous-éléments
+            worksheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT')).sheet1
+            all_data = worksheet.get_all_values()
+            sheet_ids = set()  # On utilise un set pour des recherches plus rapides
+            
+            # On skip la première ligne si c'est un header
+            for row in all_data[1:]:
+                if row and row[0]:  # Vérifier que la ligne n'est pas vide et a un ID
+                    sheet_ids.add(row[0])
+
             # Rechercher le dernier message contenant une fiche dans ce salon
             sheet_message = None
             sheet_data = None
             
             async for msg in message.channel.history(limit=50):
-                if msg.author == self.bot.user and msg.embeds:
-                    # Vérifier si ce message est une fiche de sous-éléments
+                # On vérifie d'abord si l'ID du message est dans notre liste d'IDs connus
+                if msg.author == self.bot.user and str(msg.id) in sheet_ids:
                     data = self.get_message_data(str(msg.id))
-                    if data:
+                    if data:  # Double vérification avec les données
                         sheet_message = msg
                         sheet_data = data
                         break
 
             if sheet_message and sheet_data:
-                # Créer et envoyer le nouveau message
+                # Le reste du code reste identique
                 embed = sheet_message.embeds[0]
                 view = SousElementsView(self, sheet_data['character_name'])
                 new_message = await message.channel.send(embed=embed, view=view)
 
-                # Mettre à jour l'ID dans les données
-                sheet_data = self.get_message_data(str(sheet_message.id))
                 self.save_message_data(str(new_message.id), sheet_data)
-
-                # Supprimer l'ancien message
                 await sheet_message.delete()
 
                 # Mettre à jour l'ID du message dans le thread des sous-éléments si nécessaire
