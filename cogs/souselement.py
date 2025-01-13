@@ -635,25 +635,17 @@ class SousElements(commands.Cog):
             return
 
         try:
-            # D'abord, on récupère tous les IDs des fiches de sous-éléments
-            worksheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT')).sheet1
-            all_data = worksheet.get_all_values()
-            sheet_ids = set()  # On utilise un set pour des recherches plus rapides
-            
-            # On skip la première ligne si c'est un header
-            for row in all_data[1:]:
-                if row and row[0]:  # Vérifier que la ligne n'est pas vide et a un ID
-                    sheet_ids.add(row[0])
-
-            # Rechercher le dernier message contenant une fiche dans ce salon
-            sheet_message = None
-            sheet_data = None
-            
             async for msg in message.channel.history(limit=50):
-                # On vérifie d'abord si l'ID du message est dans notre liste d'IDs connus
-                if msg.author == self.bot.user and str(msg.id) in sheet_ids:
+                if msg.author == self.bot.user and msg.embeds:
+                    # Vérifie d'abord si le message a des données dans le Google Sheet
                     data = self.get_message_data(str(msg.id))
-                    if data:  # Double vérification avec les données
+                    
+                    # Ne continue QUE si on a trouvé des données valides
+                    # ET si le message a le bon format de titre
+                    if (data and 
+                        msg.embeds[0].title and 
+                        msg.embeds[0].title.startswith("Sous-éléments de ")):
+                            
                         sheet_message = msg
                         sheet_data = data
                         break
