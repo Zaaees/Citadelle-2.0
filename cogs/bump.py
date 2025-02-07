@@ -93,23 +93,25 @@ class Bump(commands.Cog):
             
             # Vérification pour 24 heures
             if time_since_last_bump >= timedelta(hours=24):
-                channel = self.bot.get_channel(self.channel_id)
-                if channel:
-                    await channel.send("⚠️ Ça fait 24h ! Bump le serveur enculé")
-                    self.last_reminder = now
-                    self.save_last_reminder()
-                    self.logger.info("24-hour reminder sent successfully")
-                    return # Ajout d'un return pour éviter de passer à la vérification normale
+                if self.last_reminder < self.last_bump:
+                    channel = self.bot.get_channel(self.channel_id)
+                    if channel:
+                        await channel.send("⚠️ Ça fait 24h ! Bump le serveur enculé")
+                        self.last_reminder = now
+                        self.save_last_reminder()
+                        self.logger.info("24-hour reminder sent successfully")
+                        return
             # Vérification normale pour 2 heures
             elif time_since_last_bump >= timedelta(hours=2) and time_since_last_reminder >= timedelta(hours=2):
-                channel = self.bot.get_channel(self.channel_id)
-                if channel:
-                    await channel.send("Bump le serveur")
-                    self.last_reminder = now
-                    self.save_last_reminder()
-                    self.logger.info("Reminder sent successfully")
-                else:
-                    self.logger.error(f"Channel not found: {self.channel_id}")
+                if self.last_reminder < self.last_bump:
+                    channel = self.bot.get_channel(self.channel_id)
+                    if channel:
+                        await channel.send("Bump le serveur")
+                        self.last_reminder = now
+                        self.save_last_reminder()
+                        self.logger.info("Reminder sent successfully")
+                    else:
+                        self.logger.error(f"Channel not found: {self.channel_id}")
 
             time_to_next_check = min(
                 timedelta(hours=2) - time_since_last_bump,
