@@ -370,25 +370,46 @@ class SousElements(commands.Cog):
                         thread = self.bot.get_channel(thread_id)
                         
                         if thread:
+                            # Vérifier si le thread est archivé
+                            was_archived = thread.archived
+                            locked = thread.locked
+                            
                             try:
-                                message = await thread.fetch_message(message_id)
-                                if message:
-                                    embed = message.embeds[0]
-                                    # Formatage de la liste avec des virgules
-                                    if not users:
-                                        used_by = "-"
-                                    else:
-                                        character_names = [char for _, char in users]
-                                        used_by = ", ".join(character_names)
+                                # Désarchiver le thread si nécessaire
+                                if was_archived:
+                                    await thread.edit(archived=False)
+                                if locked:
+                                    await thread.edit(locked=False)
+                                
+                                # Mettre à jour le message
+                                try:
+                                    message = await thread.fetch_message(message_id)
+                                    if message:
+                                        embed = message.embeds[0]
+                                        if not users:
+                                            used_by = "-"
+                                        else:
+                                            character_names = [char for _, char in users]
+                                            used_by = ", ".join(character_names)
+                                        
+                                        desc_parts = embed.description.split("**Utilisé par :**")
+                                        new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by}"
+                                        embed.description = new_desc
+                                        
+                                        await message.edit(embed=embed)
+                                except discord.NotFound:
+                                    print(f"Message {message_id} non trouvé dans le thread {element}")
+                                
+                                # Remettre le thread dans son état d'origine
+                                if was_archived:
+                                    await thread.edit(archived=True)
+                                if locked:
+                                    await thread.edit(locked=True)
                                     
-                                    desc_parts = embed.description.split("**Utilisé par :**")
-                                    new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by}"
-                                    embed.description = new_desc
-                                    
-                                    await message.edit(embed=embed)
-                                    
-                            except discord.NotFound:
-                                print(f"Message {message_id} non trouvé dans le thread {element}")
+                            except discord.Forbidden:
+                                print(f"Permissions insuffisantes pour le thread {element}")
+                            except Exception as e:
+                                print(f"Erreur lors de la mise à jour du message: {e}")
                     break
                     
         except Exception as e:
@@ -609,17 +630,28 @@ class SousElements(commands.Cog):
                 'Eau': [], 'Feu': [], 'Vent': [], 'Terre': [], 'Espace': []
             }
             
-            if len(all_data) > 1:  # S'il y a des données après l'en-tête
-                for row in all_data[1:]:
+            # S'assurer qu'il y a des données et ignorer l'en-tête
+            if len(all_data) > 1:
+                for row in all_data[1:]:  # Ignorer la première ligne (en-tête)
+                    # Vérifier que la ligne a au moins les colonnes nécessaires
                     if len(row) >= 2:
-                        name = row[0].strip()
-                        element = row[1].strip()
+                        name = row[0].strip()  # Première colonne : nom
+                        element = row[1].strip()  # Deuxième colonne : élément
+                        
+                        # Vérifier que l'élément est valide et que le nom n'est pas vide
                         if element in elements_data and name:
-                            elements_data[element].append({
-                                'name': name,
-                                'value': f"{element}|{name}",
-                                'description': f"Sous-élément de {element}"
-                            })
+                            # Vérifier si l'entrée existe déjà
+                            existing_entries = [item['name'] for item in elements_data[element]]
+                            if name not in existing_entries:
+                                elements_data[element].append({
+                                    'name': name,
+                                    'value': f"{element}|{name}",
+                                    'description': f"Sous-élément de {element}"
+                                })
+            
+            # Trier les sous-éléments par ordre alphabétique pour chaque élément
+            for element in elements_data:
+                elements_data[element].sort(key=lambda x: x['name'])
             
             # Mettre à jour le cache
             self.subelements_cache = elements_data
@@ -629,6 +661,7 @@ class SousElements(commands.Cog):
             
         except Exception as e:
             print(f"Erreur lors du chargement des sous-éléments: {e}")
+            # En cas d'erreur, retourner le cache existant ou un dictionnaire vide
             return self.subelements_cache if self.subelements_cache else {
                 'Eau': [], 'Feu': [], 'Vent': [], 'Terre': [], 'Espace': []
             }
