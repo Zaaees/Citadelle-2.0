@@ -571,6 +571,9 @@ class SousElements(commands.Cog):
                         print(f"Thread non trouvé pour l'élément {element}")
                         not_found += 1
                         
+# Ajouter une pause pour éviter le rate limit
+                    await asyncio.sleep(1)
+                        
                 except Exception as e:
                     print(f"Erreur lors du traitement d'une ligne: {e}")
                     failed += 1

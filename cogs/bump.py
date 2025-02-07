@@ -99,6 +99,7 @@ class Bump(commands.Cog):
                     self.last_reminder = now
                     self.save_last_reminder()
                     self.logger.info("24-hour reminder sent successfully")
+                    return # Ajout d'un return pour éviter de passer à la vérification normale
             # Vérification normale pour 2 heures
             elif time_since_last_bump >= timedelta(hours=2) and time_since_last_reminder >= timedelta(hours=2):
                 channel = self.bot.get_channel(self.channel_id)
