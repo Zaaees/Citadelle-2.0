@@ -752,24 +752,33 @@ class AddSubElementButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         message_data = self.view.cog.get_message_data(str(interaction.message.id))
         if not message_data or interaction.user.id != message_data['user_id']:
-            response = await interaction.response.send_message(
-                "Tu n'es pas autorisé à modifier ces sous-éléments.",
-                ephemeral=True
-            )
-            await asyncio.sleep(2)  # Attendre 5 secondes
-            await response.delete()
+            try:
+                await interaction.response.send_message(
+                    "Tu n'es pas autorisé à modifier ces sous-éléments.",
+                    ephemeral=True
+                )
+            except discord.errors.InteractionResponded:
+                await interaction.followup.send(
+                    "Tu n'es pas autorisé à modifier ces sous-éléments.",
+                    ephemeral=True
+                )
             return
 
-        await interaction.response.defer(ephemeral=True)
         select_view = SubElementSelectView(self.view.cog, interaction.message.id, interaction.user.id)
         await select_view.setup_menus()
-        select_message = await interaction.followup.send(
-            "Sélectionnez un sous-élément à ajouter :",
-            view=select_view,
-            ephemeral=True
-        )
-        # Stocker l'ID du message pour pouvoir le supprimer plus tard
-        select_view.select_message_id = select_message.id
+        
+        try:
+            await interaction.response.send_message(
+                "Sélectionnez un sous-élément à ajouter :",
+                view=select_view,
+                ephemeral=True
+            )
+        except discord.errors.InteractionResponded:
+            await interaction.followup.send(
+                "Sélectionnez un sous-élément à ajouter :",
+                view=select_view,
+                ephemeral=True
+            )
 
 class RemoveSubElementSelect(discord.ui.Select):
     def __init__(self, data, cog):  # Ajout du cog comme paramètre
@@ -973,25 +982,60 @@ class SubElementSelect(discord.ui.Select):
                 
                 # Mettre à jour l'embed du sous-élément dans le thread correspondant
                 forum = interaction.guild.get_channel(FORUM_ID)
+                # Dans la partie où on met à jour l'embed du sous-élément
                 if forum:
-                    # Modification ici : Chercher le thread directement
-                    thread = None
-                    threads = [t for t in forum.threads if t.id == THREAD_CHANNELS[element]]
-                    if threads:
-                        thread = threads[0]
+                    try:
+                        # Récupérer le thread via son ID directement du guild
+                        all_threads = await forum.fetch_active_threads()
+                        thread = None
                         
-                    if thread:
-                        async for message in thread.history():
-                            if message.embeds and message.embeds[0].title == name:
+                        # Chercher dans les threads actifs
+                        for t in all_threads.threads:
+                            if t.id == THREAD_CHANNELS[element]:
+                                thread = t
+                                break
+                                
+                        # Si pas trouvé, chercher dans les threads archivés
+                        if not thread:
+                            archived_threads = await forum.fetch_archived_threads()
+                            for t in archived_threads:
+                                if t.id == THREAD_CHANNELS[element]:
+                                    thread = t
+                                    break
+
+                        if not thread:
+                            print(f"Debug: Thread non trouvé pour {element}. ID recherché: {THREAD_CHANNELS[element]}")
+                            # Essayer de récupérer directement via le guild
+                            thread = interaction.guild.get_thread(THREAD_CHANNELS[element])
+
+                        if not thread:
+                            await interaction.followup.send(
+                                f"Erreur : impossible de trouver le thread pour l'élément {element}",
+                                ephemeral=True
+                            )
+                            return
+
+                        print(f"Thread trouvé : {thread.name}, Archivé: {thread.archived}")  # Debug
+
+                        # Désarchiver d'abord si nécessaire
+                        if thread.archived:
+                            print("Désarchivage du thread...")  # Debug
+                            await thread.edit(archived=False)
+                            await asyncio.sleep(1)  # Attendre que le désarchivage soit effectif
+
+                        print("Recherche du message dans l'historique...")  # Debug
+                        # Chercher et mettre à jour le message
+                        message_found = False
+                        async for message in thread.history(limit=None):
+                            if message.embeds and len(message.embeds) > 0 and message.embeds[0].title == name:
+                                print(f"Message trouvé pour {name}")  # Debug
                                 embed = message.embeds[0]
                                 desc_parts = embed.description.split("**Utilisé par :**")
                                 used_by_text = desc_parts[1].strip() if len(desc_parts) > 1 else ""
                                 
-                                # Gérer la liste des utilisateurs avec des virgules
                                 if used_by_text == "-" or not used_by_text:
                                     used_by_text = data['character_name']
                                 else:
-                                    # Supprimer les tirets et les retours à la ligne
                                     current_users = [u.strip('- \n') for u in used_by_text.split(',')]
                                     if data['character_name'] not in current_users:
                                         current_users.append(data['character_name'])
@@ -999,8 +1043,31 @@ class SubElementSelect(discord.ui.Select):
                                 
                                 new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by_text}"
                                 embed.description = new_desc
-                                await message.edit(embed=embed)
+                                
+                                try:
+                                    await message.edit(embed=embed)
+                                    message_found = True
+                                    print(f"Message mis à jour pour {name}")  # Debug
+                                except Exception as e:
+                                    print(f"Erreur lors de la mise à jour du message : {e}")  # Debug
                                 break
+                        
+                        if not message_found:
+                            print(f"Message non trouvé pour {name}")  # Debug
+                            
+                    except Exception as e:
+                        print(f"Erreur lors de la mise à jour du thread : {e}")  # Debug
+                        await interaction.followup.send(
+                            f"Une erreur est survenue lors de la mise à jour : {str(e)}",
+                            ephemeral=True
+                        )
+                    finally:
+                        if thread and thread.archived == False:
+                            try:
+                                await thread.edit(archived=True)
+                                print("Thread réarchivé")  # Debug
+                            except Exception as e:
+                                print(f"Erreur lors du réarchivage : {e}")  # Debug
                 
                 # Mettre à jour la liste des utilisateurs dans le système
                 await self.view.cog.update_subelement_users(
