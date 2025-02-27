@@ -12,6 +12,8 @@ from google.oauth2.service_account import Credentials as ServiceAccountCredentia
 from gspread.exceptions import CellNotFound
 import asyncio
 import datetime
+import time
+import traceback
 
 load_dotenv()
 
@@ -27,29 +29,56 @@ class Inventory(commands.Cog):
             'https://www.googleapis.com/auth/spreadsheets',
             'https://www.googleapis.com/auth/drive'
         ]
-        self.client = self.get_sheets_client()
-        self.spreadsheet = self.client.open_by_key(os.getenv('GOOGLE_SHEET_ID_INVENTAIRE'))
-        self.sheet = self.spreadsheet.get_worksheet(0)  # Première feuille
+        self.client = None
+        self.spreadsheet = None
+        self.sheet = None
+        self.history_sheet = None
+        self.setup_google_sheets()
+
+    def setup_google_sheets(self, max_retries=3, retry_delay=5):
+        """Initialize Google Sheets connection with retry mechanism"""
+        for attempt in range(max_retries):
+            try:
+                creds = ServiceAccountCredentials.from_service_account_info(
+                    eval(os.getenv('SERVICE_ACCOUNT_JSON')), 
+                    scopes=self.SCOPES
+                )
+                self.client = gspread.authorize(creds)
+                self.spreadsheet = self.client.open_by_key(os.getenv('GOOGLE_SHEET_ID_INVENTAIRE'))
+                self.sheet = self.spreadsheet.get_worksheet(0)  # Première feuille
+                
+                # Initialisation de la feuille d'historique
+                try:
+                    self.history_sheet = self.spreadsheet.worksheet("Historique")
+                except:
+                    # Créer la feuille si elle n'existe pas
+                    self.history_sheet = self.spreadsheet.add_worksheet("Historique", 1000, 5)
+                    # Ajouter les en-têtes
+                    self.history_sheet.update('A1:E1', [['Date', 'Nom', 'Modification', 'Total', 'Modifié par']])
+                
+                print("Successfully connected to Google Sheets")
+                return
+            except gspread.exceptions.APIError as e:
+                if attempt < max_retries - 1:
+                    print(f"Failed to connect to Google Sheets (attempt {attempt + 1}/{max_retries}). Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                else:
+                    print(f"Failed to connect to Google Sheets after {max_retries} attempts")
+                    # Instead of raising the error, we'll just print it and continue
+                    print(f"Error: {str(e)}")
+            except Exception as e:
+                print(f"Unexpected error during Google Sheets setup: {str(e)}")
+                traceback.print_exc()
+                break
+
+    async def ensure_sheet_connection(self):
+        """Ensure we have a valid connection to the sheet"""
+        if self.sheet is None:
+            self.setup_google_sheets()
         
-        # Initialisation de la feuille d'historique
-        try:
-            self.history_sheet = self.spreadsheet.worksheet("Historique")
-        except:
-            # Créer la feuille si elle n'existe pas
-            self.history_sheet = self.spreadsheet.add_worksheet("Historique", 1000, 5)
-            # Ajouter les en-têtes
-            self.history_sheet.update('A1:E1', [['Date', 'Nom', 'Modification', 'Total', 'Modifié par']])
-    
-    def get_sheets_client(self):
-        try:
-            creds = ServiceAccountCredentials.from_service_account_info(
-                eval(os.getenv('SERVICE_ACCOUNT_JSON')), 
-                scopes=self.SCOPES
-            )
-            return gspread.authorize(creds)
-        except Exception as e:
-            print(f"Erreur d'authentification Google Sheets : {e}")
-            return None
+        # If still None, raise an error that we can handle
+        if self.sheet is None:
+            raise RuntimeError("Unable to establish connection to Google Sheets")
 
     def load_students(self):
         try:
@@ -350,5 +379,10 @@ class Inventory(commands.Cog):
                 await alert_channel.send(message)
 
 async def setup(bot):
-    await bot.add_cog(Inventory(bot))
-    print("Cog Inventaire chargé avec succès")
+    try:
+        await bot.add_cog(Inventory(bot))
+        print("Cog Inventory loaded successfully")
+    except Exception as e:
+        print(f"Error loading Inventory cog: {str(e)}")
+        # Don't raise the error - this allows the bot to continue loading other cogs
+        # even if this one fails
