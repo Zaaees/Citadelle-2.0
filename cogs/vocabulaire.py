@@ -1,6 +1,9 @@
 import discord
 import random
 import gspread
+import csv
+import io
+from difflib import SequenceMatcher
 from oauth2client.service_account import ServiceAccountCredentials
 from discord import app_commands, Interaction, ButtonStyle
 from discord.ext import commands
@@ -42,11 +45,107 @@ class VocabulaireView(View):
 
     @discord.ui.button(label="Ajouter", style=ButtonStyle.green, custom_id="ajout")
     async def ajout(self, interaction: Interaction, button: Button):
-        await interaction.response.send_modal(AjoutModal(self.cog))
+        view = AjoutOptionsView(self.cog)
+        await interaction.response.send_message("Comment souhaitez-vous ajouter des mots ?", view=view, ephemeral=True)
 
     @discord.ui.button(label="Supprimer", style=ButtonStyle.red, custom_id="supprimer")
     async def supprimer(self, interaction: Interaction, button: Button):
         await interaction.response.send_modal(SuppressionModal(self.cog))
+
+class AjoutOptionsView(View):
+    def __init__(self, cog):
+        super().__init__()
+        self.cog = cog
+        self.words_queue = []
+
+    @discord.ui.button(label="Ajouter un mot", style=ButtonStyle.primary)
+    async def ajouter_mot(self, interaction: Interaction, button: Button):
+        await interaction.response.send_modal(MotForm(self.cog))
+
+    @discord.ui.button(label="Ajouter plusieurs mots", style=ButtonStyle.primary)
+    async def ajouter_plusieurs_mots(self, interaction: Interaction, button: Button):
+        await interaction.response.send_modal(AjoutModal(self.cog))
+
+    @discord.ui.button(label="Importer CSV", style=ButtonStyle.primary)
+    async def importer_csv(self, interaction: Interaction, button: Button):
+        await interaction.response.send_message(
+            "Veuillez téléverser un fichier CSV avec les colonnes: mot,définition,extrait\n"
+            "Le fichier doit être encodé en UTF-8.",
+            ephemeral=True
+        )
+        # On attendra que l'utilisateur envoie un fichier dans le prochain message
+
+class MotForm(discord.ui.Modal, title="Ajouter un mot"):
+    mot = discord.ui.TextInput(label="Mot")
+    definition = discord.ui.TextInput(label="Définition", style=discord.TextStyle.paragraph)
+    extrait = discord.ui.TextInput(label="Extrait", style=discord.TextStyle.paragraph)
+    
+    def __init__(self, cog):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: Interaction):
+        mot = self.mot.value.strip().lower()
+        definition = self.definition.value.strip()
+        extrait = self.extrait.value.strip()
+        
+        # Vérifier si le mot existe déjà
+        if mot in self.cog.vocabulary:
+            await interaction.response.send_message(f"Le mot '{mot}' existe déjà dans le vocabulaire.", ephemeral=True)
+            return
+        
+        # Rechercher des mots similaires
+        similar_words = self.cog.find_similar_words(mot)
+        
+        if similar_words:
+            # Créer un aperçu du mot à ajouter
+            embed = discord.Embed(title=f"Nouveau mot : {mot.upper()}", color=0x6d5380)
+            embed.add_field(name="Définition", value=definition, inline=False)
+            embed.add_field(name="Extrait", value=f"*{extrait}*", inline=False)
+            
+            # Ajouter les mots similaires
+            similar_text = "\n".join([f"• **{word}** (similarité: {sim:.0%})" for word, sim in similar_words[:3]])
+            embed.add_field(name="⚠️ Mots similaires déjà existants", value=similar_text, inline=False)
+            
+            # Créer une vue pour confirmer ou annuler
+            view = ConfirmationView(self.cog, [(mot, definition, extrait)])
+            
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        else:
+            # Aucun mot similaire, prévisualisation simple
+            embed = discord.Embed(title=f"Nouveau mot : {mot.upper()}", color=0x6d5380)
+            embed.add_field(name="Définition", value=definition, inline=False)
+            embed.add_field(name="Extrait", value=f"*{extrait}*", inline=False)
+            
+            view = ConfirmationView(self.cog, [(mot, definition, extrait)])
+            
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+class ConfirmationView(View):
+    def __init__(self, cog, words_data):
+        super().__init__()
+        self.cog = cog
+        self.words_data = words_data  # Liste de tuples (mot, definition, extrait)
+
+    @discord.ui.button(label="Confirmer", style=ButtonStyle.green)
+    async def confirmer(self, interaction: Interaction, button: Button):
+        await interaction.response.defer(ephemeral=True)
+        
+        # Utiliser batch_add_words pour ajouter tous les mots d'un coup
+        added_words, errors = await self.cog.batch_add_words(self.words_data)
+        
+        if errors:
+            error_msg = "\n".join([f"• {error}" for error in errors])
+            await interaction.followup.send(f"✅ {added_words} mot(s) ajouté(s) avec succès.\n\n❌ Erreurs:\n{error_msg}", ephemeral=True)
+        else:
+            await interaction.followup.send(f"✅ {added_words} mot(s) ajouté(s) avec succès.", ephemeral=True)
+        
+        self.stop()
+
+    @discord.ui.button(label="Annuler", style=ButtonStyle.red)
+    async def annuler(self, interaction: Interaction, button: Button):
+        await interaction.response.send_message("Ajout annulé.", ephemeral=True)
+        self.stop()
 
 class SuppressionModal(discord.ui.Modal, title="Supprimer un mot"):
     mot = discord.ui.TextInput(label="Mot à supprimer")
@@ -79,7 +178,7 @@ class AjoutModal(discord.ui.Modal, title="Ajouter des mots"):
 
     async def on_submit(self, interaction: discord.Interaction):
         lines = self.mots.value.strip().split('\n')
-        added_words = 0
+        words_data = []
         errors = []
 
         for line_number, line in enumerate(lines, 1):
@@ -93,17 +192,65 @@ class AjoutModal(discord.ui.Modal, title="Ajouter des mots"):
                 continue
 
             mot, definition, extrait = parts
-            if await self.cog.add_word(mot, definition, extrait):
-                added_words += 1
+            words_data.append((mot.lower(), definition, extrait))
+
+        if not words_data:
+            await interaction.response.send_message("Aucun mot valide à ajouter.", ephemeral=True)
+            return
+
+        # Prévisualisation des mots avant ajout
+        await self.show_preview(interaction, words_data)
+
+    async def show_preview(self, interaction, words_data):
+        embed = discord.Embed(title="Prévisualisation des mots à ajouter", color=0x6d5380)
+        
+        # Limiter à 10 mots dans l'aperçu pour éviter de dépasser les limites Discord
+        preview_data = words_data[:10]
+        remaining_count = max(0, len(words_data) - 10)
+        
+        for i, (mot, definition, extrait) in enumerate(preview_data):
+            embed.add_field(
+                name=f"{i+1}. {mot.upper()}", 
+                value=f"**Déf.**: {definition[:100]}{'...' if len(definition) > 100 else ''}\n**Ex.**: {extrait[:100]}{'...' if len(extrait) > 100 else ''}", 
+                inline=False
+            )
+        
+        if remaining_count > 0:
+            embed.set_footer(text=f"... et {remaining_count} mot(s) supplémentaire(s) non affichés dans cet aperçu")
+        
+        # Vérifier les mots similaires ou existants
+        existing_words = []
+        similar_words = {}
+        
+        for mot, _, _ in words_data:
+            if mot in self.cog.vocabulary:
+                existing_words.append(mot)
             else:
-                errors.append(f"Ligne {line_number}: Le mot '{mot}' existe déjà")
-
-        # Préparer le message de réponse
-        response = f"✅ {added_words} mot(s) ajouté(s) avec succès."
-        if errors:
-            response += f"\n\n❌ Erreurs:\n" + "\n".join(errors)
-
-        await interaction.response.send_message(response, ephemeral=True)
+                similar = self.cog.find_similar_words(mot)
+                if similar:
+                    similar_words[mot] = similar[:3]  # Limiter à 3 suggestions
+        
+        if existing_words:
+            embed.add_field(
+                name="⚠️ Mots déjà existants",
+                value=", ".join([f"**{mot}**" for mot in existing_words[:10]]) + 
+                      ("..." if len(existing_words) > 10 else ""),
+                inline=False
+            )
+        
+        if similar_words:
+            similar_text = "\n".join([
+                f"• **{mot}** ressemble à: " + ", ".join([f"{w} ({s:.0%})" for w, s in similars])
+                for mot, similars in list(similar_words.items())[:5]  # Limiter à 5 mots
+            ])
+            
+            if len(similar_words) > 5:
+                similar_text += f"\n... et {len(similar_words) - 5} autre(s)"
+                
+            embed.add_field(name="⚠️ Mots similaires détectés", value=similar_text, inline=False)
+        
+        view = ConfirmationView(self.cog, words_data)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 class RechercheModal(discord.ui.Modal, title="Rechercher un mot"):
     mot = discord.ui.TextInput(label="Mot à rechercher")
@@ -118,7 +265,13 @@ class RechercheModal(discord.ui.Modal, title="Rechercher un mot"):
         if result:
             await interaction.response.send_message(embed=self.cog.create_words_embed([(mot, result)]), ephemeral=True)
         else:
-            await interaction.response.send_message("Mot non trouvé.", ephemeral=True)
+            # Chercher des mots similaires
+            similar_words = self.cog.find_similar_words(mot)
+            if similar_words:
+                similar_text = "\n".join([f"• **{word}** (similarité: {sim:.0%})" for word, sim in similar_words[:5]])
+                await interaction.response.send_message(f"Mot non trouvé. Voici des suggestions :\n{similar_text}", ephemeral=True)
+            else:
+                await interaction.response.send_message("Mot non trouvé.", ephemeral=True)
 
 class Vocabulaire(commands.Cog):
     def __init__(self, bot):
@@ -126,6 +279,7 @@ class Vocabulaire(commands.Cog):
         self.vocabulary_channel_id = 1273659420101971970
         self.sheet = self.connect_to_sheets()
         self.vocabulary = self.load_vocabulary()
+        self.file_waiting_users = {}  # Pour suivre les utilisateurs qui doivent envoyer un fichier
 
     def connect_to_sheets(self):
         scope = ['https://spreadsheets.google.com/feeds',
@@ -171,25 +325,111 @@ class Vocabulaire(commands.Cog):
                     info['definition'],
                     info['extrait']
                 ])
+    
+    def find_similar_words(self, mot, threshold=0.8):
+        """Trouve des mots similaires dans le vocabulaire."""
+        similar = []
+        for existing_mot in self.vocabulary.keys():
+            similarity = SequenceMatcher(None, mot.lower(), existing_mot.lower()).ratio()
+            if similarity >= threshold and mot.lower() != existing_mot.lower():
+                similar.append((existing_mot, similarity))
+        
+        return sorted(similar, key=lambda x: x[1], reverse=True)
 
-    async def add_word(self, mot, definition, extrait):
-        mot = mot.lower()
-        if mot not in self.vocabulary:
-            self.vocabulary[mot] = {"definition": definition, "extrait": extrait}
+    async def batch_add_words(self, words_data):
+        """Ajoute plusieurs mots en une seule opération."""
+        added_words = 0
+        errors = []
+        words_to_add = []
+        
+        # Vérifier les mots déjà existants
+        for mot, definition, extrait in words_data:
+            mot = mot.lower()
+            if mot in self.vocabulary:
+                errors.append(f"Le mot '{mot}' existe déjà")
+            else:
+                self.vocabulary[mot] = {"definition": definition, "extrait": extrait}
+                words_to_add.append([mot, definition, extrait])
+                added_words += 1
+        
+        if words_to_add:
+            # Ajouter les mots au Google Sheet en une seule opération
+            self.sheet.append_rows(words_to_add)
             
-            # Ajouter au Google Sheet
-            self.sheet.append_row([mot, definition, extrait])
-            
-            # Envoyer dans le canal Discord
+            # Envoyer les mots dans le canal Discord
             channel = self.bot.get_channel(self.vocabulary_channel_id)
             if channel:
-                embed = discord.Embed(title=mot.upper(), color=0x6d5380)
-                embed.add_field(name="Définition", value=definition, inline=False)
-                embed.add_field(name="Extrait", value=f"*{extrait}*", inline=False)
-                await channel.send(embed=embed)
-            return True
-        return False
-    
+                for mot, definition, extrait in words_to_add:
+                    embed = discord.Embed(title=mot.upper(), color=0x6d5380)
+                    embed.add_field(name="Définition", value=definition, inline=False)
+                    embed.add_field(name="Extrait", value=f"*{extrait}*", inline=False)
+                    await channel.send(embed=embed)
+        
+        return added_words, errors
+
+    async def process_csv_file(self, message):
+        """Traite un fichier CSV téléversé."""
+        if not message.attachments or not message.attachments[0].filename.endswith('.csv'):
+            await message.channel.send("Veuillez téléverser un fichier CSV valide.", reference=message)
+            return
+        
+        attachment = message.attachments[0]
+        csv_content = await attachment.read()
+        
+        try:
+            # Décoder le contenu CSV
+            csv_text = csv_content.decode('utf-8')
+            csv_reader = csv.reader(io.StringIO(csv_text))
+            
+            # Ignorer l'en-tête si présent
+            header = next(csv_reader, None)
+            if header and any(h.lower() in ['mot', 'definition', 'extrait'] for h in header):
+                # C'est probablement un en-tête
+                pass
+            else:
+                # Ce n'est pas un en-tête, revenir au début du fichier
+                csv_reader = csv.reader(io.StringIO(csv_text))
+            
+            words_data = []
+            errors = []
+            
+            for i, row in enumerate(csv_reader, 1):
+                if len(row) < 3:
+                    errors.append(f"Ligne {i}: Nombre de colonnes insuffisant")
+                    continue
+                
+                mot, definition, extrait = row[0].strip(), row[1].strip(), row[2].strip()
+                if not mot or not definition:
+                    errors.append(f"Ligne {i}: Mot ou définition manquante")
+                    continue
+                
+                words_data.append((mot.lower(), definition, extrait))
+            
+            if not words_data:
+                await message.channel.send("Aucun mot valide trouvé dans le fichier CSV.", reference=message)
+                return
+            
+            # Prévisualisation des mots
+            embed = discord.Embed(title="Prévisualisation des mots à ajouter", color=0x6d5380)
+            
+            preview_count = min(10, len(words_data))
+            for i in range(preview_count):
+                mot, definition, extrait = words_data[i]
+                embed.add_field(
+                    name=f"{i+1}. {mot.upper()}", 
+                    value=f"**Déf.**: {definition[:100]}{'...' if len(definition) > 100 else ''}\n**Ex.**: {extrait[:100]}{'...' if len(extrait) > 100 else ''}", 
+                    inline=False
+                )
+            
+            if len(words_data) > preview_count:
+                embed.set_footer(text=f"... et {len(words_data) - preview_count} mot(s) supplémentaire(s)")
+            
+            view = ConfirmationView(self, words_data)
+            await message.channel.send(embed=embed, view=view, reference=message)
+            
+        except Exception as e:
+            await message.channel.send(f"Erreur lors du traitement du fichier CSV: {str(e)}", reference=message)
+
     def get_random_words(self, n):
         return random.sample(list(self.vocabulary.items()), min(n, len(self.vocabulary)))
 
@@ -219,7 +459,7 @@ class Vocabulaire(commands.Cog):
         return False
 
     async def show_list(self, interaction: Interaction):
-    # Trier les mots par ordre d'ajout inversé (les plus récents en premier)
+        # Trier les mots par ordre d'ajout inversé (les plus récents en premier)
         words = list(self.vocabulary.items())[::-1]
         pages = [words[i:i+10] for i in range(0, len(words), 10)]
     
@@ -268,27 +508,19 @@ class Vocabulaire(commands.Cog):
 
         await update_view()
         await interaction.response.send_message(embed=await update_message(0), view=view, ephemeral=True)
-
-    async def add_word(self, mot, definition, extrait):
-        mot = mot.lower()
-        if mot not in self.vocabulary:
-            self.vocabulary[mot] = {"definition": definition, "extrait": extrait}
-            self.save_vocabulary()
-            
-            # Envoyer le nouveau mot dans le salon spécifié
-            channel = self.bot.get_channel(self.vocabulary_channel_id)
-            if channel:
-                embed = discord.Embed(title=mot.upper(), color=0x6d5380)
-                embed.add_field(name="Définition", value=definition, inline=False)
-                embed.add_field(name="Extrait", value=f"*{extrait}*", inline=False)
-                await channel.send(embed=embed)
-            return True
-        return False
     
     @app_commands.command(name="vocabulaire", description="Ouvrir le panel de gestion du vocabulaire")
     async def vocabulaire(self, interaction: Interaction):
         view = VocabulaireView(self)
         await interaction.response.send_message("Choisissez une action :", view=view, ephemeral=True)
+    
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        # Gérer les fichiers CSV envoyés après la commande d'importation
+        if message.author.id in self.file_waiting_users:
+            if message.attachments:
+                del self.file_waiting_users[message.author.id]
+                await self.process_csv_file(message)
 
 async def setup(bot):
     await bot.add_cog(Vocabulaire(bot))
