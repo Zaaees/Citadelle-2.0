@@ -65,29 +65,45 @@ class SuppressionModal(discord.ui.Modal, title="Supprimer un mot"):
             await interaction.response.send_message(f"Le mot '{mot}' n'a pas été trouvé dans le vocabulaire.", ephemeral=True)
 
 class AjoutModal(discord.ui.Modal, title="Ajouter des mots"):
-    mot = discord.ui.TextInput(label="Mot", placeholder="Séparez les mots par |")
-    definition = discord.ui.TextInput(label="Définition", placeholder="Séparez les définitions par |")
-    extrait = discord.ui.TextInput(label="Extrait", placeholder="Séparez les extraits par |")
+    mots = discord.ui.TextInput(
+        label="Ajouter des mots (un par ligne)",
+        style=discord.TextStyle.paragraph,
+        placeholder="Format: mot :: définition :: extrait\nExemple:\nubiquité :: Fait d'être présent partout :: L'ubiquité des réseaux sociaux",
+        min_length=5,
+        max_length=4000
+    )
 
     def __init__(self, cog):
         super().__init__()
         self.cog = cog
 
     async def on_submit(self, interaction: discord.Interaction):
-        mots = self.mot.value.split('|')
-        definitions = self.definition.value.split('|')
-        extraits = self.extrait.value.split('|')
-
-        if len(mots) != len(definitions) or len(mots) != len(extraits):
-            await interaction.response.send_message("Le nombre de mots, définitions et extraits doit être identique.", ephemeral=True)
-            return
-
+        lines = self.mots.value.strip().split('\n')
         added_words = 0
-        for i in range(len(mots)):
-            if await self.cog.add_word(mots[i].strip(), definitions[i].strip(), extraits[i].strip()):
-                added_words += 1
+        errors = []
 
-        await interaction.response.send_message(f"{added_words} mot(s) ajouté(s) avec succès.", ephemeral=True)
+        for line_number, line in enumerate(lines, 1):
+            if not line.strip():  # Ignorer les lignes vides
+                continue
+
+            parts = [part.strip() for part in line.split('::')]
+            
+            if len(parts) != 3:
+                errors.append(f"Ligne {line_number}: Format incorrect")
+                continue
+
+            mot, definition, extrait = parts
+            if await self.cog.add_word(mot, definition, extrait):
+                added_words += 1
+            else:
+                errors.append(f"Ligne {line_number}: Le mot '{mot}' existe déjà")
+
+        # Préparer le message de réponse
+        response = f"✅ {added_words} mot(s) ajouté(s) avec succès."
+        if errors:
+            response += f"\n\n❌ Erreurs:\n" + "\n".join(errors)
+
+        await interaction.response.send_message(response, ephemeral=True)
 
 class RechercheModal(discord.ui.Modal, title="Rechercher un mot"):
     mot = discord.ui.TextInput(label="Mot à rechercher")
