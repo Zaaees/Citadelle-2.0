@@ -1,3 +1,0 @@
-@echo off
-echo Exécution du script git...
-powershell.exe -ExecutionPolicy Bypass -File "%~dp0git_auto.ps1"
