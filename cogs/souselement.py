@@ -899,27 +899,39 @@ class RemoveSubElementButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         message_data = self.view.cog.get_message_data(str(interaction.message.id))
         if not message_data or interaction.user.id != message_data['user_id']:
-            response = await interaction.response.send_message(
-                "Tu n'es pas autorisé à modifier ces sous-éléments.",
-                ephemeral=True
-            )
-            await asyncio.sleep(2)
-            await response.delete()
+            try:
+                await interaction.response.send_message(
+                    "Tu n'es pas autorisé à modifier ces sous-éléments.",
+                    ephemeral=True
+                )
+            except discord.errors.InteractionResponded:
+                await interaction.followup.send(
+                    "Tu n'es pas autorisé à modifier ces sous-éléments.",
+                    ephemeral=True
+                )
             return
 
-        # Modification ici : utiliser response puis original_response
-        view = discord.ui.View(timeout=60)
-        select = RemoveSubElementSelect(message_data, self.view.cog)
-        view.add_item(select)
+        select_view = SubElementSelectView(self.view.cog, interaction.message.id, interaction.user.id)
+        await select_view.setup_menus()
         
-        await interaction.response.send_message(
-            "Sélectionnez le sous-élément à supprimer :",
-            view=view,
-            ephemeral=True
-        )
-        # Récupérer le message après l'envoi
-        select_message = await interaction.original_response()
-        select.select_message_id = select_message.id
+        try:
+            await interaction.response.send_message(
+                "Sélectionnez un sous-élément à ajouter :",
+                view=select_view,
+                ephemeral=True
+            )
+            # Récupérer le message après l'envoi
+            select_message = await interaction.original_response()
+            select_view.select_message_id = select_message.id
+        except discord.errors.InteractionResponded:
+            await interaction.followup.send(
+                "Sélectionnez un sous-élément à ajouter :",
+                view=select_view,
+                ephemeral=True
+            )
+            # Récupérer le message depuis followup
+            select_message = await interaction.original_response()
+            select_view.select_message_id = select_message.id
 
 class SousElementsView(discord.ui.View):
     def __init__(self, cog, character_name):
@@ -945,158 +957,165 @@ class SubElementSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.user_id:
-            response = await interaction.response.send_message(
+            await interaction.response.send_message(
                 "Tu n'es pas autorisé à modifier ces sous-éléments.",
                 ephemeral=True
             )
-            await asyncio.sleep(2)
-            await response.delete()
             return
 
+        # Toujours commencer par defer pour éviter les timeouts
         await interaction.response.defer(ephemeral=True)
         
         if self.values[0] == "none|none":
             await interaction.followup.send(
                 f"Aucun sous-élément de {self.element_type} n'est disponible pour le moment.", 
-                ephemeral=True,
-                delete_after=2
+                ephemeral=True
             )
             return
 
         try:
             element, name = self.values[0].split("|")
+            
+            # Vérifier si cog est accessible
+            if not hasattr(self.view, 'cog'):
+                await interaction.followup.send(
+                    "Erreur interne: cog non accessible. Veuillez réessayer ou contacter un administrateur.",
+                    ephemeral=True
+                )
+                return
+                
             data = self.view.cog.get_message_data(str(self.main_message_id))
 
             if not data:
-                await interaction.followup.send("Message data not found.", ephemeral=True, delete_after=2)
+                await interaction.followup.send("Données du message non trouvées.", ephemeral=True)
                 return
 
             # Vérifier si le sous-élément n'est pas déjà dans la liste
             if name not in data['elements'][element]:
+                # Ajouter le sous-élément à la liste
                 data['elements'][element].append(name)
                 self.view.cog.save_message_data(str(self.main_message_id), data)
                 
-                # Mettre à jour le message principal
-                main_message = await interaction.channel.fetch_message(self.main_message_id)
-                await self.view.cog.update_message(main_message, data)
-                
-                # Mettre à jour l'embed du sous-élément dans le thread correspondant
-                forum = interaction.guild.get_channel(FORUM_ID)
-                # Dans la partie où on met à jour l'embed du sous-élément
-                if forum:
-                    try:
-                        # Récupérer le thread via son ID directement du guild
-                        all_threads = await forum.fetch_active_threads()
-                        thread = None
-                        
-                        # Chercher dans les threads actifs
-                        for t in all_threads.threads:
-                            if t.id == THREAD_CHANNELS[element]:
-                                thread = t
-                                break
-                                
-                        # Si pas trouvé, chercher dans les threads archivés
-                        if not thread:
-                            archived_threads = await forum.fetch_archived_threads()
-                            for t in archived_threads:
-                                if t.id == THREAD_CHANNELS[element]:
-                                    thread = t
-                                    break
-
-                        if not thread:
-                            print(f"Debug: Thread non trouvé pour {element}. ID recherché: {THREAD_CHANNELS[element]}")
-                            # Essayer de récupérer directement via le guild
-                            thread = interaction.guild.get_thread(THREAD_CHANNELS[element])
-
-                        if not thread:
-                            await interaction.followup.send(
-                                f"Erreur : impossible de trouver le thread pour l'élément {element}",
-                                ephemeral=True
-                            )
-                            return
-
-                        print(f"Thread trouvé : {thread.name}, Archivé: {thread.archived}")  # Debug
-
-                        # Désarchiver d'abord si nécessaire
-                        if thread.archived:
-                            print("Désarchivage du thread...")  # Debug
-                            await thread.edit(archived=False)
-                            await asyncio.sleep(1)  # Attendre que le désarchivage soit effectif
-
-                        print("Recherche du message dans l'historique...")  # Debug
-                        # Chercher et mettre à jour le message
-                        message_found = False
-                        async for message in thread.history(limit=None):
-                            if message.embeds and len(message.embeds) > 0 and message.embeds[0].title == name:
-                                print(f"Message trouvé pour {name}")  # Debug
-                                embed = message.embeds[0]
-                                desc_parts = embed.description.split("**Utilisé par :**")
-                                used_by_text = desc_parts[1].strip() if len(desc_parts) > 1 else ""
-                                
-                                if used_by_text == "-" or not used_by_text:
-                                    used_by_text = data['character_name']
-                                else:
-                                    current_users = [u.strip('- \n') for u in used_by_text.split(',')]
-                                    if data['character_name'] not in current_users:
-                                        current_users.append(data['character_name'])
-                                    used_by_text = ", ".join(current_users)
-                                
-                                new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by_text}"
-                                embed.description = new_desc
-                                
-                                try:
-                                    await message.edit(embed=embed)
-                                    message_found = True
-                                    print(f"Message mis à jour pour {name}")  # Debug
-                                except Exception as e:
-                                    print(f"Erreur lors de la mise à jour du message : {e}")  # Debug
-                                break
-                        
-                        if not message_found:
-                            print(f"Message non trouvé pour {name}")  # Debug
-                            
-                    except Exception as e:
-                        print(f"Erreur lors de la mise à jour du thread : {e}")  # Debug
+                try:
+                    # Mettre à jour le message principal
+                    main_message = await interaction.channel.fetch_message(self.main_message_id)
+                    await self.view.cog.update_message(main_message, data)
+                    
+                    # Mettre à jour l'embed du sous-élément dans le thread correspondant
+                    thread_id = THREAD_CHANNELS.get(element)
+                    if not thread_id:
+                        print(f"ID de thread non trouvé pour l'élément {element}")
                         await interaction.followup.send(
-                            f"Une erreur est survenue lors de la mise à jour : {str(e)}",
+                            f"Sous-élément ajouté à votre fiche, mais l'ID du thread {element} est introuvable.",
                             ephemeral=True
                         )
-                    finally:
-                        if thread and thread.archived == False:
+                    else:
+                        # Essayer les deux méthodes pour obtenir le thread
+                        thread = interaction.guild.get_channel(thread_id) or interaction.guild.get_thread(thread_id)
+                        
+                        if thread:
+                            # Sauvegarder l'état du thread
+                            was_archived = thread.archived
+                            was_locked = thread.locked
+                            
                             try:
-                                await thread.edit(archived=True)
-                                print("Thread réarchivé")  # Debug
-                            except Exception as e:
-                                print(f"Erreur lors du réarchivage : {e}")  # Debug
-                
-                # Mettre à jour la liste des utilisateurs dans le système
-                await self.view.cog.update_subelement_users(
-                    element,
-                    name,
-                    interaction.user.id,
-                    data['character_name'],
-                    adding=True
-                )
-                
-                # Supprimer le message avec la liste des sous-éléments
-                try:
-                    original_message = await interaction.message.channel.fetch_message(interaction.message.id)
-                    await original_message.delete()
-                except (discord.NotFound, discord.HTTPException):
-                    pass
+                                # Désarchiver si nécessaire (avec gestion d'erreur)
+                                if was_archived or was_locked:
+                                    try:
+                                        await thread.edit(archived=False, locked=False)
+                                        await asyncio.sleep(0.5)
+                                    except Exception as e:
+                                        print(f"Erreur lors du désarchivage du thread: {e}")
+                                
+                                # Chercher le message du sous-élément
+                                message_found = False
+                                try:
+                                    async for message in thread.history(limit=100):
+                                        if message.embeds and message.embeds[0].title == name:
+                                            embed = message.embeds[0]
+                                            desc_parts = embed.description.split("**Utilisé par :**")
+                                            
+                                            # Mettre à jour la liste des utilisateurs
+                                            used_by_text = desc_parts[1].strip() if len(desc_parts) > 1 else ""
+                                            
+                                            if used_by_text == "-" or not used_by_text:
+                                                used_by_text = data['character_name']
+                                            else:
+                                                current_users = [u.strip('- \n') for u in used_by_text.split(',')]
+                                                if data['character_name'] not in current_users:
+                                                    current_users.append(data['character_name'])
+                                                used_by_text = ", ".join(current_users)
+                                            
+                                            new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by_text}"
+                                            embed.description = new_desc
+                                            
+                                            try:
+                                                await message.edit(embed=embed)
+                                                message_found = True
+                                                break
+                                            except Exception as e:
+                                                print(f"Erreur lors de l'édition du message: {e}")
+                                                # Continuer même en cas d'erreur
+                                
+                                except Exception as e:
+                                    print(f"Erreur lors de la recherche du message: {e}")
+                                
+                            finally:
+                                # Toujours réarchiver le thread s'il était archivé
+                                if was_archived or was_locked:
+                                    try:
+                                        await thread.edit(archived=was_archived, locked=was_locked)
+                                    except Exception as e:
+                                        print(f"Erreur lors du réarchivage du thread: {e}")
+                        else:
+                            print(f"Thread non trouvé pour l'élément {element} (ID: {thread_id})")
+                    
+                    # Mettre à jour la liste des utilisateurs dans le système
+                    try:
+                        await self.view.cog.update_subelement_users(
+                            element,
+                            name,
+                            interaction.user.id,
+                            data['character_name'],
+                            adding=True
+                        )
+                    except Exception as e:
+                        print(f"Erreur lors de la mise à jour des utilisateurs: {e}")
+                    
+                    # Message de succès (même si certaines parties ont échoué)
+                    await interaction.followup.send(
+                        f"Le sous-élément '{name}' a été ajouté à votre liste.",
+                        ephemeral=True
+                    )
+                    
+                    # Supprimer le message de sélection
+                    try:
+                        if hasattr(interaction, 'message') and interaction.message:
+                            await interaction.message.delete()
+                    except Exception as e:
+                        print(f"Erreur lors de la suppression du message: {e}")
+                    
+                except Exception as e:
+                    print(f"Erreur lors de la mise à jour du message principal: {e}")
+                    await interaction.followup.send(
+                        f"Le sous-élément a été ajouté à la base de données, mais une erreur est survenue lors de la mise à jour de l'affichage: {str(e)}",
+                        ephemeral=True
+                    )
+                    
             else:
                 await interaction.followup.send(
                     f"Le sous-élément '{name}' est déjà dans votre liste.", 
-                    ephemeral=True,
-                    delete_after=2
+                    ephemeral=True
                 )
 
         except Exception as e:
+            import traceback
+            traceback_str = traceback.format_exc()
             print(f"Erreur dans le callback du select: {str(e)}")
+            print(traceback_str)
             await interaction.followup.send(
-                "Une erreur est survenue lors de l'ajout du sous-élément.",
-                ephemeral=True,
-                delete_after=2
+                "Une erreur est survenue lors de l'ajout du sous-élément. L'erreur a été enregistrée pour analyse.",
+                ephemeral=True
             )
 
 class AddSubElementProcess:
