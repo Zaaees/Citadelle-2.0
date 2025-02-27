@@ -200,7 +200,7 @@ class AjoutModal(discord.ui.Modal, title="Ajouter des mots"):
 
         # Prévisualisation des mots avant ajout
         await self.show_preview(interaction, words_data)
-
+        
     async def show_preview(self, interaction, words_data):
         embed = discord.Embed(title="Prévisualisation des mots à ajouter", color=0x6d5380)
         
