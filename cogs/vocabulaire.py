@@ -61,10 +61,6 @@ class AjoutOptionsView(View):
     async def ajouter_mot(self, interaction: Interaction, button: Button):
         await interaction.response.send_modal(MotForm(self.cog))
 
-    @discord.ui.button(label="Ajouter plusieurs mots", style=ButtonStyle.primary)
-    async def ajouter_plusieurs_mots(self, interaction: Interaction, button: Button):
-        await interaction.response.send_modal(AjoutModal(self.cog))
-
     @discord.ui.button(label="Importer CSV", style=ButtonStyle.primary)
     async def importer_csv(self, interaction: Interaction, button: Button):
         # Enregistrer l'utilisateur comme attendant un fichier CSV
@@ -166,92 +162,6 @@ class SuppressionModal(discord.ui.Modal, title="Supprimer un mot"):
             await interaction.response.send_message(f"Le mot '{mot}' a été supprimé avec succès.", ephemeral=True)
         else:
             await interaction.response.send_message(f"Le mot '{mot}' n'a pas été trouvé dans le vocabulaire.", ephemeral=True)
-
-class AjoutModal(discord.ui.Modal, title="Ajouter des mots"):
-    mots = discord.ui.TextInput(
-        label="Ajouter des mots (un par ligne)",
-        style=discord.TextStyle.paragraph,
-        placeholder="Format: mot :: définition :: extrait\nExemple:\nubiquité :: Fait d'être présent partout :: L'ubiquité des réseaux sociaux",
-        min_length=5,
-        max_length=4000
-    )
-
-    def __init__(self, cog):
-        super().__init__()
-        self.cog = cog
-
-    async def on_submit(self, interaction: discord.Interaction):
-        lines = self.mots.value.strip().split('\n')
-        words_data = []
-        errors = []
-
-        for line_number, line in enumerate(lines, 1):
-            if not line.strip():  # Ignorer les lignes vides
-                continue
-
-            parts = [part.strip() for part in line.split('::')]
-            
-            if len(parts) != 3:
-                errors.append(f"Ligne {line_number}: Format incorrect")
-                continue
-
-            mot, definition, extrait = parts
-            words_data.append((mot.lower(), definition, extrait))
-
-        if not words_data:
-            await interaction.response.send_message("Aucun mot valide à ajouter.", ephemeral=True)
-            return
-
-        # Prévisualisation des mots avant ajout
-        embed = discord.Embed(title="Prévisualisation des mots à ajouter", color=0x6d5380)
-        
-        # Limiter à 10 mots dans l'aperçu pour éviter de dépasser les limites Discord
-        preview_data = words_data[:10]
-        remaining_count = max(0, len(words_data) - 10)
-        
-        for i, (mot, definition, extrait) in enumerate(preview_data):
-            embed.add_field(
-                name=f"{i+1}. {mot.upper()}", 
-                value=f"**Déf.**: {definition[:100]}{'...' if len(definition) > 100 else ''}\n**Ex.**: {extrait[:100]}{'...' if len(extrait) > 100 else ''}", 
-                inline=False
-            )
-        
-        if remaining_count > 0:
-            embed.set_footer(text=f"... et {remaining_count} mot(s) supplémentaire(s) non affichés dans cet aperçu")
-        
-        # Vérifier les mots similaires ou existants
-        existing_words = []
-        similar_words = {}
-        
-        for mot, _, _ in words_data:
-            if mot in self.cog.vocabulary:
-                existing_words.append(mot)
-            else:
-                similar = self.cog.find_similar_words(mot)
-                if similar:
-                    similar_words[mot] = similar[:3]  # Limiter à 3 suggestions
-        
-        if existing_words:
-            embed.add_field(
-                name="⚠️ Mots déjà existants",
-                value=", ".join([f"**{mot}**" for mot in existing_words[:10]]) + 
-                      ("..." if len(existing_words) > 10 else ""),
-                inline=False
-            )
-        
-        if similar_words:
-            similar_text = "\n".join([
-                f"• **{mot}** ressemble à: " + ", ".join([f"{w} ({s:.0%})" for w, s in similars])
-                for mot, similars in list(similar_words.items())[:5]  # Limiter à 5 mots
-            ])
-            
-            if len(similar_words) > 5:
-                similar_text += f"\n... et {len(similar_words) - 5} autre(s)"
-                
-            embed.add_field(name="⚠️ Mots similaires détectés", value=similar_text, inline=False)
-        
-        view = ConfirmationView(self.cog, words_data)
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 class RechercheModal(discord.ui.Modal, title="Rechercher un mot"):
     mot = discord.ui.TextInput(label="Mot à rechercher")
@@ -532,4 +442,4 @@ class Vocabulaire(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Vocabulaire(bot))
-    print("Cog Vocabulaire chargé avec succès")
+    print("Cog Vocabulaire chargé avec succès") 
