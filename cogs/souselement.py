@@ -896,42 +896,29 @@ class RemoveSubElementButton(discord.ui.Button):
             custom_id="remove_subelement"
         )
 
-    async def callback(self, interaction: discord.Interaction):
-        message_data = self.view.cog.get_message_data(str(interaction.message.id))
-        if not message_data or interaction.user.id != message_data['user_id']:
-            try:
-                await interaction.response.send_message(
-                    "Tu n'es pas autorisé à modifier ces sous-éléments.",
-                    ephemeral=True
-                )
-            except discord.errors.InteractionResponded:
-                await interaction.followup.send(
-                    "Tu n'es pas autorisé à modifier ces sous-éléments.",
-                    ephemeral=True
-                )
-            return
+async def callback(self, interaction: discord.Interaction):
+    message_data = self.view.cog.get_message_data(str(interaction.message.id))
+    if not message_data or interaction.user.id != message_data['user_id']:
+        # Vérification des autorisations...
+        return
 
-        select_view = SubElementSelectView(self.view.cog, interaction.message.id, interaction.user.id)
-        await select_view.setup_menus()
-        
-        try:
-            await interaction.response.send_message(
-                "Sélectionnez un sous-élément à ajouter :",
-                view=select_view,
-                ephemeral=True
-            )
-            # Récupérer le message après l'envoi
-            select_message = await interaction.original_response()
-            select_view.select_message_id = select_message.id
-        except discord.errors.InteractionResponded:
-            await interaction.followup.send(
-                "Sélectionnez un sous-élément à ajouter :",
-                view=select_view,
-                ephemeral=True
-            )
-            # Récupérer le message depuis followup
-            select_message = await interaction.original_response()
-            select_view.select_message_id = select_message.id
+    # Créer un sélecteur de suppression avec les sous-éléments actuels de l'utilisateur
+    remove_select = RemoveSubElementSelect(message_data, self.view.cog)
+    remove_view = discord.ui.View()
+    remove_view.add_item(remove_select)
+    
+    try:
+        await interaction.response.send_message(
+            "Sélectionnez un sous-élément à supprimer :",
+            view=remove_view,
+            ephemeral=True
+        )
+    except discord.errors.InteractionResponded:
+        await interaction.followup.send(
+            "Sélectionnez un sous-élément à supprimer :",
+            view=remove_view,
+            ephemeral=True
+        )
 
 class SousElementsView(discord.ui.View):
     def __init__(self, cog, character_name):
