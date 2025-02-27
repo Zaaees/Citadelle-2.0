@@ -56,7 +56,6 @@ class AjoutOptionsView(View):
     def __init__(self, cog):
         super().__init__()
         self.cog = cog
-        self.words_queue = []
 
     @discord.ui.button(label="Ajouter un mot", style=ButtonStyle.primary)
     async def ajouter_mot(self, interaction: Interaction, button: Button):
@@ -68,12 +67,17 @@ class AjoutOptionsView(View):
 
     @discord.ui.button(label="Importer CSV", style=ButtonStyle.primary)
     async def importer_csv(self, interaction: Interaction, button: Button):
+        # Enregistrer l'utilisateur comme attendant un fichier CSV
+        self.cog.file_waiting_users[interaction.user.id] = True
+        
         await interaction.response.send_message(
-            "Veuillez téléverser un fichier CSV avec les colonnes: mot,définition,extrait\n"
-            "Le fichier doit être encodé en UTF-8.",
+            "Veuillez téléverser un fichier CSV avec les colonnes suivantes (séparées par des point-virgules `;`):\n"
+            "**mot;définition;extrait**\n\n"
+            "⚠️ **Pour éviter les problèmes avec les virgules dans le texte, utilisez des point-virgules comme séparateurs!**\n\n"
+            "Le fichier doit être encodé en UTF-8.\n"
+            "📤 **Envoyez simplement votre fichier dans le canal actuel.**",
             ephemeral=True
         )
-        # On attendra que l'utilisateur envoie un fichier dans le prochain message
 
 class MotForm(discord.ui.Modal, title="Ajouter un mot"):
     mot = discord.ui.TextInput(label="Mot")
@@ -199,9 +203,6 @@ class AjoutModal(discord.ui.Modal, title="Ajouter des mots"):
             return
 
         # Prévisualisation des mots avant ajout
-        await self.show_preview(interaction, words_data)
-        
-    async def show_preview(self, interaction, words_data):
         embed = discord.Embed(title="Prévisualisation des mots à ajouter", color=0x6d5380)
         
         # Limiter à 10 mots dans l'aperçu pour éviter de dépasser les limites Discord
@@ -379,7 +380,7 @@ class Vocabulaire(commands.Cog):
         try:
             # Décoder le contenu CSV
             csv_text = csv_content.decode('utf-8')
-            csv_reader = csv.reader(io.StringIO(csv_text))
+            csv_reader = csv.reader(io.StringIO(csv_text), delimiter=';')  # Utiliser point-virgule
             
             # Ignorer l'en-tête si présent
             header = next(csv_reader, None)
@@ -388,7 +389,7 @@ class Vocabulaire(commands.Cog):
                 pass
             else:
                 # Ce n'est pas un en-tête, revenir au début du fichier
-                csv_reader = csv.reader(io.StringIO(csv_text))
+                csv_reader = csv.reader(io.StringIO(csv_text), delimiter=';')  # Utiliser point-virgule
             
             words_data = []
             errors = []
@@ -516,11 +517,18 @@ class Vocabulaire(commands.Cog):
     
     @commands.Cog.listener()
     async def on_message(self, message):
+        # Ignorer les messages du bot
+        if message.author.bot:
+            return
+            
         # Gérer les fichiers CSV envoyés après la commande d'importation
         if message.author.id in self.file_waiting_users:
             if message.attachments:
                 del self.file_waiting_users[message.author.id]
                 await self.process_csv_file(message)
+            else:
+                # Si l'utilisateur envoie un message sans pièce jointe, ne pas consommer son "statut d'attente"
+                pass
 
 async def setup(bot):
     await bot.add_cog(Vocabulaire(bot))
