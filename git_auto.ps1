@@ -142,21 +142,133 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK)
             # Pousser les modifications
             git push origin main --force
             
-            [System.Windows.Forms.MessageBox]::Show("Commit et push effectués avec succès.", "Opération réussie", 
-                [System.Windows.Forms.MessageBoxButtons]::OK, 
-                [System.Windows.Forms.MessageBoxIcon]::Information)
+            # Création d'un formulaire de confirmation moderne
+            $successForm = New-Object System.Windows.Forms.Form
+            $successForm.Text = "Opération réussie"
+            $successForm.Size = New-Object System.Drawing.Size(400, 160)
+            $successForm.StartPosition = "CenterScreen"
+            $successForm.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
+            $successForm.MaximizeBox = $false
+            $successForm.MinimizeBox = $false
+            $successForm.BackColor = [System.Drawing.Color]::White
+            $successForm.Font = $fontRegular
+            
+            # Icône de succès
+            $successIcon = New-Object System.Windows.Forms.PictureBox
+            $successIcon.Location = New-Object System.Drawing.Point(25, 25)
+            $successIcon.Size = New-Object System.Drawing.Size(32, 32)
+            $successIcon.Image = [System.Drawing.SystemIcons]::Information.ToBitmap()
+            $successForm.Controls.Add($successIcon)
+            
+            # Message de succès
+            $successMsg = New-Object System.Windows.Forms.Label
+            $successMsg.Location = New-Object System.Drawing.Point(70, 30)
+            $successMsg.Size = New-Object System.Drawing.Size(300, 40)
+            $successMsg.Text = "Commit et push effectués avec succès."
+            $successMsg.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+            $successForm.Controls.Add($successMsg)
+            
+            # Bouton OK
+            $okBtn = New-Object System.Windows.Forms.Button
+            $okBtn.Location = New-Object System.Drawing.Point(150, 80)
+            $okBtn.Size = New-Object System.Drawing.Size(100, 30)
+            $okBtn.Text = "OK"
+            $okBtn.BackColor = $colorAccent
+            $okBtn.ForeColor = [System.Drawing.Color]::White
+            $okBtn.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+            $okBtn.DialogResult = [System.Windows.Forms.DialogResult]::OK
+            $okBtn.Cursor = [System.Windows.Forms.Cursors]::Hand
+            $successForm.Controls.Add($okBtn)
+            
+            $successForm.AcceptButton = $okBtn
+            $successForm.TopMost = $true
+            $successForm.ShowDialog()
         }
         catch {
-            [System.Windows.Forms.MessageBox]::Show("Erreur lors de l'exécution des commandes Git: `n`n$_", 
-                "Erreur", 
-                [System.Windows.Forms.MessageBoxButtons]::OK, 
-                [System.Windows.Forms.MessageBoxIcon]::Error)
+            # Création d'un formulaire d'erreur personnalisé
+            $errorForm = New-Object System.Windows.Forms.Form
+            $errorForm.Text = "Erreur"
+            $errorForm.Size = New-Object System.Drawing.Size(450, 200)
+            $errorForm.StartPosition = "CenterScreen"
+            $errorForm.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
+            $errorForm.MaximizeBox = $false
+            $errorForm.MinimizeBox = $false
+            $errorForm.BackColor = [System.Drawing.Color]::White
+            $errorForm.Font = $fontRegular
+            
+            # Icône d'erreur
+            $errorIcon = New-Object System.Windows.Forms.PictureBox
+            $errorIcon.Location = New-Object System.Drawing.Point(25, 25)
+            $errorIcon.Size = New-Object System.Drawing.Size(32, 32)
+            $errorIcon.Image = [System.Drawing.SystemIcons]::Error.ToBitmap()
+            $errorForm.Controls.Add($errorIcon)
+            
+            # Message d'erreur
+            $errorMsg = New-Object System.Windows.Forms.Label
+            $errorMsg.Location = New-Object System.Drawing.Point(70, 25)
+            $errorMsg.Size = New-Object System.Drawing.Size(350, 80)
+            $errorMsg.Text = "Erreur lors de l'exécution des commandes Git:`n$_"
+            $errorMsg.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
+            $errorForm.Controls.Add($errorMsg)
+            
+            # Bouton OK
+            $errorOkBtn = New-Object System.Windows.Forms.Button
+            $errorOkBtn.Location = New-Object System.Drawing.Point(175, 120)
+            $errorOkBtn.Size = New-Object System.Drawing.Size(100, 30)
+            $errorOkBtn.Text = "OK"
+            $errorOkBtn.BackColor = $colorAccent
+            $errorOkBtn.ForeColor = [System.Drawing.Color]::White
+            $errorOkBtn.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+            $errorOkBtn.DialogResult = [System.Windows.Forms.DialogResult]::OK
+            $errorOkBtn.Cursor = [System.Windows.Forms.Cursors]::Hand
+            $errorForm.Controls.Add($errorOkBtn)
+            
+            $errorForm.AcceptButton = $errorOkBtn
+            $errorForm.TopMost = $true
+            $errorForm.ShowDialog()
         }
     } 
     else {
-        [System.Windows.Forms.MessageBox]::Show("Le message de commit ne peut pas être vide.", 
-            "Erreur", 
-            [System.Windows.Forms.MessageBoxButtons]::OK, 
-            [System.Windows.Forms.MessageBoxIcon]::Warning)
+        # Création d'un formulaire d'avertissement personnalisé
+        $warningForm = New-Object System.Windows.Forms.Form
+        $warningForm.Text = "Attention"
+        $warningForm.Size = New-Object System.Drawing.Size(400, 160)
+        $warningForm.StartPosition = "CenterScreen"
+        $warningForm.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
+        $warningForm.MaximizeBox = $false
+        $warningForm.MinimizeBox = $false
+        $warningForm.BackColor = [System.Drawing.Color]::White
+        $warningForm.Font = $fontRegular
+        
+        # Icône d'avertissement
+        $warningIcon = New-Object System.Windows.Forms.PictureBox
+        $warningIcon.Location = New-Object System.Drawing.Point(25, 25)
+        $warningIcon.Size = New-Object System.Drawing.Size(32, 32)
+        $warningIcon.Image = [System.Drawing.SystemIcons]::Warning.ToBitmap()
+        $warningForm.Controls.Add($warningIcon)
+        
+        # Message d'avertissement
+        $warningMsg = New-Object System.Windows.Forms.Label
+        $warningMsg.Location = New-Object System.Drawing.Point(70, 30)
+        $warningMsg.Size = New-Object System.Drawing.Size(300, 40)
+        $warningMsg.Text = "Le message de commit ne peut pas être vide."
+        $warningMsg.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
+        $warningForm.Controls.Add($warningMsg)
+        
+        # Bouton OK
+        $warningOkBtn = New-Object System.Windows.Forms.Button
+        $warningOkBtn.Location = New-Object System.Drawing.Point(150, 80)
+        $warningOkBtn.Size = New-Object System.Drawing.Size(100, 30)
+        $warningOkBtn.Text = "OK"
+        $warningOkBtn.BackColor = $colorAccent
+        $warningOkBtn.ForeColor = [System.Drawing.Color]::White
+        $warningOkBtn.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+        $warningOkBtn.DialogResult = [System.Windows.Forms.DialogResult]::OK
+        $warningOkBtn.Cursor = [System.Windows.Forms.Cursors]::Hand
+        $warningForm.Controls.Add($warningOkBtn)
+        
+        $warningForm.AcceptButton = $warningOkBtn
+        $warningForm.TopMost = $true
+        $warningForm.ShowDialog()
     }
 }
