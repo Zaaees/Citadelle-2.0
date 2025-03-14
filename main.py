@@ -25,14 +25,24 @@ def start_http_server():
     try:
         # Render fournit PORT, sinon utiliser 10000 localement
         port = int(os.environ.get("PORT", 10000))
-        print(f"Port from environment: {os.environ.get('PORT')}")
+        print(f"Port from environment: {os.environ.get('PORT', 'Non défini')}")
+        print(f"Port utilisé: {port}")
         print(f"Tentative de démarrage du serveur sur le port {port}...")
         
         server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
         print(f"Serveur HTTP démarré avec succès sur le port {port}")
+        
+        # Ajouter plus de logging pour débugger
+        print(f"Adresse du serveur: {server.server_address}")
+        print(f"Server name: {server.server_name}")
+        print(f"Server port: {server.server_port}")
+        
         server.serve_forever()
     except Exception as e:
         print(f"Erreur lors du démarrage du serveur : {e}")
+        # Afficher plus de détails sur l'erreur
+        import traceback
+        traceback.print_exc()
 
 # Classe personnalisée pour le bot
 class CustomBot(commands.Bot):
