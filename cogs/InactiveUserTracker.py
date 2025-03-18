@@ -22,7 +22,7 @@ class InactiveUserTracker(commands.Cog):
     
     @commands.command(name='verifier_inactifs')
     @commands.has_permissions(administrator=True)
-    async def check_inactive_users(self, ctx, max_days: Optional[int] = None, limit_days: Optional[int] = 365):
+    async def check_inactive_users(self, ctx, max_days: Optional[int] = None, limit_days: Optional[int] = 180):
         """Vérifie les membres inactifs avec le rôle spécifié."""
         if self.is_searching:
             await ctx.send("Une recherche est déjà en cours. Veuillez attendre qu'elle se termine.")
@@ -34,7 +34,7 @@ class InactiveUserTracker(commands.Cog):
         finally:
             self.is_searching = False
     
-    async def _perform_inactive_search(self, ctx, max_days: Optional[int] = None, limit_days: Optional[int] = 365):
+    async def _perform_inactive_search(self, ctx, max_days: Optional[int] = None, limit_days: Optional[int] = 180):
         embed = discord.Embed(
             title="Recherche d'inactivité",
             description="Initialisation de la recherche...",
@@ -64,8 +64,6 @@ class InactiveUserTracker(commands.Cog):
             
             # Dictionnaire pour stocker le dernier message de chaque membre
             last_message_dates = {}
-            # Dictionnaire pour suivre quels membres ont été trouvés
-            members_found = {member.id: False for member in members_with_role}
             
             # Calculer la date limite de recherche
             cutoff_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=limit_days)
@@ -149,7 +147,6 @@ class InactiveUserTracker(commands.Cog):
             # Compteurs pour les statistiques
             channels_processed = 0
             messages_checked = 0
-            members_found_count = 0
             start_time = datetime.datetime.now()
             
             # Parcourir tous les canaux à vérifier
@@ -185,7 +182,7 @@ class InactiveUserTracker(commands.Cog):
                     progress_info = (
                         f"**Phase 1/2**: Analyse du {channel_type} **{channel_name}** ({i+1}/{total_channels})\n"
                         f"Progression: {percentage:.1f}% | Temps écoulé: {minutes}m {seconds}s\n"
-                        f"Messages vérifiés: {messages_checked} | Membres trouvés: {members_found_count}/{len(members_with_role)}"
+                        f"Messages vérifiés: {messages_checked}"
                     )
                     
                     await self._update_status(status_message, "En cours", progress_info, discord.Color.blue())
@@ -203,41 +200,22 @@ class InactiveUserTracker(commands.Cog):
                                 progress_info = (
                                     f"**Phase 1/2**: Analyse du {channel_type} **{channel_name}** ({i+1}/{total_channels})\n"
                                     f"Progression: {percentage:.1f}% | Temps écoulé: {minutes}m {seconds}s\n"
-                                    f"Messages vérifiés: {messages_checked} | Membres trouvés: {members_found_count}/{len(members_with_role)}"
+                                    f"Messages vérifiés: {messages_checked}"
                                 )
                                 await self._update_status(status_message, "En cours", progress_info, discord.Color.blue())
                             
                             author_id = message.author.id
-                            if author_id in members_found and not members_found[author_id]:
+                            # Vérifier si l'auteur a le rôle cible
+                            if author_id in [member.id for member in members_with_role]:
+                                # Stocker la date la plus récente
                                 if author_id not in last_message_dates or message.created_at > last_message_dates[author_id]:
                                     last_message_dates[author_id] = message.created_at
-                                    members_found[author_id] = True
-                                    members_found_count += 1
-                                    
-                                    # Mise à jour du compteur de membres trouvés
-                                    if members_found_count % 5 == 0:
-                                        elapsed_time = (datetime.datetime.now() - start_time).total_seconds()
-                                        minutes, seconds = divmod(int(elapsed_time), 60)
-                                        
-                                        progress_info = (
-                                            f"**Phase 1/2**: Analyse du {channel_type} **{channel_name}** ({i+1}/{total_channels})\n"
-                                            f"Progression: {percentage:.1f}% | Temps écoulé: {minutes}m {seconds}s\n"
-                                            f"Messages vérifiés: {messages_checked} | **Membres trouvés: {members_found_count}/{len(members_with_role)}**"
-                                        )
-                                        await self._update_status(status_message, "En cours", progress_info, discord.Color.blue())
                     except AttributeError:
                         # Certains types de canaux pourraient ne pas avoir de méthode history()
                         continue
                     except Exception as e:
                         print(f"Erreur pendant la lecture de l'historique de {channel_name}: {e}")
                         continue
-                    
-                    # Si tous les membres ont été trouvés, on peut arrêter la recherche
-                    if all(members_found.values()):
-                        await self._update_status(status_message, "Génération du rapport", 
-                                                "Tous les membres ont été trouvés, génération du rapport...", 
-                                                discord.Color.gold())
-                        break
                     
                 except discord.errors.Forbidden:
                     continue
@@ -261,19 +239,11 @@ class InactiveUserTracker(commands.Cog):
                     if max_days is None or days_inactive >= max_days:
                         inactive_members.append((member, days_inactive, last_date))
                 else:
-                    inactive_members.append((member, limit_days, None))
+                    inactive_members.append((member, None, None))
             
             # Trier les membres par inactivité (du plus inactif au moins inactif)
-            inactive_members.sort(key=lambda x: x[1], reverse=True)
-            
-            # Générer le rapport
-            report = []
-            for member, days, last_date in inactive_members:
-                if last_date is None:
-                    report.append(f"{member.display_name} ({member.id}): Aucun message trouvé depuis au moins {limit_days} jours")
-                else:
-                    last_date_str = last_date.strftime("%d/%m/%Y %H:%M")
-                    report.append(f"{member.display_name} ({member.id}): {days} jours d'inactivité (dernier message le {last_date_str})")
+            # Les membres sans date trouvée apparaissent en premier
+            inactive_members.sort(key=lambda x: x[1] if x[1] is not None else float('inf'), reverse=True)
             
             # Terminer la mise à jour périodique du statut
             update_task.cancel()
@@ -286,21 +256,42 @@ class InactiveUserTracker(commands.Cog):
                 f"**Recherche terminée en {minutes}m {seconds}s**\n"
                 f"Canaux analysés: {channels_processed}/{total_channels}\n"
                 f"Messages vérifiés: {messages_checked}\n"
-                f"Membres trouvés: {members_found_count}/{len(members_with_role)}\n"
+                f"Membres avec activité trouvée: {len(last_message_dates)}/{len(members_with_role)}\n"
                 f"Membres inactifs listés: {len(inactive_members)}"
             )
             
             await self._update_status(status_message, "Terminé", stats, discord.Color.green())
             
-            # Envoyer le rapport
-            if report:
-                chunks = self.split_text(report)
-                for i, chunk in enumerate(chunks):
+            # Envoyer le rapport avec un format plus élégant
+            if inactive_members:
+                # Créer des embeds pour chaque membre inactif
+                for i, (member, days, last_date) in enumerate(inactive_members):
                     embed = discord.Embed(
-                        title=f"Membres inactifs avec le rôle {role.name} ({i+1}/{len(chunks)})",
-                        description=chunk,
+                        title=f"Membre inactif #{i+1}/{len(inactive_members)}",
                         color=discord.Color.orange()
                     )
+                    
+                    # Ajouter l'avatar du membre si disponible
+                    if member.avatar:
+                        embed.set_thumbnail(url=member.avatar.url)
+                    
+                    # Ajouter les informations du membre
+                    embed.add_field(name="Membre", value=f"{member.mention} ({member.display_name})", inline=False)
+                    embed.add_field(name="ID", value=member.id, inline=True)
+                    
+                    # Ajouter les informations d'inactivité
+                    if days is not None:
+                        embed.add_field(name="Inactivité", value=f"{days} jours", inline=True)
+                        last_date_str = last_date.strftime("%d/%m/%Y %H:%M")
+                        embed.add_field(name="Dernier message", value=last_date_str, inline=True)
+                    else:
+                        embed.add_field(name="Inactivité", value=f"Aucun message trouvé depuis au moins {limit_days} jours", inline=False)
+                    
+                    # Ajouter la date d'arrivée sur le serveur si disponible
+                    if member.joined_at:
+                        join_date_str = member.joined_at.strftime("%d/%m/%Y")
+                        embed.add_field(name="A rejoint le", value=join_date_str, inline=True)
+                    
                     await ctx.send(embed=embed)
             else:
                 await ctx.send(f"Aucun membre inactif trouvé avec le rôle {role.name}.")
@@ -343,26 +334,6 @@ class InactiveUserTracker(commands.Cog):
             pass
         except Exception as e:
             print(f"Erreur dans la mise à jour périodique: {e}")
-    
-    def split_text(self, lines: List[str]) -> List[str]:
-        """Découpe une liste de lignes en chunks de 1900 caractères max."""
-        chunks = []
-        current_chunk = ""
-        
-        for line in lines:
-            if len(current_chunk) + len(line) + 1 > 1900:  # +1 pour le \n
-                chunks.append(current_chunk)
-                current_chunk = line
-            else:
-                if current_chunk:
-                    current_chunk += "\n" + line
-                else:
-                    current_chunk = line
-        
-        if current_chunk:
-            chunks.append(current_chunk)
-        
-        return chunks
 
 async def setup(bot):
     await bot.add_cog(InactiveUserTracker(bot))
