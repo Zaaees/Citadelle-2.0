@@ -4,6 +4,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
+import time
 
 # Charger les variables d'environnement
 load_dotenv()
@@ -15,39 +16,45 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
         self.wfile.write(b'Bot is running!')
+        print(f"GET request received at {self.path} from {self.client_address}")
 
     def do_HEAD(self):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
+        self.send_header('Cache-Control', 'no-cache, no-store')
         self.end_headers()
+        print(f"HEAD request received at {self.path} from {self.client_address}")
+
+    def log_message(self, format, *args):
+        # Surcharger pour éviter les logs excessifs
+        if args[0].startswith('HEAD') or args[0].startswith('GET'):
+            print(f"{self.client_address[0]} - - [{time.strftime('%d/%b/%Y %H:%M:%S')}] {args[0]}")
+        return
 
 def start_http_server():
     try:
         # Render fournit PORT, sinon utiliser 10000 localement
         port = int(os.environ.get("PORT", 10000))
-        print(f"Port from environment: {os.environ.get('PORT', 'Non défini')}")
         print(f"Port utilisé: {port}")
-        print(f"Tentative de démarrage du serveur sur le port {port}...")
         
         server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
         print(f"Serveur HTTP démarré avec succès sur le port {port}")
-        
-        # Ajouter plus de logging pour débugger
-        print(f"Adresse du serveur: {server.server_address}")
-        print(f"Server name: {server.server_name}")
-        print(f"Server port: {server.server_port}")
-        
         server.serve_forever()
     except Exception as e:
         print(f"Erreur lors du démarrage du serveur : {e}")
-        # Afficher plus de détails sur l'erreur
         import traceback
         traceback.print_exc()
+        
+        # Réessayer après un délai si le serveur échoue
+        time.sleep(5)
+        print("Tentative de redémarrage du serveur HTTP...")
+        start_http_server()
 
 # Classe personnalisée pour le bot
 class CustomBot(commands.Bot):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.http_server_thread = None
 
     async def setup_hook(self):
         # Charger les cogs
@@ -62,15 +69,19 @@ class CustomBot(commands.Bot):
 
         # Synchroniser les commandes
         await self.tree.sync()
+        print("Commandes synchronisées avec succès")
 
     def check_role(self, interaction):
         # Implémentez votre logique de vérification de rôle ici
         return True
 
-def main():
-    # Démarrer le serveur HTTP dans un thread séparé
-    threading.Thread(target=start_http_server, daemon=True).start()
+    def start_http_server_thread(self):
+        # Démarrer le serveur HTTP dans un thread séparé
+        self.http_server_thread = threading.Thread(target=start_http_server, daemon=True)
+        self.http_server_thread.start()
+        print("Thread du serveur HTTP démarré")
 
+def main():
     # Configuration du bot
     intents = discord.Intents.default()
     intents.message_content = True
@@ -82,14 +93,33 @@ def main():
         intents=intents
     )
 
+    # Démarrer le serveur HTTP avant le bot
+    bot.start_http_server_thread()
+
     # Événements du bot
     @bot.event
     async def on_ready():
         print(f'Connecté en tant que {bot.user.name}')
         print(f'ID du bot : {bot.user.id}')
 
+    # Démarrer périodiquement un "ping" interne
+    @bot.event
+    async def on_ready():
+        print(f'Connecté en tant que {bot.user.name}')
+        print(f'ID du bot : {bot.user.id}')
+        
+        # Vérifier si le thread du serveur HTTP est toujours en cours d'exécution
+        if not bot.http_server_thread or not bot.http_server_thread.is_alive():
+            print("Le thread du serveur HTTP n'est pas en cours d'exécution. Redémarrage...")
+            bot.start_http_server_thread()
+
     # Exécuter le bot
-    bot.run(os.getenv('DISCORD_TOKEN'))
+    try:
+        bot.run(os.getenv('DISCORD_TOKEN'))
+    except Exception as e:
+        print(f"Erreur lors du démarrage du bot : {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == '__main__':
     main()
