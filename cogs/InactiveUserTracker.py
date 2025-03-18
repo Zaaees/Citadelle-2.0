@@ -84,29 +84,40 @@ class InactiveUserTracker(commands.Cog):
                 category = ctx.guild.get_channel(category_id)
                 if category and isinstance(category, discord.CategoryChannel):
                     for channel in category.channels:
-                        # Vérifier si c'est un canal textuel, fil ou forum
-                        if isinstance(channel, (discord.TextChannel, discord.Thread)) and channel.id != self.priority_channel_id:
+                        # Vérifier si c'est un canal textuel
+                        if isinstance(channel, discord.TextChannel) and channel.id != self.priority_channel_id:
                             channels_to_check.append(channel)
                         
                         # Si c'est un forum, ajouter tous ses fils actifs
                         if isinstance(channel, discord.ForumChannel):
                             await self._update_status(status_message, "En cours", f"Recherche des fils dans le forum {channel.name}...", discord.Color.blue())
-                            threads = await channel.active_threads()
+                            # Récupérer les fils dans un forum
+                            threads = await channel.threads()
                             for thread in threads:
                                 if thread.id != self.priority_channel_id:
                                     channels_to_check.append(thread)
             
-            # Vérifier également les fils actifs dans les canaux textuels
-            for channel in ctx.guild.text_channels:
+            # Rechercher les fils actifs dans tous les canaux textuels
+            for channel in channels_to_check.copy():
                 if isinstance(channel, discord.TextChannel) and channel.category_id in self.category_ids:
-                    await self._update_status(status_message, "En cours", f"Recherche des fils archivés dans {channel.name}...", discord.Color.blue())
+                    await self._update_status(status_message, "En cours", f"Recherche des fils dans {channel.name}...", discord.Color.blue())
+                    # Récupérer les fils actifs
                     try:
-                        threads = await channel.archived_threads(limit=100)
+                        threads = await channel.threads()
                         for thread in threads:
-                            if thread.id != self.priority_channel_id:
+                            if thread.id != self.priority_channel_id and thread not in channels_to_check:
                                 channels_to_check.append(thread)
-                    except:
-                        pass  # Ignorer les erreurs dans la récupération des fils archivés
+                    except Exception as e:
+                        print(f"Erreur lors de la récupération des fils actifs dans {channel.name}: {e}")
+                        
+                    # Récupérer les fils archivés
+                    try:
+                        archived_threads = await channel.archived_threads()
+                        for thread in archived_threads:
+                            if thread.id != self.priority_channel_id and thread not in channels_to_check:
+                                channels_to_check.append(thread)
+                    except Exception as e:
+                        print(f"Erreur lors de la récupération des fils archivés dans {channel.name}: {e}")
             
             total_channels = len(channels_to_check)
             await self._update_status(status_message, "En cours", 
