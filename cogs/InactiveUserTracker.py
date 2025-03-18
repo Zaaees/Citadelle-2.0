@@ -66,13 +66,13 @@ class InactiveUserTracker(commands.Cog):
             last_message_dates = {}
             # Dictionnaire pour suivre quels membres ont été trouvés
             members_found = {member.id: False for member in members_with_role}
-            members_checked = 0
             
             # Calculer la date limite de recherche
             cutoff_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=limit_days)
             
             # Obtenir tous les canaux textuels à vérifier
             channels_to_check = []
+            thread_ids_checked = set()  # Pour éviter les doublons
             
             # D'abord ajouter le canal prioritaire s'il existe
             priority_channel = ctx.guild.get_channel(self.priority_channel_id)
@@ -83,45 +83,68 @@ class InactiveUserTracker(commands.Cog):
             for category_id in self.category_ids:
                 category = ctx.guild.get_channel(category_id)
                 if category and isinstance(category, discord.CategoryChannel):
+                    await self._update_status(status_message, "En cours", 
+                        f"Listage des canaux de la catégorie {category.name}...", discord.Color.blue())
+                    
                     for channel in category.channels:
-                        # Vérifier si c'est un canal textuel
-                        if isinstance(channel, discord.TextChannel) and channel.id != self.priority_channel_id:
+                        if channel.id == self.priority_channel_id:
+                            continue  # Déjà ajouté
+                            
+                        # Ajouter les canaux textuels
+                        if isinstance(channel, discord.TextChannel):
                             channels_to_check.append(channel)
+                            
+                            # Récupérer les threads actifs
+                            try:
+                                active_threads = await channel.active_threads()
+                                for thread in active_threads:
+                                    if thread.id not in thread_ids_checked and thread.id != self.priority_channel_id:
+                                        channels_to_check.append(thread)
+                                        thread_ids_checked.add(thread.id)
+                            except Exception as e:
+                                print(f"Erreur lors de la récupération des threads actifs dans {channel.name}: {e}")
+                            
+                            # Récupérer les threads archivés
+                            try:
+                                # Utiliser la méthode de récupération d'archives privées
+                                private_threads = await channel.archived_threads(limit=100, private=True)
+                                for thread in private_threads:
+                                    if thread.id not in thread_ids_checked and thread.id != self.priority_channel_id:
+                                        channels_to_check.append(thread)
+                                        thread_ids_checked.add(thread.id)
+                                
+                                # Utiliser la méthode de récupération d'archives publiques
+                                public_threads = await channel.archived_threads(limit=100, private=False)
+                                for thread in public_threads:
+                                    if thread.id not in thread_ids_checked and thread.id != self.priority_channel_id:
+                                        channels_to_check.append(thread)
+                                        thread_ids_checked.add(thread.id)
+                            except Exception as e:
+                                print(f"Erreur lors de la récupération des threads archivés dans {channel.name}: {e}")
                         
-                        # Si c'est un forum, ajouter tous ses fils actifs
-                        if isinstance(channel, discord.ForumChannel):
-                            await self._update_status(status_message, "En cours", f"Recherche des fils dans le forum {channel.name}...", discord.Color.blue())
-                            # Récupérer les fils dans un forum
-                            threads = await channel.threads()
-                            for thread in threads:
-                                if thread.id != self.priority_channel_id:
-                                    channels_to_check.append(thread)
+                        # Pour les forums, récupérer leurs threads
+                        elif isinstance(channel, discord.ForumChannel):
+                            # On peut seulement parcourir les posts du forum directement
+                            channels_to_check.append(channel)
             
-            # Rechercher les fils actifs dans tous les canaux textuels
-            for channel in channels_to_check.copy():
-                if isinstance(channel, discord.TextChannel) and channel.category_id in self.category_ids:
-                    await self._update_status(status_message, "En cours", f"Recherche des fils dans {channel.name}...", discord.Color.blue())
-                    # Récupérer les fils actifs
-                    try:
-                        threads = await channel.threads()
-                        for thread in threads:
-                            if thread.id != self.priority_channel_id and thread not in channels_to_check:
-                                channels_to_check.append(thread)
-                    except Exception as e:
-                        print(f"Erreur lors de la récupération des fils actifs dans {channel.name}: {e}")
-                        
-                    # Récupérer les fils archivés
-                    try:
-                        archived_threads = await channel.archived_threads()
-                        for thread in archived_threads:
-                            if thread.id != self.priority_channel_id and thread not in channels_to_check:
-                                channels_to_check.append(thread)
-                    except Exception as e:
-                        print(f"Erreur lors de la récupération des fils archivés dans {channel.name}: {e}")
+            # Récupérer les fils actifs du serveur (méthode alternative)
+            try:
+                await self._update_status(status_message, "En cours", 
+                    "Récupération de tous les fils actifs du serveur...", discord.Color.blue())
+                    
+                active_threads = ctx.guild.active_threads
+                for thread in active_threads:
+                    if (thread.id not in thread_ids_checked and 
+                        thread.id != self.priority_channel_id and 
+                        (thread.parent and thread.parent.category_id in self.category_ids)):
+                        channels_to_check.append(thread)
+                        thread_ids_checked.add(thread.id)
+            except Exception as e:
+                print(f"Erreur lors de la récupération des threads actifs du serveur: {e}")
             
             total_channels = len(channels_to_check)
             await self._update_status(status_message, "En cours", 
-                f"**Phase 1/2**: Analyse de {total_channels} canaux dans les catégories spécifiées...", discord.Color.blue())
+                f"**Phase 1/2**: Analyse de {total_channels} canaux et fils dans les catégories spécifiées...", discord.Color.blue())
             
             # Compteurs pour les statistiques
             channels_processed = 0
@@ -132,12 +155,24 @@ class InactiveUserTracker(commands.Cog):
             # Parcourir tous les canaux à vérifier
             for i, channel in enumerate(channels_to_check):
                 try:
-                    # Vérifier les permissions
-                    if hasattr(channel, "permissions_for") and not channel.permissions_for(ctx.guild.me).read_message_history:
+                    # Vérifier les permissions si possible
+                    permissions_check = True
+                    try:
+                        if hasattr(channel, "permissions_for") and not channel.permissions_for(ctx.guild.me).read_message_history:
+                            permissions_check = False
+                    except:
+                        pass
+                        
+                    if not permissions_check:
                         continue
                     
-                    channel_name = getattr(channel, "name", f"Canal ID {channel.id}")
-                    channel_type = "fil" if isinstance(channel, discord.Thread) else "salon"
+                    # Déterminer le nom et le type du canal
+                    try:
+                        channel_name = getattr(channel, "name", f"Canal ID {channel.id}")
+                        channel_type = "fil" if isinstance(channel, discord.Thread) else "salon"
+                    except:
+                        channel_name = f"Canal ID {channel.id}"
+                        channel_type = "inconnu"
                     
                     # Calcul du pourcentage de progression
                     channels_processed += 1
@@ -193,6 +228,9 @@ class InactiveUserTracker(commands.Cog):
                     except AttributeError:
                         # Certains types de canaux pourraient ne pas avoir de méthode history()
                         continue
+                    except Exception as e:
+                        print(f"Erreur pendant la lecture de l'historique de {channel_name}: {e}")
+                        continue
                     
                     # Si tous les membres ont été trouvés, on peut arrêter la recherche
                     if all(members_found.values()):
@@ -205,7 +243,7 @@ class InactiveUserTracker(commands.Cog):
                     continue
                 except Exception as e:
                     error_msg = f"Erreur lors de l'analyse du canal {getattr(channel, 'name', str(channel.id))}: {e}"
-                    print(error_msg)  # Logging dans la console
+                    print(error_msg)
                     continue
             
             # Génération du rapport
