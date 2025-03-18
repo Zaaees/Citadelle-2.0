@@ -66,6 +66,7 @@ class CustomBot(commands.Bot):
         await self.load_extension('cogs.ticket')
         await self.load_extension('cogs.validation')
         await self.load_extension('cogs.Espace')
+        await self.load_extension('cogs.Inactif')
 
         # Synchroniser les commandes
         await self.tree.sync()
@@ -96,14 +97,7 @@ def main():
     # Démarrer le serveur HTTP avant le bot
     bot.start_http_server_thread()
 
-    # Événements du bot
-    @bot.event
-    async def on_ready():
-        print(f'Connecté en tant que {bot.user.name}')
-        print(f'ID du bot : {bot.user.id}')
-
-    # Démarrer périodiquement un "ping" interne
-    @bot.event
+    # Définir la fonction on_ready et l'ajouter comme listener
     async def on_ready():
         print(f'Connecté en tant que {bot.user.name}')
         print(f'ID du bot : {bot.user.id}')
@@ -112,6 +106,9 @@ def main():
         if not bot.http_server_thread or not bot.http_server_thread.is_alive():
             print("Le thread du serveur HTTP n'est pas en cours d'exécution. Redémarrage...")
             bot.start_http_server_thread()
+    
+    # Ajouter le listener au lieu d'utiliser le décorateur
+    bot.add_listener(on_ready, 'on_ready')
 
     # Exécuter le bot
     try:
