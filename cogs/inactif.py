@@ -4,7 +4,7 @@ import datetime
 import asyncio
 from typing import Dict, List, Optional
 
-class Inactif(commands.Cog):
+class inactif(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.target_role_id = 1018442041241374762
@@ -125,4 +125,4 @@ class Inactif(commands.Cog):
         return chunks
 
 async def setup(bot):
-    await bot.add_cog(Inactif(bot))
+    await bot.add_cog(inactif(bot))

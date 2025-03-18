@@ -66,7 +66,7 @@ class CustomBot(commands.Bot):
         await self.load_extension('cogs.ticket')
         await self.load_extension('cogs.validation')
         await self.load_extension('cogs.Espace')
-        await self.load_extension('cogs.Inactif')
+        await self.load_extension('cogs.inactif')
 
         # Synchroniser les commandes
         await self.tree.sync()
