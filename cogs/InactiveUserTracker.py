@@ -17,144 +17,283 @@ class InactiveUserTracker(commands.Cog):
         ]
         # ID du salon prioritaire
         self.priority_channel_id = 1124836464904118482
+        # Pour éviter les recherches simultanées
+        self.is_searching = False
     
     @commands.command(name='verifier_inactifs')
     @commands.has_permissions(administrator=True)
     async def check_inactive_users(self, ctx, max_days: Optional[int] = None, limit_days: Optional[int] = 365):
-        """Vérifie les membres inactifs avec le rôle spécifié.
-        
-        Args:
-            max_days: Nombre de jours minimum d'inactivité pour apparaître dans la liste
-            limit_days: Nombre de jours maximum d'historique à parcourir (par défaut: 365)
-        """
-        await ctx.send("Vérification des membres inactifs en cours... Cela peut prendre un temps considérable.")
-        
-        # Récupérer le rôle cible
-        role = ctx.guild.get_role(self.target_role_id)
-        if not role:
-            await ctx.send(f"Erreur: Le rôle avec l'ID {self.target_role_id} n'a pas été trouvé.")
+        """Vérifie les membres inactifs avec le rôle spécifié."""
+        if self.is_searching:
+            await ctx.send("Une recherche est déjà en cours. Veuillez attendre qu'elle se termine.")
             return
+            
+        self.is_searching = True
+        try:
+            await self._perform_inactive_search(ctx, max_days, limit_days)
+        finally:
+            self.is_searching = False
+    
+    async def _perform_inactive_search(self, ctx, max_days: Optional[int] = None, limit_days: Optional[int] = 365):
+        embed = discord.Embed(
+            title="Recherche d'inactivité",
+            description="Initialisation de la recherche...",
+            color=discord.Color.blue()
+        )
+        status_message = await ctx.send(embed=embed)
         
-        members_with_role = [member for member in ctx.guild.members if role in member.roles]
-        if not members_with_role:
-            await ctx.send(f"Aucun membre n'a le rôle {role.name}.")
-            return
+        # Mise à jour régulière du message de statut
+        update_task = asyncio.create_task(self._update_status_periodically(status_message))
         
-        status_message = await ctx.send(f"Analyse de l'activité de {len(members_with_role)} membres avec le rôle {role.name}...")
-        
-        # Dictionnaire pour stocker le dernier message de chaque membre
-        last_message_dates = {}
-        # Dictionnaire pour suivre quels membres ont été trouvés
-        members_found = {member.id: False for member in members_with_role}
-        
-        # Calculer la date limite de recherche
-        cutoff_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=limit_days)
-        
-        # Obtenir tous les canaux textuels à vérifier
-        channels_to_check = []
-        
-        # D'abord ajouter le canal prioritaire s'il existe
-        priority_channel = ctx.guild.get_channel(self.priority_channel_id)
-        if priority_channel:
-            channels_to_check.append(priority_channel)
-        
-        # Ensuite, ajouter tous les autres canaux des catégories spécifiées
-        for category_id in self.category_ids:
-            category = ctx.guild.get_channel(category_id)
-            if category and isinstance(category, discord.CategoryChannel):
-                for channel in category.channels:
-                    # Vérifier si c'est un canal textuel, fil ou forum
-                    if isinstance(channel, (discord.TextChannel, discord.Thread)) and channel.id != self.priority_channel_id:
-                        channels_to_check.append(channel)
-        
-                    # Si c'est un forum, ajouter tous ses fils actifs
-                    if isinstance(channel, discord.ForumChannel):
-                        threads = await channel.active_threads()
+        try:
+            # Récupérer le rôle cible
+            role = ctx.guild.get_role(self.target_role_id)
+            if not role:
+                await self._update_status(status_message, "Erreur", f"Le rôle avec l'ID {self.target_role_id} n'a pas été trouvé.", discord.Color.red())
+                update_task.cancel()
+                return
+            
+            members_with_role = [member for member in ctx.guild.members if role in member.roles]
+            if not members_with_role:
+                await self._update_status(status_message, "Terminé", f"Aucun membre n'a le rôle {role.name}.", discord.Color.green())
+                update_task.cancel()
+                return
+            
+            await self._update_status(status_message, "En cours", 
+                f"Préparation de l'analyse pour {len(members_with_role)} membres avec le rôle {role.name}...", discord.Color.blue())
+            
+            # Dictionnaire pour stocker le dernier message de chaque membre
+            last_message_dates = {}
+            # Dictionnaire pour suivre quels membres ont été trouvés
+            members_found = {member.id: False for member in members_with_role}
+            members_checked = 0
+            
+            # Calculer la date limite de recherche
+            cutoff_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=limit_days)
+            
+            # Obtenir tous les canaux textuels à vérifier
+            channels_to_check = []
+            
+            # D'abord ajouter le canal prioritaire s'il existe
+            priority_channel = ctx.guild.get_channel(self.priority_channel_id)
+            if priority_channel:
+                channels_to_check.append(priority_channel)
+            
+            # Ensuite, ajouter tous les autres canaux des catégories spécifiées
+            for category_id in self.category_ids:
+                category = ctx.guild.get_channel(category_id)
+                if category and isinstance(category, discord.CategoryChannel):
+                    for channel in category.channels:
+                        # Vérifier si c'est un canal textuel, fil ou forum
+                        if isinstance(channel, (discord.TextChannel, discord.Thread)) and channel.id != self.priority_channel_id:
+                            channels_to_check.append(channel)
+                        
+                        # Si c'est un forum, ajouter tous ses fils actifs
+                        if isinstance(channel, discord.ForumChannel):
+                            await self._update_status(status_message, "En cours", f"Recherche des fils dans le forum {channel.name}...", discord.Color.blue())
+                            threads = await channel.active_threads()
+                            for thread in threads:
+                                if thread.id != self.priority_channel_id:
+                                    channels_to_check.append(thread)
+            
+            # Vérifier également les fils actifs dans les canaux textuels
+            for channel in ctx.guild.text_channels:
+                if isinstance(channel, discord.TextChannel) and channel.category_id in self.category_ids:
+                    await self._update_status(status_message, "En cours", f"Recherche des fils archivés dans {channel.name}...", discord.Color.blue())
+                    try:
+                        threads = await channel.archived_threads(limit=100)
                         for thread in threads:
                             if thread.id != self.priority_channel_id:
                                 channels_to_check.append(thread)
-        
-        # Vérifier également les fils actifs dans les canaux textuels
-        for channel in ctx.guild.text_channels:
-            if isinstance(channel, discord.TextChannel) and channel.category_id in self.category_ids:
-                threads = await channel.archived_threads(limit=100)
-                for thread in threads:
-                    if thread.id != self.priority_channel_id:
-                        channels_to_check.append(thread)
-        
-        total_channels = len(channels_to_check)
-        await status_message.edit(content=f"Analyse de {total_channels} canaux dans les catégories spécifiées...")
-        
-        # Parcourir tous les canaux à vérifier
-        for i, channel in enumerate(channels_to_check):
-            try:
-                # Vérifier les permissions
-                if hasattr(channel, "permissions_for") and not channel.permissions_for(ctx.guild.me).read_message_history:
-                    continue
-                
-                channel_name = getattr(channel, "name", f"Canal ID {channel.id}")
-                await status_message.edit(content=f"Analyse du canal {channel_name} ({i+1}/{total_channels})...")
-                
-                # Parcourir l'historique des messages jusqu'à la date limite
+                    except:
+                        pass  # Ignorer les erreurs dans la récupération des fils archivés
+            
+            total_channels = len(channels_to_check)
+            await self._update_status(status_message, "En cours", 
+                f"**Phase 1/2**: Analyse de {total_channels} canaux dans les catégories spécifiées...", discord.Color.blue())
+            
+            # Compteurs pour les statistiques
+            channels_processed = 0
+            messages_checked = 0
+            members_found_count = 0
+            start_time = datetime.datetime.now()
+            
+            # Parcourir tous les canaux à vérifier
+            for i, channel in enumerate(channels_to_check):
                 try:
-                    async for message in channel.history(limit=None, after=cutoff_date):
-                        author_id = message.author.id
-                        if author_id in members_found and not members_found[author_id]:
-                            if author_id not in last_message_dates or message.created_at > last_message_dates[author_id]:
-                                last_message_dates[author_id] = message.created_at
-                                members_found[author_id] = True
-                except AttributeError:
-                    # Certains types de canaux pourraient ne pas avoir de méthode history()
+                    # Vérifier les permissions
+                    if hasattr(channel, "permissions_for") and not channel.permissions_for(ctx.guild.me).read_message_history:
+                        continue
+                    
+                    channel_name = getattr(channel, "name", f"Canal ID {channel.id}")
+                    channel_type = "fil" if isinstance(channel, discord.Thread) else "salon"
+                    
+                    # Calcul du pourcentage de progression
+                    channels_processed += 1
+                    percentage = (channels_processed / total_channels) * 100
+                    
+                    # Mise à jour du statut avec plus d'informations
+                    elapsed_time = (datetime.datetime.now() - start_time).total_seconds()
+                    minutes, seconds = divmod(int(elapsed_time), 60)
+                    
+                    progress_info = (
+                        f"**Phase 1/2**: Analyse du {channel_type} **{channel_name}** ({i+1}/{total_channels})\n"
+                        f"Progression: {percentage:.1f}% | Temps écoulé: {minutes}m {seconds}s\n"
+                        f"Messages vérifiés: {messages_checked} | Membres trouvés: {members_found_count}/{len(members_with_role)}"
+                    )
+                    
+                    await self._update_status(status_message, "En cours", progress_info, discord.Color.blue())
+                    
+                    # Parcourir l'historique des messages jusqu'à la date limite
+                    try:
+                        async for message in channel.history(limit=None, after=cutoff_date):
+                            messages_checked += 1
+                            
+                            # Mise à jour périodique du compteur de messages
+                            if messages_checked % 500 == 0:
+                                elapsed_time = (datetime.datetime.now() - start_time).total_seconds()
+                                minutes, seconds = divmod(int(elapsed_time), 60)
+                                
+                                progress_info = (
+                                    f"**Phase 1/2**: Analyse du {channel_type} **{channel_name}** ({i+1}/{total_channels})\n"
+                                    f"Progression: {percentage:.1f}% | Temps écoulé: {minutes}m {seconds}s\n"
+                                    f"Messages vérifiés: {messages_checked} | Membres trouvés: {members_found_count}/{len(members_with_role)}"
+                                )
+                                await self._update_status(status_message, "En cours", progress_info, discord.Color.blue())
+                            
+                            author_id = message.author.id
+                            if author_id in members_found and not members_found[author_id]:
+                                if author_id not in last_message_dates or message.created_at > last_message_dates[author_id]:
+                                    last_message_dates[author_id] = message.created_at
+                                    members_found[author_id] = True
+                                    members_found_count += 1
+                                    
+                                    # Mise à jour du compteur de membres trouvés
+                                    if members_found_count % 5 == 0:
+                                        elapsed_time = (datetime.datetime.now() - start_time).total_seconds()
+                                        minutes, seconds = divmod(int(elapsed_time), 60)
+                                        
+                                        progress_info = (
+                                            f"**Phase 1/2**: Analyse du {channel_type} **{channel_name}** ({i+1}/{total_channels})\n"
+                                            f"Progression: {percentage:.1f}% | Temps écoulé: {minutes}m {seconds}s\n"
+                                            f"Messages vérifiés: {messages_checked} | **Membres trouvés: {members_found_count}/{len(members_with_role)}**"
+                                        )
+                                        await self._update_status(status_message, "En cours", progress_info, discord.Color.blue())
+                    except AttributeError:
+                        # Certains types de canaux pourraient ne pas avoir de méthode history()
+                        continue
+                    
+                    # Si tous les membres ont été trouvés, on peut arrêter la recherche
+                    if all(members_found.values()):
+                        await self._update_status(status_message, "Génération du rapport", 
+                                                "Tous les membres ont été trouvés, génération du rapport...", 
+                                                discord.Color.gold())
+                        break
+                    
+                except discord.errors.Forbidden:
                     continue
-                
-                # Si tous les membres ont été trouvés, on peut arrêter la recherche
-                if all(members_found.values()):
-                    await status_message.edit(content="Tous les membres ont été trouvés, génération du rapport...")
-                    break
-                
-            except discord.errors.Forbidden:
-                continue
-            except Exception as e:
-                await ctx.send(f"Erreur lors de l'analyse du canal {getattr(channel, 'name', channel.id)}: {e}")
-                continue
-        
-        # Génération du rapport
-        now = datetime.datetime.now(datetime.timezone.utc)
-        inactive_members = []
-        
-        for member in members_with_role:
-            if member.id in last_message_dates:
-                last_date = last_message_dates[member.id]
-                days_inactive = (now - last_date).days
-                if max_days is None or days_inactive >= max_days:
-                    inactive_members.append((member, days_inactive, last_date))
+                except Exception as e:
+                    error_msg = f"Erreur lors de l'analyse du canal {getattr(channel, 'name', str(channel.id))}: {e}"
+                    print(error_msg)  # Logging dans la console
+                    continue
+            
+            # Génération du rapport
+            await self._update_status(status_message, "Génération du rapport", 
+                                     f"**Phase 2/2**: Traitement des résultats pour {len(members_with_role)} membres...", 
+                                     discord.Color.gold())
+            
+            now = datetime.datetime.now(datetime.timezone.utc)
+            inactive_members = []
+            
+            for member in members_with_role:
+                if member.id in last_message_dates:
+                    last_date = last_message_dates[member.id]
+                    days_inactive = (now - last_date).days
+                    if max_days is None or days_inactive >= max_days:
+                        inactive_members.append((member, days_inactive, last_date))
+                else:
+                    inactive_members.append((member, limit_days, None))
+            
+            # Trier les membres par inactivité (du plus inactif au moins inactif)
+            inactive_members.sort(key=lambda x: x[1], reverse=True)
+            
+            # Générer le rapport
+            report = []
+            for member, days, last_date in inactive_members:
+                if last_date is None:
+                    report.append(f"{member.display_name} ({member.id}): Aucun message trouvé depuis au moins {limit_days} jours")
+                else:
+                    last_date_str = last_date.strftime("%d/%m/%Y %H:%M")
+                    report.append(f"{member.display_name} ({member.id}): {days} jours d'inactivité (dernier message le {last_date_str})")
+            
+            # Terminer la mise à jour périodique du statut
+            update_task.cancel()
+            
+            # Statistiques finales
+            elapsed_time = (datetime.datetime.now() - start_time).total_seconds()
+            minutes, seconds = divmod(int(elapsed_time), 60)
+            
+            stats = (
+                f"**Recherche terminée en {minutes}m {seconds}s**\n"
+                f"Canaux analysés: {channels_processed}/{total_channels}\n"
+                f"Messages vérifiés: {messages_checked}\n"
+                f"Membres trouvés: {members_found_count}/{len(members_with_role)}\n"
+                f"Membres inactifs listés: {len(inactive_members)}"
+            )
+            
+            await self._update_status(status_message, "Terminé", stats, discord.Color.green())
+            
+            # Envoyer le rapport
+            if report:
+                chunks = self.split_text(report)
+                for i, chunk in enumerate(chunks):
+                    embed = discord.Embed(
+                        title=f"Membres inactifs avec le rôle {role.name} ({i+1}/{len(chunks)})",
+                        description=chunk,
+                        color=discord.Color.orange()
+                    )
+                    await ctx.send(embed=embed)
             else:
-                inactive_members.append((member, limit_days, None))
-        
-        # Trier les membres par inactivité (du plus inactif au moins inactif)
-        inactive_members.sort(key=lambda x: x[1], reverse=True)
-        
-        # Générer le rapport
-        report = []
-        for member, days, last_date in inactive_members:
-            if last_date is None:
-                report.append(f"{member.display_name} ({member.id}): Aucun message trouvé depuis au moins {limit_days} jours")
-            else:
-                last_date_str = last_date.strftime("%d/%m/%Y %H:%M")
-                report.append(f"{member.display_name} ({member.id}): {days} jours d'inactivité (dernier message le {last_date_str})")
-        
-        # Envoyer le rapport
-        if report:
-            chunks = self.split_text(report)
-            for i, chunk in enumerate(chunks):
-                embed = discord.Embed(
-                    title=f"Membres inactifs avec le rôle {role.name} ({i+1}/{len(chunks)})",
-                    description=chunk,
-                    color=discord.Color.orange()
-                )
-                await ctx.send(embed=embed)
-        else:
-            await ctx.send(f"Aucun membre inactif trouvé avec le rôle {role.name}.")
+                await ctx.send(f"Aucun membre inactif trouvé avec le rôle {role.name}.")
+                
+        except Exception as e:
+            await self._update_status(status_message, "Erreur", f"Une erreur s'est produite: {str(e)}", discord.Color.red())
+            raise e
+        finally:
+            # S'assurer que la tâche d'update est annulée
+            if not update_task.done():
+                update_task.cancel()
+    
+    async def _update_status(self, message, title, description, color):
+        """Met à jour le message de statut avec un nouvel embed."""
+        embed = discord.Embed(
+            title=f"Recherche d'inactivité: {title}",
+            description=description,
+            color=color,
+            timestamp=datetime.datetime.now()
+        )
+        await message.edit(embed=embed)
+    
+    async def _update_status_periodically(self, message):
+        """Met à jour périodiquement le message de statut pour montrer que le bot est toujours actif."""
+        dots = 0
+        try:
+            while True:
+                dots = (dots % 3) + 1
+                embed = message.embeds[0]
+                if not embed.description.endswith("..."):
+                    # Ne modifie pas si la description a changé entre-temps
+                    pass
+                else:
+                    new_desc = embed.description.rstrip(".") + "." * dots
+                    embed.description = new_desc
+                    await message.edit(embed=embed)
+                await asyncio.sleep(2)
+        except asyncio.CancelledError:
+            # Tâche annulée normalement
+            pass
+        except Exception as e:
+            print(f"Erreur dans la mise à jour périodique: {e}")
     
     def split_text(self, lines: List[str]) -> List[str]:
         """Découpe une liste de lignes en chunks de 1900 caractères max."""
