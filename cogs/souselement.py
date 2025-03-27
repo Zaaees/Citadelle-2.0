@@ -671,6 +671,9 @@ class SousElements(commands.Cog):
             return
 
         try:
+            sheet_message = None
+            sheet_data = None
+            
             async for msg in message.channel.history(limit=50):
                 if msg.author == self.bot.user and msg.embeds:
                     # Vérifie d'abord si le message a des données dans le Google Sheet
@@ -681,10 +684,9 @@ class SousElements(commands.Cog):
                     if (data and 
                         msg.embeds[0].title and 
                         msg.embeds[0].title.startswith("Sous-éléments de ")):
-                            
-                        sheet_message = msg
-                        sheet_data = data
-                        break
+                            sheet_message = msg
+                            sheet_data = data
+                            break
 
             if sheet_message and sheet_data:
                 # Le reste du code reste identique

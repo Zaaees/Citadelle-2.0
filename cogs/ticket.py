@@ -30,7 +30,8 @@ class Ticket(commands.Cog):
 
     async def is_ticket_channel(self, channel):
         try:
-            async for message in channel.history(limit=10):
+            # Changez limit=10 au début de l'historique
+            async for message in channel.history(limit=10, oldest_first=True):
                 if message.embeds:
                     for embed in message.embeds:
                         if embed.footer and "TicketTool.xyz" in embed.footer.text:
