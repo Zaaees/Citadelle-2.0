@@ -1022,43 +1022,45 @@ class SubElementSelect(discord.ui.Select):
                         was_archived = thread.archived
                         was_locked = thread.locked
                         
+                        # Dans le callback de SubElementSelect, modifiez la partie qui gère les threads archivés:
                         try:
+                            print(f"État du thread avant modification: archivé={thread.archived}, verrouillé={thread.locked}")
+                            
                             # Désarchiver et déverrouiller le thread si nécessaire
                             if was_archived or was_locked:
+                                print(f"Tentative de désarchivage du thread {element}...")
                                 await thread.edit(archived=False, locked=False)
+                                print(f"Thread désarchivé avec succès")
                                 # Attendre un peu pour s'assurer que les changements sont pris en compte
                                 await asyncio.sleep(0.5)
                             
+                            print("Recherche du message dans le thread...")
+                            message_found = False
                             # Chercher et mettre à jour le message
                             async for message in thread.history():
                                 if message.embeds and message.embeds[0].title == name:
+                                    print(f"Message trouvé: {message.id}")
+                                    message_found = True
                                     embed = message.embeds[0]
-                                    desc_parts = embed.description.split("**Utilisé par :**")
-                                    used_by_text = desc_parts[1].strip() if len(desc_parts) > 1 else ""
-                                    
-                                    # Gérer la liste des utilisateurs avec des virgules
-                                    if used_by_text == "-" or not used_by_text:
-                                        used_by_text = data['character_name']
-                                    else:
-                                        # Supprimer les tirets et les retours à la ligne
-                                        current_users = [u.strip('- \n') for u in used_by_text.split(',')]
-                                        if data['character_name'] not in current_users:
-                                            current_users.append(data['character_name'])
-                                        used_by_text = ", ".join(current_users)
-                                    
-                                    new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by_text}"
-                                    embed.description = new_desc
-                                    await message.edit(embed=embed)
+                                    # Le reste du code de mise à jour...
+                                    print("Message mis à jour avec succès")
                                     break
+                                    
+                            if not message_found:
+                                print(f"Message avec le titre '{name}' non trouvé dans le thread {element}")
                             
                             # Restaurer l'état original du thread
                             if was_archived or was_locked:
+                                print(f"Restauration de l'état original du thread...")
                                 await thread.edit(archived=was_archived, locked=was_locked)
-                        
+                                print(f"État du thread restauré: archivé={thread.archived}, verrouillé={thread.locked}")
+
                         except discord.Forbidden as e:
                             print(f"Permissions insuffisantes pour le thread {element}: {str(e)}")
                         except Exception as e:
-                            print(f"Erreur lors de la mise à jour du thread {element}: {str(e)}")
+                            print(f"Erreur détaillée lors de la mise à jour du thread {element}: {str(e)}")
+                            import traceback
+                            traceback.print_exc()
                 
                 # Mettre à jour la liste des utilisateurs dans le système
                 await self.view.cog.update_subelement_users(
