@@ -189,28 +189,40 @@ class SousElements(commands.Cog):
     async def ensure_thread_unarchived(self, thread):
         """Ensure thread is unarchived and ready for interaction."""
         if not thread:
+            print("Thread fourni est None")
             return False, (False, False)
             
-        was_archived = thread.archived
-        was_locked = thread.locked
-        
-        if was_archived or was_locked:
-            print(f"Désarchivage du thread {thread.id}")
-            try:
+        try:
+            print(f"Tentative de désarchivage du thread {thread.id} ({thread.name})")
+            print(f"État actuel - archivé: {thread.archived}, verrouillé: {thread.locked}")
+            
+            was_archived = thread.archived
+            was_locked = thread.locked
+            
+            if was_archived or was_locked:
+                print(f"Désarchivage du thread {thread.id}")
                 await thread.edit(archived=False, locked=False)
-                await asyncio.sleep(2)  # Attendre 2 secondes
+                await asyncio.sleep(3)  # Augmenter à 3 secondes
                 
                 # Recharger le thread pour vérifier l'état
                 reloaded_thread = thread.guild.get_channel(thread.id)
+                if not reloaded_thread:
+                    print(f"Impossible de retrouver le thread {thread.id} après édition")
+                    return False, (was_archived, was_locked)
+                    
                 if reloaded_thread.archived:
-                    print(f"Le désarchivage du thread {thread.id} a échoué")
+                    print(f"Le désarchivage du thread {thread.id} a échoué, toujours archivé")
                     return False, (was_archived, was_locked)
                     
                 print(f"Thread {thread.id} désarchivé avec succès")
                 return True, (was_archived, was_locked)
-            except Exception as e:
-                print(f"Erreur lors du désarchivage: {e}")
-                return False, (was_archived, was_locked)
+        except discord.Forbidden as e:
+            print(f"Erreur de permission lors du désarchivage: {e}")
+            return False, (was_archived, was_locked)
+        except Exception as e:
+            print(f"Erreur détaillée lors du désarchivage: {type(e).__name__}: {e}")
+            return False, (was_archived, was_locked)
+            
         return True, (was_archived, was_locked)  # Déjà non archivé
     
     def setup_google_sheets(self):
