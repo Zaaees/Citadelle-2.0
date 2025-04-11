@@ -887,13 +887,16 @@ class AddSubElementButton(discord.ui.Button):
 
         # Créer et configurer la vue de sélection
         view = SubElementSelectPersistentView(self.view.cog, interaction.message.id, interaction.user.id)
-        await view.add_all_selects()  # appel différé ici
+        await view.add_all_selects()
+
         await interaction.followup.send(
             "Sélectionnez un sous-élément à ajouter :",
             view=view,
             ephemeral=True
         )
-        self.view.cog.bot.add_view(view)
+
+        self.view.cog.bot.add_view(view) 
+
 
 
 class RemoveSubElementSelect(discord.ui.Select):
