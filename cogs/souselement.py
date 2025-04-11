@@ -876,34 +876,33 @@ class AddSubElementButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        # Répondre immédiatement à l'interaction pour éviter qu'elle n'expire
-        await safe_defer(interaction)
-
-        message_data = self.view.cog.get_message_data(str(interaction.message.id))
-        if not message_data or interaction.user.id != message_data['user_id']:
-            await interaction.followup.send(
+        if interaction.user.id != self.user_id:
+            msg = await interaction.response.send_message(
                 "Tu n'es pas autorisé à modifier ces sous-éléments.",
-                ephemeral=True,
+                ephemeral=True
             )
             return
 
-        # Créer et configurer la vue de sélection
-        view = SubElementSelectPersistentView(self.view.cog, interaction.message.id, interaction.user.id)
-        print("[DEBUG] Création de SubElementSelectPersistentView")
-        await view.add_all_selects()
+        # Crée la vue de sélection temporaire
+        select_view = SubElementSelectView(self.view.cog, interaction.message.id, interaction.user.id)
+        await select_view.setup_menus()
 
-        await interaction.followup.send(
+        # Envoie le menu déroulant en réponse éphémère
+        select_message = await interaction.response.send_message(
             "Sélectionnez un sous-élément à ajouter :",
-            view=view,
+            view=select_view,
             ephemeral=True
         )
 
-        self.view.cog.bot.add_view(view) 
-
+        # PAS de bot.add_view ici ! (vue non persistante)
+        select_view.select_message_id = (await interaction.original_response()).id
 
 
 class RemoveSubElementSelect(discord.ui.Select):
-    def __init__(self, data, cog):  # Ajout du cog comme paramètre
+    def __init__(self, data, cog, main_message_id):
+        super().__init__(placeholder="Choisissez...", options=options)
+        self.cog = cog
+        self.main_message_id = main_message_id
         options = []
         for element, subelements in data['elements'].items():
             for subelement in subelements:
@@ -945,7 +944,7 @@ class RemoveSubElementSelect(discord.ui.Select):
         try:
             element, subelement = self.values[0].split("|")
             # Récupérer l'ID du message parent au lieu du message éphémère
-            parent_message_id = str(interaction.message.reference.message_id if interaction.message.reference else interaction.message.id)
+            parent_message_id = self.main_message_id
             data = self.cog.get_message_data(parent_message_id)
 
             if subelement in data['elements'][element]:
@@ -1042,7 +1041,7 @@ class RemoveSubElementButton(discord.ui.Button):
 
         # Créer la vue persistante
         view = discord.ui.View(timeout=None)
-        select = RemoveSubElementSelect(message_data, self.view.cog)
+        select = RemoveSubElementSelect(message_data, self.view.cog, str(interaction.message.id))
         view.add_item(select)
 
         # Envoyer le message
@@ -1068,17 +1067,17 @@ class SousElementsView(discord.ui.View):
 
 class SubElementSelect(discord.ui.Select):
     def __init__(self, element, options, row_number, main_message_id, user_id):
+        custom_id = f"select_{element.lower()}_{user_id}_{main_message_id}"
         super().__init__(
-            placeholder=f"Sous-éléments de {element}",
-            custom_id=f"subelement_select_{element.lower()}_{main_message_id}",
-            row=row_number,
+            placeholder=f"Choisir un sous-élément de {element}",
             options=options,
-            min_values=1,
-            max_values=1
+            row=row_number,
+            custom_id=custom_id
         )
-        self.element_type = element
+        self.element = element
         self.main_message_id = main_message_id
         self.user_id = user_id
+
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
