@@ -186,6 +186,33 @@ class SousElements(commands.Cog):
         self.cache_duration = 60  # Durée du cache en secondes
         self.bot.add_listener(self.handle_character_sheet_message, 'on_message')
         
+    async def ensure_thread_unarchived(self, thread):
+        """Ensure thread is unarchived and ready for interaction."""
+        if not thread:
+            return False, (False, False)
+            
+        was_archived = thread.archived
+        was_locked = thread.locked
+        
+        if was_archived or was_locked:
+            print(f"Désarchivage du thread {thread.id}")
+            try:
+                await thread.edit(archived=False, locked=False)
+                await asyncio.sleep(2)  # Attendre 2 secondes
+                
+                # Recharger le thread pour vérifier l'état
+                reloaded_thread = thread.guild.get_channel(thread.id)
+                if reloaded_thread.archived:
+                    print(f"Le désarchivage du thread {thread.id} a échoué")
+                    return False, (was_archived, was_locked)
+                    
+                print(f"Thread {thread.id} désarchivé avec succès")
+                return True, (was_archived, was_locked)
+            except Exception as e:
+                print(f"Erreur lors du désarchivage: {e}")
+                return False, (was_archived, was_locked)
+        return True, (was_archived, was_locked)  # Déjà non archivé
+    
     def setup_google_sheets(self):
         scope = ['https://spreadsheets.google.com/feeds',
                  'https://www.googleapis.com/auth/spreadsheets',
@@ -370,46 +397,42 @@ class SousElements(commands.Cog):
                         thread = self.bot.get_channel(thread_id)
                         
                         if thread:
-                            # Stocker l'état original du thread
-                            was_archived = thread.archived
-                            was_locked = thread.locked
+                            success, original_state = await self.ensure_thread_unarchived(thread)
+                            was_archived, was_locked = original_state
                             
-                            try:
-                                # Désarchiver et déverrouiller le thread si nécessaire
-                                if was_archived or was_locked:
-                                    await thread.edit(archived=False, locked=False)
-                                    # Attendre un peu pour s'assurer que les changements sont pris en compte
-                                    await asyncio.sleep(0.5)
-                                
-                                # Mettre à jour le message
+                            if not success:
+                                print(f"Impossible de désarchiver le thread {element} pour la mise à jour des utilisateurs")
+                            else:
                                 try:
-                                    message = await thread.fetch_message(message_id)
-                                    if message:
-                                        embed = message.embeds[0]
-                                        if not users:
-                                            used_by = "-"
-                                        else:
-                                            character_names = [char for _, char in users]
-                                            used_by = ", ".join(character_names)
+                                    # Mettre à jour le message
+                                    try:
+                                        message = await thread.fetch_message(message_id)
+                                        if message:
+                                            embed = message.embeds[0]
+                                            if not users:
+                                                used_by = "-"
+                                            else:
+                                                character_names = [char for _, char in users]
+                                                used_by = ", ".join(character_names)
+                                            
+                                            desc_parts = embed.description.split("**Utilisé par :**")
+                                            new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by}"
+                                            embed.description = new_desc
+                                            
+                                            await message.edit(embed=embed)
+                                    except discord.NotFound:
+                                        print(f"Message {message_id} non trouvé dans le thread {element}")
+                                    except Exception as e:
+                                        print(f"Erreur lors de la mise à jour du message: {str(e)}")
                                         
-                                        desc_parts = embed.description.split("**Utilisé par :**")
-                                        new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by}"
-                                        embed.description = new_desc
+                                    # Restaurer l'état original du thread après les modifications
+                                    if was_archived or was_locked:
+                                        await thread.edit(archived=was_archived, locked=was_locked)
                                         
-                                        await message.edit(embed=embed)
-                                except discord.NotFound:
-                                    print(f"Message {message_id} non trouvé dans le thread {element}")
+                                except discord.Forbidden as e:
+                                    print(f"Permissions insuffisantes pour le thread {element}: {str(e)}")
                                 except Exception as e:
-                                    print(f"Erreur lors de la mise à jour du message: {str(e)}")
-                                    
-                                # Restaurer l'état original du thread après les modifications
-                                if was_archived or was_locked:
-                                    await thread.edit(archived=was_archived, locked=was_locked)
-                                    
-                            except discord.Forbidden as e:
-                                print(f"Permissions insuffisantes pour le thread {element}: {str(e)}")
-                            except Exception as e:
-                                print(f"Erreur lors de la mise à jour du thread {element}: {str(e)}")
+                                    print(f"Erreur lors de la mise à jour du thread {element}: {str(e)}")
                     break
                         
         except Exception as e:
@@ -587,14 +610,17 @@ class SousElements(commands.Cog):
                         thread = self.bot.get_channel(THREAD_CHANNELS[element])
                         if thread:
                             if thread.id not in thread_states:
+                                success, original_state = await self.ensure_thread_unarchived(thread)
+                                was_archived, was_locked = original_state
                                 thread_states[thread.id] = {
-                                    'was_archived': thread.archived,
-                                    'was_locked': thread.locked
+                                    'was_archived': was_archived,
+                                    'was_locked': was_locked,
+                                    'success': success
                                 }
                                 
-                                if thread.archived or thread.locked:
-                                    await thread.edit(archived=False, locked=False)
-                                    await asyncio.sleep(1)
+                                if not success:
+                                    print(f"Impossible de désarchiver le thread {thread.id}")
+                                    continue
                             
                             try:
                                 message = await thread.fetch_message(message_id)
@@ -855,40 +881,39 @@ class RemoveSubElementSelect(discord.ui.Select):
                 thread = interaction.guild.get_channel(THREAD_CHANNELS[element])
                 
                 if thread:
-                    # Stocker l'état original du thread
-                    was_archived = thread.archived
-                    was_locked = thread.locked
+                    success, original_state = await self.cog.ensure_thread_unarchived(thread)
+                    was_archived, was_locked = original_state
                     
-                    try:
-                        # Désarchiver et déverrouiller le thread si nécessaire
-                        if was_archived or was_locked:
-                            await thread.edit(archived=False, locked=False)
-                            # Attendre pour s'assurer que les changements sont pris en compte
-                            await asyncio.sleep(0.5)
-                        
-                        # Chercher et mettre à jour le message
-                        async for message in thread.history():
-                            if message.embeds and message.embeds[0].title == subelement:
-                                embed = message.embeds[0]
-                                desc_parts = embed.description.split("**Utilisé par :**")
-                                used_by_text = desc_parts[1].strip() if len(desc_parts) > 1 else ""
-                                
-                                current_users = [u.strip() for u in used_by_text.split(",") if u.strip() != "-" and u.strip() != data['character_name']]
-                                used_by_text = ", ".join(current_users) if current_users else "-"
-                                
-                                new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by_text}"
-                                embed.description = new_desc
-                                await message.edit(embed=embed)
-                                break
-                        
-                        # Restaurer l'état original du thread
-                        if was_archived or was_locked:
-                            await thread.edit(archived=was_archived, locked=was_locked)
+                    if not success:
+                        await interaction.followup.send(
+                            f"Impossible de désarchiver le thread {element}. Le sous-élément a été supprimé de votre liste, mais la mise à jour globale n'a pas pu être effectuée.",
+                            ephemeral=True
+                        )
+                    else:
+                        try:
+                            # Chercher et mettre à jour le message
+                            async for message in thread.history():
+                                if message.embeds and message.embeds[0].title == subelement:
+                                    embed = message.embeds[0]
+                                    desc_parts = embed.description.split("**Utilisé par :**")
+                                    used_by_text = desc_parts[1].strip() if len(desc_parts) > 1 else ""
+                                    
+                                    current_users = [u.strip() for u in used_by_text.split(",") if u.strip() != "-" and u.strip() != data['character_name']]
+                                    used_by_text = ", ".join(current_users) if current_users else "-"
+                                    
+                                    new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by_text}"
+                                    embed.description = new_desc
+                                    await message.edit(embed=embed)
+                                    break
                             
-                    except discord.Forbidden as e:
-                        print(f"Permissions insuffisantes pour le thread {element}: {str(e)}")
-                    except Exception as e:
-                        print(f"Erreur lors de la mise à jour du thread {element}: {str(e)}")
+                            # Restaurer l'état original du thread
+                            if was_archived or was_locked:
+                                await thread.edit(archived=was_archived, locked=was_locked)
+                                
+                        except discord.Forbidden as e:
+                            print(f"Permissions insuffisantes pour le thread {element}: {str(e)}")
+                        except Exception as e:
+                            print(f"Erreur lors de la mise à jour du thread {element}: {str(e)}")
                 
                 # Mise à jour de la base de données
                 await self.cog.update_subelement_users(
@@ -1000,28 +1025,17 @@ class SubElementSelect(discord.ui.Select):
 
             # Vérifier si le sous-élément n'est pas déjà dans la liste
             if name not in data['elements'][element]:
-                # Préparer la mise à jour du thread AVANT de mettre à jour les données
+                # Préparer la mise à jour du thread
                 thread = interaction.guild.get_channel(THREAD_CHANNELS[element])
-                was_archived = False
-                was_locked = False
+                success, original_state = await self.view.cog.ensure_thread_unarchived(thread)
+                was_archived, was_locked = original_state
                 
-                # Désarchiver le thread si nécessaire AVANT de faire d'autres opérations
-                if thread:
-                    was_archived = thread.archived
-                    was_locked = thread.locked
-                    
-                    if was_archived or was_locked:
-                        try:
-                            await thread.edit(archived=False, locked=False)
-                            # Attendre que le thread soit désarchivé
-                            await asyncio.sleep(1)
-                        except Exception as e:
-                            print(f"Erreur lors du désarchivage du thread: {e}")
-                            await interaction.followup.send(
-                                f"Erreur: Impossible de désarchiver le thread {element}. Contactez un MJ.",
-                                ephemeral=True
-                            )
-                            return
+                if not success:
+                    await interaction.followup.send(
+                        f"Erreur: Impossible de désarchiver le thread {element}. Contactez un MJ.",
+                        ephemeral=True
+                    )
+                    return
                 
                 # Maintenant, mettre à jour les données
                 data['elements'][element].append(name)
@@ -1241,6 +1255,12 @@ class AddSubElementProcess:
             if not thread:
                 raise ValueError(f"Thread introuvable pour l'élément {self.element} (ID: {THREAD_CHANNELS[self.element]})")
 
+            # Désarchiver le thread si nécessaire
+            success, original_state = await self.cog.ensure_thread_unarchived(thread)
+            was_archived, was_locked = original_state
+            if not success:
+                raise ValueError(f"Impossible de désarchiver le thread pour l'élément {self.element}")
+
             # Le reste du processus
             discovered_by_text = (
                 f"<@{self.data['discovered_by_id']}> ({self.data['discovered_by_char']})" 
@@ -1282,6 +1302,13 @@ class AddSubElementProcess:
                 color=0x00FF00
             )
             await self.message.edit(embed=final_embed)
+
+            # Restaurer l'état original du thread
+            if was_archived or was_locked:
+                try:
+                    await thread.edit(archived=was_archived, locked=was_locked)
+                except Exception as e:
+                    print(f"Erreur lors de la restauration de l'état du thread: {e}")
 
         except Exception as e:
             error_embed = discord.Embed(
