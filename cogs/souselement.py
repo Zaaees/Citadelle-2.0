@@ -523,113 +523,113 @@ class SousElements(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         
         try:
-            # Récupérer tous les sous-éléments
             worksheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT_LIST')).sheet1
             all_data = worksheet.get_all_values()[1:]  # Skip header
             
-            # Compteurs pour le rapport
             updated = 0
             failed = 0
             not_found = 0
             
-            # Garder trace de l'état des threads pour éviter de les archiver/désarchiver pour chaque message
             thread_states = {}
-            
-            for row in all_data:
-                try:
-                    name = row[0]
-                    element = row[1]
-                    definition = row[2]
-                    emotional_state = row[3]
-                    emotional_desc = row[4]
-                    discovered_by_id = int(row[5]) if row[5] != '0' else 0
-                    discovered_by_char = row[6]
-                    used_by = eval(row[7]) if row[7] else []
-                    message_id = int(row[8]) if row[8] else None
-                    
-                    if not message_id:
-                        not_found += 1
-                        continue
+            progress_message = await interaction.followup.send(
+                "Début de la mise à jour...",
+                ephemeral=True
+            )
+
+            # Traiter les éléments par lots de 5
+            batch_size = 5
+            for i in range(0, len(all_data), batch_size):
+                batch = all_data[i:i+batch_size]
+                
+                # Mise à jour du message de progression
+                await progress_message.edit(content=f"Traitement des entrées {i+1}-{min(i+batch_size, len(all_data))} sur {len(all_data)}...")
+                
+                for row in batch:
+                    try:
+                        name = row[0]
+                        element = row[1]
+                        definition = row[2]
+                        emotional_state = row[3]
+                        emotional_desc = row[4]
+                        discovered_by_id = int(row[5]) if row[5] != '0' else 0
+                        discovered_by_char = row[6]
+                        used_by = eval(row[7]) if row[7] else []
+                        message_id = int(row[8]) if row[8] else None
                         
-                    # Construire le texte "Utilisé par"
-                    if not used_by:
-                        used_by_text = "-"
-                    else:
-                        character_names = [char for _, char in used_by]
-                        used_by_text = ", ".join(character_names)
-                    
-                    # Construire le texte "Découvert par"
-                    discovered_by_text = (
-                        f"<@{discovered_by_id}> ({discovered_by_char})" 
-                        if discovered_by_id != 0 
-                        else discovered_by_char
-                    )
-                    
-                    # Créer le nouvel embed
-                    embed = discord.Embed(
-                        title=name,
-                        description=(
-                            f"**Définition :** {definition}\n\n"
-                            f"**État émotionnel :** {emotional_state}\n"
-                            f"**Description :** {emotional_desc}\n\n"
-                            f"**Découvert par :** {discovered_by_text}\n"
-                            f"**Utilisé par :** {used_by_text}"
-                        ),
-                        color=0x6d5380
-                    )
-                    
-                    # Obtenir le thread via son ID
-                    thread = self.bot.get_channel(THREAD_CHANNELS[element])
-                    if thread:
-                        # Vérifier si nous avons déjà désarchivé ce thread
-                        if thread.id not in thread_states:
-                            thread_states[thread.id] = {
-                                'was_archived': thread.archived,
-                                'was_locked': thread.locked
-                            }
-                            
-                            # Désarchiver si nécessaire
-                            if thread.archived or thread.locked:
-                                await thread.edit(archived=False, locked=False)
-                                await asyncio.sleep(0.5)
-                        
-                        try:
-                            message = await thread.fetch_message(message_id)
-                            await message.edit(embed=embed)
-                            updated += 1
-                        except discord.NotFound:
-                            print(f"Message {message_id} non trouvé dans le thread {element}")
+                        if not message_id:
                             not_found += 1
-                        except Exception as e:
-                            print(f"Erreur lors de la mise à jour de {name}: {e}")
-                            failed += 1
-                    else:
-                        print(f"Thread non trouvé pour l'élément {element}")
-                        not_found += 1
+                            continue
+                            
+                        if not used_by:
+                            used_by_text = "-"
+                        else:
+                            character_names = [char for _, char in used_by]
+                            used_by_text = ", ".join(character_names)
                         
-                    # Ajouter une pause pour éviter le rate limit
-                    await asyncio.sleep(1)
+                        discovered_by_text = (
+                            f"<@{discovered_by_id}> ({discovered_by_char})" 
+                            if discovered_by_id != 0 
+                            else discovered_by_char
+                        )
                         
-                except Exception as e:
-                    print(f"Erreur lors du traitement d'une ligne: {e}")
-                    failed += 1
+                        embed = discord.Embed(
+                            title=name,
+                            description=(
+                                f"**Définition :** {definition}\n\n"
+                                f"**État émotionnel :** {emotional_state}\n"
+                                f"**Description :** {emotional_desc}\n\n"
+                                f"**Découvert par :** {discovered_by_text}\n"
+                                f"**Utilisé par :** {used_by_text}"
+                            ),
+                            color=0x6d5380
+                        )
+                        
+                        thread = self.bot.get_channel(THREAD_CHANNELS[element])
+                        if thread:
+                            if thread.id not in thread_states:
+                                thread_states[thread.id] = {
+                                    'was_archived': thread.archived,
+                                    'was_locked': thread.locked
+                                }
+                                
+                                if thread.archived or thread.locked:
+                                    await thread.edit(archived=False, locked=False)
+                                    await asyncio.sleep(1)
+                            
+                            try:
+                                message = await thread.fetch_message(message_id)
+                                await message.edit(embed=embed)
+                                updated += 1
+                            except discord.NotFound:
+                                not_found += 1
+                            except Exception as e:
+                                failed += 1
+                                print(f"Erreur lors de la mise à jour de {name}: {e}")
+                        else:
+                            not_found += 1
+                            
+                    except Exception as e:
+                        print(f"Erreur lors du traitement d'une ligne: {e}")
+                        failed += 1
+                
+                # Attendre 5 secondes entre chaque lot
+                await asyncio.sleep(5)
             
-            # Restaurer l'état original des threads
+            # Restaurer l'état des threads
             for thread_id, state in thread_states.items():
                 thread = self.bot.get_channel(thread_id)
                 if thread and (state['was_archived'] or state['was_locked']):
                     try:
                         await thread.edit(archived=state['was_archived'], locked=state['was_locked'])
+                        await asyncio.sleep(1)
                     except Exception as e:
                         print(f"Erreur lors de la restauration de l'état du thread {thread_id}: {e}")
             
-            # Envoyer le rapport
-            await interaction.followup.send(
-                f"Mise à jour terminée !\n"
+            await progress_message.edit(
+                content=f"Mise à jour terminée !\n"
                 f"✅ {updated} messages mis à jour\n"
                 f"❌ {failed} échecs\n"
-                f"⚠️ {not_found} messages non trouvés",
-                ephemeral=True
+                f"⚠️ {not_found} messages non trouvés"
             )
             
         except Exception as e:
@@ -974,6 +974,7 @@ class SubElementSelect(discord.ui.Select):
         self.user_id = user_id
 
     async def callback(self, interaction: discord.Interaction):
+        print("DEBUG: SubElementSelect callback a été appelé")
         if interaction.user.id != self.user_id:
             response = await interaction.response.send_message(
                 "Tu n'es pas autorisé à modifier ces sous-éléments.",
@@ -1016,6 +1017,7 @@ class SubElementSelect(discord.ui.Select):
                     # Chercher le thread directement
                     thread = None
                     thread = interaction.guild.get_channel(THREAD_CHANNELS[element])
+                    print(f"DEBUG: Tentative d'accès au thread {element} (ID: {THREAD_CHANNELS[element]})")
                     
                     if thread:
                         # Stocker l'état original du thread
