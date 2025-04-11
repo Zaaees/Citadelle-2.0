@@ -20,6 +20,13 @@ THREAD_CHANNELS = {
 MJ_ROLE_ID = 1018179623886000278
 ALLOWED_CATEGORY_ID = 1020820787583799358
 
+async def safe_defer(interaction):
+    try:
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
+    except discord.NotFound:
+        pass
+
 class SubElementModal(discord.ui.Modal):
     def __init__(self, cog, element):
         super().__init__(title=f"Ajouter un sous-élément - {element}")
@@ -58,7 +65,7 @@ class SubElementModal(discord.ui.Modal):
         for item in [self.name, self.definition, self.emotional_state, 
                     self.emotional_desc, self.discoverer]:
             self.add_item(item)
-
+    
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         
@@ -820,7 +827,8 @@ class AddSubElementButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         # Répondre immédiatement à l'interaction pour éviter qu'elle n'expire
-        await interaction.response.defer(ephemeral=True)
+        await safe_defer(interaction)
+
         
         message_data = self.view.cog.get_message_data(str(interaction.message.id))
         if not message_data or interaction.user.id != message_data['user_id']:
