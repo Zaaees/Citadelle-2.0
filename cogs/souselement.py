@@ -1017,16 +1017,17 @@ class SubElementSelect(discord.ui.Select):
         self.user_id = user_id
 
     async def callback(self, interaction: discord.Interaction):
-        # Répondre immédiatement à l'interaction
         await interaction.response.defer(ephemeral=True)
-        
+
+        print(f"[DEBUG] callback lancé pour l'utilisateur {interaction.user}")
+
         if interaction.user.id != self.user_id:
             await interaction.followup.send(
                 "Tu n'es pas autorisé à modifier ces sous-éléments.",
                 ephemeral=True
             )
             return
-        
+
         if self.values[0] == "none|none":
             await interaction.followup.send(
                 f"Aucun sous-élément de {self.element_type} n'est disponible pour le moment.", 
@@ -1038,75 +1039,38 @@ class SubElementSelect(discord.ui.Select):
             element, name = self.values[0].split("|")
             data = self.view.cog.get_message_data(str(self.main_message_id))
 
+            print(f"[DEBUG] Élément: {element}, Nom: {name}, Data trouvée: {data is not None}")
+
             if not data:
                 await interaction.followup.send("Message data not found.", ephemeral=True)
                 return
 
-            # Vérifier si le sous-élément n'est pas déjà dans la liste
-            if name not in data['elements'][element]:
-                # Préparer la mise à jour du thread
-                print(f"[DEBUG] THREAD_CHANNELS[{element}] = {THREAD_CHANNELS[element]}")
-                thread = interaction.guild.get_channel(THREAD_CHANNELS[element])
-                print(f"[DEBUG] thread = {thread}")
+            thread_id = THREAD_CHANNELS[element]
+            print(f"[DEBUG] Tentative fetch thread ID: {thread_id}")
 
-                success, original_state = await self.view.cog.ensure_thread_unarchived(thread)
-                was_archived, was_locked = original_state
-                
-                if not success:
-                    await interaction.followup.send(
-                        f"Erreur: Impossible de désarchiver le thread {element}. Contactez un MJ.",
-                        ephemeral=True
-                    )
-                    return
-                
-                # Maintenant, mettre à jour les données
-                data['elements'][element].append(name)
-                self.view.cog.save_message_data(str(self.main_message_id), data)
-                
-                # Mettre à jour le message principal
-                main_message = await interaction.channel.fetch_message(self.main_message_id)
-                await self.view.cog.update_message(main_message, data)
-                
-                # Mettre à jour la liste des utilisateurs
-                await self.view.cog.update_subelement_users(
-                    element,
-                    name,
-                    interaction.user.id,
-                    data['character_name'],
-                    adding=True
-                )
-                
-                # Restaurer l'état du thread si nécessaire
-                if thread and (was_archived or was_locked):
-                    try:
-                        await thread.edit(archived=was_archived, locked=was_locked)
-                    except Exception as e:
-                        print(f"Erreur lors de la restauration de l'état du thread: {e}")
-                
-                # Informer l'utilisateur
+            # Remplace get_channel par fetch_channel pour être sûr
+            thread = await interaction.guild.fetch_channel(thread_id)
+            print(f"[DEBUG] Thread fetché: {thread.name if thread else 'None'}")
+
+            success, original_state = await self.view.cog.ensure_thread_unarchived(thread)
+            print(f"[DEBUG] Résultat ensure_thread_unarchived: {success}")
+
+            if not success:
                 await interaction.followup.send(
-                    f"Le sous-élément '{name}' a été ajouté à votre liste.",
+                    f"Erreur: Impossible de désarchiver le thread {element}. Contactez un MJ.",
                     ephemeral=True
                 )
-                
-                # Supprimer le message de sélection
-                try:
-                    original_message = await interaction.message.channel.fetch_message(interaction.message.id)
-                    await original_message.delete()
-                except (discord.NotFound, discord.HTTPException):
-                    pass
-            else:
-                await interaction.followup.send(
-                    f"Le sous-élément '{name}' est déjà dans votre liste.", 
-                    ephemeral=True
-                )
+                return
 
+            # Reste du traitement ici...
+            
         except Exception as e:
-            print(f"Erreur dans le callback du select: {str(e)}")
+            print(f"[ERREUR CALLBACK] {type(e).__name__}: {e}")
             await interaction.followup.send(
                 "Une erreur est survenue lors de l'ajout du sous-élément.",
                 ephemeral=True
             )
+
 
 class AddSubElementProcess:
     def __init__(self, bot, interaction, element, cog):
