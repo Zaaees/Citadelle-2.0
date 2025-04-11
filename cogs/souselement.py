@@ -34,14 +34,12 @@ class SubElementSelectPersistentView(discord.ui.View):
         self.main_message_id = main_message_id
         self.user_id = user_id
 
-        self.add_all_selects()
-
-    def add_all_selects(self):
+    async def add_all_selects(self):
         elements_rows = {
             'Eau': 0, 'Feu': 1, 'Vent': 2, 'Terre': 3, 'Espace': 4
         }
 
-        all_subelements = asyncio.run(self.cog.get_all_subelements())  # Forcé si hors async, sinon à revoir
+        all_subelements = await self.cog.get_all_subelements()
 
         for element, row in elements_rows.items():
             options = [
@@ -60,7 +58,6 @@ class SubElementSelectPersistentView(discord.ui.View):
             ]
 
             self.add_item(SubElementSelect(element, options, row, self.main_message_id, self.user_id))
-
 
 class SubElementModal(discord.ui.Modal):
     def __init__(self, cog, element):
@@ -864,7 +861,6 @@ class AddSubElementButton(discord.ui.Button):
         # Répondre immédiatement à l'interaction pour éviter qu'elle n'expire
         await safe_defer(interaction)
 
-        
         message_data = self.view.cog.get_message_data(str(interaction.message.id))
         if not message_data or interaction.user.id != message_data['user_id']:
             await interaction.followup.send(
@@ -875,12 +871,14 @@ class AddSubElementButton(discord.ui.Button):
 
         # Créer et configurer la vue de sélection
         view = SubElementSelectPersistentView(self.view.cog, interaction.message.id, interaction.user.id)
+        await view.add_all_selects()  # appel différé ici
         await interaction.followup.send(
             "Sélectionnez un sous-élément à ajouter :",
             view=view,
             ephemeral=True
         )
         self.view.cog.bot.add_view(view)
+
 
 class RemoveSubElementSelect(discord.ui.Select):
     def __init__(self, data, cog):  # Ajout du cog comme paramètre
