@@ -777,7 +777,7 @@ class SousElements(commands.Cog):
 
 class SubElementSelectView(discord.ui.View):
     def __init__(self, cog, main_message_id, user_id):
-        super().__init__(timeout=300)  # Timeout de 5 minutes
+        super().__init__(timeout=None)
         self.cog = cog
         self.main_message_id = main_message_id
         self.user_id = user_id
@@ -833,13 +833,21 @@ class AddSubElementButton(discord.ui.Button):
         # Créer et configurer la vue de sélection
         select_view = SubElementSelectView(self.view.cog, interaction.message.id, interaction.user.id)
         await select_view.setup_menus()
-        
-        # Envoyer la vue avec followup puisque l'interaction a déjà reçu une réponse
+
+        # Définir timeout=None pour rendre la vue persistante
+        select_view.timeout = None
+
+        # Envoie le message avec la vue
         select_message = await interaction.followup.send(
             "Sélectionnez un sous-élément à ajouter :",
             view=select_view,
             ephemeral=True
         )
+
+        # Enregistre la vue dans le bot pour garder les callbacks actifs
+        self.view.cog.bot.add_view(select_view)
+
+        # Stocke l'ID si nécessaire
         select_view.select_message_id = select_message.id
 
 class RemoveSubElementSelect(discord.ui.Select):
@@ -980,19 +988,23 @@ class RemoveSubElementButton(discord.ui.Button):
             await response.delete()
             return
 
-        # Modification ici : utiliser response puis original_response
-        view = discord.ui.View(timeout=60)
+        # Créer la vue persistante
+        view = discord.ui.View(timeout=None)
         select = RemoveSubElementSelect(message_data, self.view.cog)
         view.add_item(select)
-        
-        await interaction.response.send_message(
+
+        # Envoyer le message
+        select_message = await interaction.response.send_message(
             "Sélectionnez le sous-élément à supprimer :",
             view=view,
             ephemeral=True
         )
-        # Récupérer le message après l'envoi
-        select_message = await interaction.original_response()
-        select.select_message_id = select_message.id
+
+        # Enregistrer la vue auprès du bot
+        self.view.cog.bot.add_view(view)
+
+        # Stocker l'ID si besoin
+        select.select_message_id = (await interaction.original_response()).id
 
 class SousElementsView(discord.ui.View):
     def __init__(self, cog, character_name):
