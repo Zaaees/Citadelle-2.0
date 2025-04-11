@@ -1045,7 +1045,10 @@ class SubElementSelect(discord.ui.Select):
             # Vérifier si le sous-élément n'est pas déjà dans la liste
             if name not in data['elements'][element]:
                 # Préparer la mise à jour du thread
+                print(f"[DEBUG] THREAD_CHANNELS[{element}] = {THREAD_CHANNELS[element]}")
                 thread = interaction.guild.get_channel(THREAD_CHANNELS[element])
+                print(f"[DEBUG] thread = {thread}")
+
                 success, original_state = await self.view.cog.ensure_thread_unarchived(thread)
                 was_archived, was_locked = original_state
                 
