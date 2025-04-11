@@ -852,9 +852,6 @@ class AddSubElementButton(discord.ui.Button):
             ephemeral=True
         )
 
-        # Enregistre la vue dans le bot pour garder les callbacks actifs
-        self.view.cog.bot.add_view(select_view)
-
         # Stocke l'ID si nécessaire
         select_view.select_message_id = select_message.id
 
