@@ -35,6 +35,7 @@ class SubElementSelectPersistentView(discord.ui.View):
         self.user_id = user_id
 
     async def add_all_selects(self):
+        print("[DEBUG] add_all_selects appelé")
         elements_rows = {
             'Eau': 0, 'Feu': 1, 'Vent': 2, 'Terre': 3, 'Espace': 4
         }
@@ -866,6 +867,7 @@ class SubElementSelectView(discord.ui.View):
             self.add_item(SubElementSelect(element, options, row, self.main_message_id, self.user_id))
 
 class AddSubElementButton(discord.ui.Button):
+    print("[DEBUG] Le bouton Ajouter a été cliqué")
     def __init__(self):
         super().__init__(
             style=discord.ButtonStyle.primary,
@@ -887,6 +889,7 @@ class AddSubElementButton(discord.ui.Button):
 
         # Créer et configurer la vue de sélection
         view = SubElementSelectPersistentView(self.view.cog, interaction.message.id, interaction.user.id)
+        print("[DEBUG] Création de SubElementSelectPersistentView")
         await view.add_all_selects()
 
         await interaction.followup.send(
