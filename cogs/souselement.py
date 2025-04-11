@@ -774,25 +774,28 @@ class AddSubElementButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
+        # Répondre immédiatement à l'interaction pour éviter qu'elle n'expire
+        await interaction.response.defer(ephemeral=True)
+        
         message_data = self.view.cog.get_message_data(str(interaction.message.id))
         if not message_data or interaction.user.id != message_data['user_id']:
-            response = await interaction.response.send_message(
+            await interaction.followup.send(
                 "Tu n'es pas autorisé à modifier ces sous-éléments.",
-                ephemeral=True
+                ephemeral=True,
+                delete_after=2
             )
-            await asyncio.sleep(2)  # Attendre 5 secondes
-            await response.delete()
             return
 
-        await interaction.response.defer(ephemeral=True)
+        # Créer et configurer la vue de sélection
         select_view = SubElementSelectView(self.view.cog, interaction.message.id, interaction.user.id)
         await select_view.setup_menus()
+        
+        # Envoyer la vue avec followup puisque l'interaction a déjà reçu une réponse
         select_message = await interaction.followup.send(
             "Sélectionnez un sous-élément à ajouter :",
             view=select_view,
             ephemeral=True
         )
-        # Stocker l'ID du message pour pouvoir le supprimer plus tard
         select_view.select_message_id = select_message.id
 
 class RemoveSubElementSelect(discord.ui.Select):
@@ -974,17 +977,16 @@ class SubElementSelect(discord.ui.Select):
         self.user_id = user_id
 
     async def callback(self, interaction: discord.Interaction):
-        print("DEBUG: SubElementSelect callback a été appelé")
-        if interaction.user.id != self.user_id:
-            response = await interaction.response.send_message(
-                "Tu n'es pas autorisé à modifier ces sous-éléments.",
-                ephemeral=True
-            )
-            await asyncio.sleep(2)
-            await response.delete()
-            return
-
+        # Répondre immédiatement à l'interaction
         await interaction.response.defer(ephemeral=True)
+        
+        if interaction.user.id != self.user_id:
+            await interaction.followup.send(
+                "Tu n'es pas autorisé à modifier ces sous-éléments.",
+                ephemeral=True,
+                delete_after=2
+            )
+            return
         
         if self.values[0] == "none|none":
             await interaction.followup.send(
@@ -1004,6 +1006,30 @@ class SubElementSelect(discord.ui.Select):
 
             # Vérifier si le sous-élément n'est pas déjà dans la liste
             if name not in data['elements'][element]:
+                # Préparer la mise à jour du thread AVANT de mettre à jour les données
+                thread = interaction.guild.get_channel(THREAD_CHANNELS[element])
+                was_archived = False
+                was_locked = False
+                
+                # Désarchiver le thread si nécessaire AVANT de faire d'autres opérations
+                if thread:
+                    was_archived = thread.archived
+                    was_locked = thread.locked
+                    
+                    if was_archived or was_locked:
+                        try:
+                            await thread.edit(archived=False, locked=False)
+                            # Attendre que le thread soit désarchivé
+                            await asyncio.sleep(1)
+                        except Exception as e:
+                            print(f"Erreur lors du désarchivage du thread: {e}")
+                            await interaction.followup.send(
+                                f"Erreur: Impossible de désarchiver le thread {element}. Contactez un MJ.",
+                                ephemeral=True
+                            )
+                            return
+                
+                # Maintenant, mettre à jour les données
                 data['elements'][element].append(name)
                 self.view.cog.save_message_data(str(self.main_message_id), data)
                 
@@ -1011,60 +1037,7 @@ class SubElementSelect(discord.ui.Select):
                 main_message = await interaction.channel.fetch_message(self.main_message_id)
                 await self.view.cog.update_message(main_message, data)
                 
-                # Mettre à jour l'embed du sous-élément dans le thread correspondant
-                forum = interaction.guild.get_channel(FORUM_ID)
-                if forum:
-                    # Chercher le thread directement
-                    thread = None
-                    thread = interaction.guild.get_channel(THREAD_CHANNELS[element])
-                    print(f"DEBUG: Tentative d'accès au thread {element} (ID: {THREAD_CHANNELS[element]})")
-                    
-                    if thread:
-                        # Stocker l'état original du thread
-                        was_archived = thread.archived
-                        was_locked = thread.locked
-                        
-                        # Dans le callback de SubElementSelect, modifiez la partie qui gère les threads archivés:
-                        try:
-                            print(f"État du thread avant modification: archivé={thread.archived}, verrouillé={thread.locked}")
-                            
-                            # Désarchiver et déverrouiller le thread si nécessaire
-                            if was_archived or was_locked:
-                                print(f"Tentative de désarchivage du thread {element}...")
-                                await thread.edit(archived=False, locked=False)
-                                print(f"Thread désarchivé avec succès")
-                                # Attendre un peu pour s'assurer que les changements sont pris en compte
-                                await asyncio.sleep(0.5)
-                            
-                            print("Recherche du message dans le thread...")
-                            message_found = False
-                            # Chercher et mettre à jour le message
-                            async for message in thread.history():
-                                if message.embeds and message.embeds[0].title == name:
-                                    print(f"Message trouvé: {message.id}")
-                                    message_found = True
-                                    embed = message.embeds[0]
-                                    # Le reste du code de mise à jour...
-                                    print("Message mis à jour avec succès")
-                                    break
-                                    
-                            if not message_found:
-                                print(f"Message avec le titre '{name}' non trouvé dans le thread {element}")
-                            
-                            # Restaurer l'état original du thread
-                            if was_archived or was_locked:
-                                print(f"Restauration de l'état original du thread...")
-                                await thread.edit(archived=was_archived, locked=was_locked)
-                                print(f"État du thread restauré: archivé={thread.archived}, verrouillé={thread.locked}")
-
-                        except discord.Forbidden as e:
-                            print(f"Permissions insuffisantes pour le thread {element}: {str(e)}")
-                        except Exception as e:
-                            print(f"Erreur détaillée lors de la mise à jour du thread {element}: {str(e)}")
-                            import traceback
-                            traceback.print_exc()
-                
-                # Mettre à jour la liste des utilisateurs dans le système
+                # Mettre à jour la liste des utilisateurs
                 await self.view.cog.update_subelement_users(
                     element,
                     name,
@@ -1073,7 +1046,21 @@ class SubElementSelect(discord.ui.Select):
                     adding=True
                 )
                 
-                # Supprimer le message avec la liste des sous-éléments
+                # Restaurer l'état du thread si nécessaire
+                if thread and (was_archived or was_locked):
+                    try:
+                        await thread.edit(archived=was_archived, locked=was_locked)
+                    except Exception as e:
+                        print(f"Erreur lors de la restauration de l'état du thread: {e}")
+                
+                # Informer l'utilisateur
+                await interaction.followup.send(
+                    f"Le sous-élément '{name}' a été ajouté à votre liste.",
+                    ephemeral=True,
+                    delete_after=2
+                )
+                
+                # Supprimer le message de sélection
                 try:
                     original_message = await interaction.message.channel.fetch_message(interaction.message.id)
                     await original_message.delete()
