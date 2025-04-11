@@ -191,44 +191,46 @@ class SousElements(commands.Cog):
         if not thread:
             print(f"Thread fourni est None")
             return False, (False, False)
-            
+
         was_archived = thread.archived
         was_locked = thread.locked
-        
-        if was_archived or was_locked:
-            # Tenter plusieurs fois
-            for attempt in range(3):  # Essayer 3 fois
+
+        # Si le thread n'est ni archivé ni verrouillé, pas besoin de le modifier
+        if not was_archived and not was_locked:
+            print(f"Thread {thread.id} ({thread.name}) est déjà ouvert.")
+            return True, (was_archived, was_locked)
+
+        # Tenter plusieurs fois de désarchiver ou déverrouiller si nécessaire
+        for attempt in range(3):  # Essayer 3 fois
+            try:
+                print(f"Tentative #{attempt+1} de désarchivage du thread {thread.id} ({thread.name})")
+
+                # Désarchiver et/ou déverrouiller
+                await thread.edit(archived=False, locked=False)
+                await asyncio.sleep(5)  # Attendre plus longtemps
+
+                # Rafraîchir le thread pour vérifier son état
                 try:
-                    print(f"Tentative #{attempt+1} de désarchivage du thread {thread.id} ({thread.name})")
-                    
-                    # Désarchiver
-                    await thread.edit(archived=False, locked=False)
-                    await asyncio.sleep(5)  # Attendre plus longtemps
-                    
-                    # Rafraîchir le thread pour vérifier son état
-                    try:
-                        # Utiliser fetch_channel au lieu de get_channel pour forcer une actualisation
-                        reloaded_thread = await thread.guild.fetch_channel(thread.id)
-                        if not reloaded_thread.archived:
-                            print(f"Thread {thread.id} désarchivé avec succès")
-                            return True, (was_archived, was_locked)
-                        else:
-                            print(f"Le thread {thread.id} est toujours archivé après édition")
-                    except Exception as e:
-                        print(f"Erreur lors du rechargement du thread: {e}")
-                    
-                except discord.HTTPException as e:
-                    print(f"Erreur HTTP: {e}")
+                    # Utiliser fetch_channel au lieu de get_channel pour forcer une actualisation
+                    reloaded_thread = await thread.guild.fetch_channel(thread.id)
+                    if not reloaded_thread.archived and not reloaded_thread.locked:
+                        print(f"Thread {thread.id} désarchivé et déverrouillé avec succès")
+                        return True, (was_archived, was_locked)
+                    else:
+                        print(f"Le thread {thread.id} est toujours archivé ou verrouillé après édition")
                 except Exception as e:
-                    print(f"Erreur générale: {type(e).__name__}: {e}")
-                
-                print(f"Tentative #{attempt+1} échouée, attente avant réessai...")
-                await asyncio.sleep(2 * (attempt + 1))  # Backoff exponentiel
-                
-            print(f"Toutes les tentatives de désarchivage ont échoué")
-            return False, (was_archived, was_locked)
-        
-        return True, (was_archived, was_locked)  # Déjà non archivé
+                    print(f"Erreur lors du rechargement du thread: {e}")
+
+            except discord.HTTPException as e:
+                print(f"Erreur HTTP: {e}")
+            except Exception as e:
+                print(f"Erreur générale: {type(e).__name__}: {e}")
+
+            print(f"Tentative #{attempt+1} échouée, attente avant réessai...")
+            await asyncio.sleep(2 * (attempt + 1))  # Backoff exponentiel
+
+        print(f"Toutes les tentatives de désarchivage ont échoué")
+        return False, (was_archived, was_locked)
     
     def setup_google_sheets(self):
         scope = ['https://spreadsheets.google.com/feeds',
