@@ -27,6 +27,41 @@ async def safe_defer(interaction):
     except discord.NotFound:
         pass
 
+class SubElementSelectPersistentView(discord.ui.View):
+    def __init__(self, cog, main_message_id, user_id):
+        super().__init__(timeout=None)
+        self.cog = cog
+        self.main_message_id = main_message_id
+        self.user_id = user_id
+
+        self.add_all_selects()
+
+    def add_all_selects(self):
+        elements_rows = {
+            'Eau': 0, 'Feu': 1, 'Vent': 2, 'Terre': 3, 'Espace': 4
+        }
+
+        all_subelements = asyncio.run(self.cog.get_all_subelements())  # Forcé si hors async, sinon à revoir
+
+        for element, row in elements_rows.items():
+            options = [
+                discord.SelectOption(
+                    label=item['name'],
+                    value=item['value'],
+                    description=item['description']
+                )
+                for item in all_subelements[element]
+            ] or [
+                discord.SelectOption(
+                    label=f"Aucun sous-élément de {element}",
+                    value="none|none",
+                    description=f"Contactez un MJ pour ajouter des sous-éléments de {element}"
+                )
+            ]
+
+            self.add_item(SubElementSelect(element, options, row, self.main_message_id, self.user_id))
+
+
 class SubElementModal(discord.ui.Modal):
     def __init__(self, cog, element):
         super().__init__(title=f"Ajouter un sous-élément - {element}")
@@ -839,21 +874,13 @@ class AddSubElementButton(discord.ui.Button):
             return
 
         # Créer et configurer la vue de sélection
-        select_view = SubElementSelectView(self.view.cog, interaction.message.id, interaction.user.id)
-        await select_view.setup_menus()
-
-        # Définir timeout=None pour rendre la vue persistante
-        select_view.timeout = None
-
-        # Envoie le message avec la vue
-        select_message = await interaction.followup.send(
+        view = SubElementSelectPersistentView(self.view.cog, interaction.message.id, interaction.user.id)
+        await interaction.followup.send(
             "Sélectionnez un sous-élément à ajouter :",
-            view=select_view,
+            view=view,
             ephemeral=True
         )
-
-        # Stocke l'ID si nécessaire
-        select_view.select_message_id = select_message.id
+        self.view.cog.bot.add_view(view)
 
 class RemoveSubElementSelect(discord.ui.Select):
     def __init__(self, data, cog):  # Ajout du cog comme paramètre
@@ -1035,8 +1062,7 @@ class SubElementSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-
-        print(f"[DEBUG] callback lancé pour l'utilisateur {interaction.user}")
+        print(f"[DEBUG] SubElementSelect.callback lancé par {interaction.user}")
 
         if interaction.user.id != self.user_id:
             await interaction.followup.send(
