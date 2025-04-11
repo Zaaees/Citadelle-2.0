@@ -782,7 +782,6 @@ class AddSubElementButton(discord.ui.Button):
             await interaction.followup.send(
                 "Tu n'es pas autorisé à modifier ces sous-éléments.",
                 ephemeral=True,
-                delete_after=2
             )
             return
 
@@ -835,7 +834,6 @@ class RemoveSubElementSelect(discord.ui.Select):
             await interaction.followup.send(
                 "Vous n'avez aucun sous-élément à supprimer.",
                 ephemeral=True,
-                delete_after=2
             )
             return
 
@@ -911,14 +909,12 @@ class RemoveSubElementSelect(discord.ui.Select):
                 await interaction.followup.send(
                     f"Ce sous-élément n'est pas dans votre liste.",
                     ephemeral=True,
-                    delete_after=2
                 )
         except Exception as e:
             print(f"Erreur lors de la suppression du sous-élément: {e}")
             await interaction.followup.send(
                 "Une erreur est survenue lors de la suppression du sous-élément.",
                 ephemeral=True,
-                delete_after=2
             )
 
 class RemoveSubElementButton(discord.ui.Button):
@@ -983,16 +979,14 @@ class SubElementSelect(discord.ui.Select):
         if interaction.user.id != self.user_id:
             await interaction.followup.send(
                 "Tu n'es pas autorisé à modifier ces sous-éléments.",
-                ephemeral=True,
-                delete_after=2
+                ephemeral=True
             )
             return
         
         if self.values[0] == "none|none":
             await interaction.followup.send(
                 f"Aucun sous-élément de {self.element_type} n'est disponible pour le moment.", 
-                ephemeral=True,
-                delete_after=2
+                ephemeral=True
             )
             return
 
@@ -1001,7 +995,7 @@ class SubElementSelect(discord.ui.Select):
             data = self.view.cog.get_message_data(str(self.main_message_id))
 
             if not data:
-                await interaction.followup.send("Message data not found.", ephemeral=True, delete_after=2)
+                await interaction.followup.send("Message data not found.", ephemeral=True)
                 return
 
             # Vérifier si le sous-élément n'est pas déjà dans la liste
@@ -1056,8 +1050,7 @@ class SubElementSelect(discord.ui.Select):
                 # Informer l'utilisateur
                 await interaction.followup.send(
                     f"Le sous-élément '{name}' a été ajouté à votre liste.",
-                    ephemeral=True,
-                    delete_after=2
+                    ephemeral=True
                 )
                 
                 # Supprimer le message de sélection
@@ -1069,16 +1062,14 @@ class SubElementSelect(discord.ui.Select):
             else:
                 await interaction.followup.send(
                     f"Le sous-élément '{name}' est déjà dans votre liste.", 
-                    ephemeral=True,
-                    delete_after=2
+                    ephemeral=True
                 )
 
         except Exception as e:
             print(f"Erreur dans le callback du select: {str(e)}")
             await interaction.followup.send(
                 "Une erreur est survenue lors de l'ajout du sous-élément.",
-                ephemeral=True,
-                delete_after=2
+                ephemeral=True
             )
 
 class AddSubElementProcess:
