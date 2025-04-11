@@ -67,9 +67,13 @@ class SubElementSelectPersistentView(discord.ui.View):
                 main_message_id=self.main_message_id,
                 user_id=self.user_id
             )
-            self.add_item(select)
-            print(f"[DEBUG] Ajout du select pour {element} — custom_id: {select.custom_id} — options: {[opt.label for opt in options]}")
 
+            self.add_item(select)
+
+            # DEBUG
+            print(f"[DEBUG] Select pour {element} : custom_id = {select.custom_id} — nb options = {len(options)}")
+
+        print(f"[DEBUG] Vue construite avec {len(self.children)} éléments")
 
 class SubElementModal(discord.ui.Modal):
     def __init__(self, cog, element):
@@ -1060,7 +1064,7 @@ class SubElementSelect(discord.ui.Select):
     def __init__(self, element, options, row_number, main_message_id, user_id):
         super().__init__(
             placeholder=f"Sous-éléments de {element}",
-            custom_id=f"subelement_select_{element.lower()}",
+            custom_id=f"subelement_select_{element.lower()}_{main_message_id}",
             row=row_number,
             options=options,
             min_values=1,
