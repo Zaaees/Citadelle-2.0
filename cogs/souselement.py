@@ -42,22 +42,34 @@ class SubElementSelectPersistentView(discord.ui.View):
         all_subelements = await self.cog.get_all_subelements()
 
         for element, row in elements_rows.items():
-            options = [
-                discord.SelectOption(
-                    label=item['name'],
-                    value=item['value'],
-                    description=item['description']
-                )
-                for item in all_subelements[element]
-            ] or [
-                discord.SelectOption(
-                    label=f"Aucun sous-élément de {element}",
-                    value="none|none",
-                    description=f"Contactez un MJ pour ajouter des sous-éléments de {element}"
-                )
-            ]
+            if all_subelements[element]:
+                options = [
+                    discord.SelectOption(
+                        label=item['name'],
+                        value=item['value'],
+                        description=item['description']
+                    )
+                    for item in all_subelements[element]
+                ]
+            else:
+                options = [
+                    discord.SelectOption(
+                        label=f"Aucun sous-élément de {element}",
+                        value="none|none",
+                        description=f"Contactez un MJ pour ajouter des sous-éléments de {element}"
+                    )
+                ]
 
-            self.add_item(SubElementSelect(element, options, row, self.main_message_id, self.user_id))
+            select = SubElementSelect(
+                element=element,
+                options=options,
+                row_number=row,
+                main_message_id=self.main_message_id,
+                user_id=self.user_id
+            )
+            self.add_item(select)
+            print(f"[DEBUG] Ajout du select pour {element} — custom_id: {select.custom_id} — options: {[opt.label for opt in options]}")
+
 
 class SubElementModal(discord.ui.Modal):
     def __init__(self, cog, element):
