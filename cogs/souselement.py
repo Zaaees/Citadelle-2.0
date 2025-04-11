@@ -370,16 +370,16 @@ class SousElements(commands.Cog):
                         thread = self.bot.get_channel(thread_id)
                         
                         if thread:
-                            # Vérifier si le thread est archivé
+                            # Stocker l'état original du thread
                             was_archived = thread.archived
-                            locked = thread.locked
+                            was_locked = thread.locked
                             
                             try:
-                                # Désarchiver le thread si nécessaire
-                                if was_archived:
-                                    await thread.edit(archived=False)
-                                if locked:
-                                    await thread.edit(locked=False)
+                                # Désarchiver et déverrouiller le thread si nécessaire
+                                if was_archived or was_locked:
+                                    await thread.edit(archived=False, locked=False)
+                                    # Attendre un peu pour s'assurer que les changements sont pris en compte
+                                    await asyncio.sleep(0.5)
                                 
                                 # Mettre à jour le message
                                 try:
@@ -399,21 +399,21 @@ class SousElements(commands.Cog):
                                         await message.edit(embed=embed)
                                 except discord.NotFound:
                                     print(f"Message {message_id} non trouvé dans le thread {element}")
-                                
-                                # Remettre le thread dans son état d'origine
-                                if was_archived:
-                                    await thread.edit(archived=True)
-                                if locked:
-                                    await thread.edit(locked=True)
+                                except Exception as e:
+                                    print(f"Erreur lors de la mise à jour du message: {str(e)}")
                                     
-                            except discord.Forbidden:
-                                print(f"Permissions insuffisantes pour le thread {element}")
+                                # Restaurer l'état original du thread après les modifications
+                                if was_archived or was_locked:
+                                    await thread.edit(archived=was_archived, locked=was_locked)
+                                    
+                            except discord.Forbidden as e:
+                                print(f"Permissions insuffisantes pour le thread {element}: {str(e)}")
                             except Exception as e:
-                                print(f"Erreur lors de la mise à jour du message: {e}")
+                                print(f"Erreur lors de la mise à jour du thread {element}: {str(e)}")
                     break
-                    
+                        
         except Exception as e:
-            print(f"Erreur lors de la mise à jour des utilisateurs: {e}")
+            print(f"Erreur lors de la mise à jour des utilisateurs: {str(e)}")
 
     @app_commands.command(name='ajouter-sous-element', description="Ajouter un nouveau sous-élément à la liste (MJ uniquement)")
     async def add_subelement(self, interaction: discord.Interaction):
