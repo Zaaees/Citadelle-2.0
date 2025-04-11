@@ -187,42 +187,47 @@ class SousElements(commands.Cog):
         self.bot.add_listener(self.handle_character_sheet_message, 'on_message')
         
     async def ensure_thread_unarchived(self, thread):
-        """Ensure thread is unarchived and ready for interaction."""
+        """Ensure thread is unarchived and ready for interaction with retries."""
         if not thread:
-            print("Thread fourni est None")
+            print(f"Thread fourni est None")
             return False, (False, False)
             
-        try:
-            print(f"Tentative de désarchivage du thread {thread.id} ({thread.name})")
-            print(f"État actuel - archivé: {thread.archived}, verrouillé: {thread.locked}")
-            
-            was_archived = thread.archived
-            was_locked = thread.locked
-            
-            if was_archived or was_locked:
-                print(f"Désarchivage du thread {thread.id}")
-                await thread.edit(archived=False, locked=False)
-                await asyncio.sleep(3)  # Augmenter à 3 secondes
+        was_archived = thread.archived
+        was_locked = thread.locked
+        
+        if was_archived or was_locked:
+            # Tenter plusieurs fois
+            for attempt in range(3):  # Essayer 3 fois
+                try:
+                    print(f"Tentative #{attempt+1} de désarchivage du thread {thread.id} ({thread.name})")
+                    
+                    # Désarchiver
+                    await thread.edit(archived=False, locked=False)
+                    await asyncio.sleep(5)  # Attendre plus longtemps
+                    
+                    # Rafraîchir le thread pour vérifier son état
+                    try:
+                        # Utiliser fetch_channel au lieu de get_channel pour forcer une actualisation
+                        reloaded_thread = await thread.guild.fetch_channel(thread.id)
+                        if not reloaded_thread.archived:
+                            print(f"Thread {thread.id} désarchivé avec succès")
+                            return True, (was_archived, was_locked)
+                        else:
+                            print(f"Le thread {thread.id} est toujours archivé après édition")
+                    except Exception as e:
+                        print(f"Erreur lors du rechargement du thread: {e}")
+                    
+                except discord.HTTPException as e:
+                    print(f"Erreur HTTP: {e}")
+                except Exception as e:
+                    print(f"Erreur générale: {type(e).__name__}: {e}")
                 
-                # Recharger le thread pour vérifier l'état
-                reloaded_thread = thread.guild.get_channel(thread.id)
-                if not reloaded_thread:
-                    print(f"Impossible de retrouver le thread {thread.id} après édition")
-                    return False, (was_archived, was_locked)
-                    
-                if reloaded_thread.archived:
-                    print(f"Le désarchivage du thread {thread.id} a échoué, toujours archivé")
-                    return False, (was_archived, was_locked)
-                    
-                print(f"Thread {thread.id} désarchivé avec succès")
-                return True, (was_archived, was_locked)
-        except discord.Forbidden as e:
-            print(f"Erreur de permission lors du désarchivage: {e}")
+                print(f"Tentative #{attempt+1} échouée, attente avant réessai...")
+                await asyncio.sleep(2 * (attempt + 1))  # Backoff exponentiel
+                
+            print(f"Toutes les tentatives de désarchivage ont échoué")
             return False, (was_archived, was_locked)
-        except Exception as e:
-            print(f"Erreur détaillée lors du désarchivage: {type(e).__name__}: {e}")
-            return False, (was_archived, was_locked)
-            
+        
         return True, (was_archived, was_locked)  # Déjà non archivé
     
     def setup_google_sheets(self):
