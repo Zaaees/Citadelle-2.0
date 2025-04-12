@@ -265,6 +265,8 @@ class CardsMenuView(discord.ui.View):
         super().__init__(timeout=None)
         self.cog = cog
         self.user = user
+        self.user_id = user.id  # 👈 nécessaire pour les boutons comme Galerie
+
 
     @discord.ui.button(label="Tirer une carte", style=discord.ButtonStyle.primary)
     async def draw_card(self, interaction: discord.Interaction, button: discord.ui.Button):
