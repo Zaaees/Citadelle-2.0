@@ -343,15 +343,24 @@ class CardsMenuView(discord.ui.View):
                             file_bytes = self.cog.download_drive_file(file_id)
                             safe_name = name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
                             image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
+                            embed_card = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
                             embed_card.set_image(url=f"attachment://{safe_name}.png")
+                            embed_card.set_footer(text=f"Découverte par : {self.user.display_name}")
                             await mur_channel.send(embed=embed_card, file=image_file)
                     except Exception as e:
                         logging.error("Erreur envoi image mur :", e)
 
-                # Message de progression général
+                # Supprimer l'ancien message de résumé s'il existe
+                async for msg in mur_channel.history(limit=20):
+                    if msg.author == self.cog.bot.user and msg.content.startswith("📝 Cartes découvertes :"):
+                        await msg.delete()
+                        break
+
+                # Nouveau message de progression
                 await mur_channel.send(
                     f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes)"
                 )
+
         except Exception as e:
             logging.error("Erreur envoi mur tirages:", e)
 
