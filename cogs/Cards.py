@@ -120,17 +120,16 @@ class CardsMenuView(discord.ui.View):
 
     @discord.ui.button(label="Tirer une carte", style=discord.ButtonStyle.primary)
     async def draw_card(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Vérifier que seul l'utilisateur propriétaire peut utiliser
         if interaction.user.id != self.user.id:
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
 
-        # Récupérer le nombre de médailles (donc de tirages) de l'utilisateur via le cog inventaire
+        await interaction.response.defer()  # rendre la réponse publique (non ephemeral)
+
         inventory_cog = interaction.client.get_cog("Inventory")
         total_medals = 0
         if inventory_cog:
             students = inventory_cog.load_students()
-            # Lier les personnages à l'utilisateur en scannant les forums de personnages
             forum_ids = [1090463730904604682, 1152643359568044094, 1217215470445269032]
             user_character_names = set()
             for forum_id in forum_ids:
@@ -141,22 +140,14 @@ class CardsMenuView(discord.ui.View):
                     except Exception:
                         continue
                 threads = []
-                if hasattr(channel, "threads"):
-                    threads.extend(channel.threads)
                 try:
-                    archived_threads = await channel.fetch_archived_threads(limit=100)
-                    if hasattr(archived_threads, "threads"):
-                        threads.extend(archived_threads.threads)
-                    else:
-                        async for th in channel.fetch_archived_threads(limit=100):
-                            threads.append(th)
-                except Exception:
+                    archived = await channel.archived_threads(limit=100).flatten()
+                    threads.extend(archived)
+                except:
                     pass
                 for thread in threads:
-                    owner_id = thread.owner_id if hasattr(thread, "owner_id") else None
-                    if owner_id == self.user.id:
+                    if thread.owner_id == self.user.id:
                         user_character_names.add(thread.name)
-            # Mettre à jour les user_id manquants et enregistrer si nécessaire
             changed = False
             for char_name in user_character_names:
                 if char_name in students and students[char_name].get('user_id') != self.user.id:
@@ -164,60 +155,76 @@ class CardsMenuView(discord.ui.View):
                     changed = True
             if changed:
                 inventory_cog.save_students(students)
-            # Calculer le total de médailles pour cet utilisateur (tous ses personnages confondus)
             for data in students.values():
                 if data.get('user_id') == self.user.id:
                     total_medals += data.get('medals', 0)
-        # Compter combien de cartes cet utilisateur a déjà tirées (persistées)
+
         user_cards = self.cog.get_user_cards(self.user.id)
         drawn_count = len(user_cards)
         draw_limit = total_medals * 3
-        if drawn_count >= draw_limit:
-            # Pas de tirage disponible
-            await interaction.response.send_message("🎖️ Vous n'avez plus de tirages disponibles.", ephemeral=True)
+        if drawn_count + 3 > draw_limit:
+            await interaction.followup.send("\ud83c\udf96\ufe0f Vous n'avez plus assez de tirages disponibles (3 requis).", ephemeral=True)
             return
 
-        # Effectuer un tirage aléatoire pondéré selon les raretés
         categories = ["Secrète", "Fondateur", "Historique", "Maître", "Black Hole", "Architectes", "Professeurs", "Autre", "Élèves"]
-        weights = [0.5, 1, 2, 4, 6, 10, 15, 25, 37]  # probabilités en pourcentage (somme ≈ 100)
-        category = random.choices(categories, weights=weights, k=1)[0]
-        # Choisir une carte aléatoire dans la catégorie tirée
-        card_list = self.cog.cards_by_category.get(category, [])
-        if not card_list:
-            await interaction.response.send_message(f"Aucune carte disponible pour la catégorie {category}.", ephemeral=True)
-            return
-        variant_cards = [f for f in card_list if "(Variante)" in f['name']]
-        normal_cards = [f for f in card_list if "(Variante)" not in f['name']]
-        if variant_cards and normal_cards:
-            # 10% de chance de tirer une variante, sinon une carte normale
-            if random.random() < 0.1:
+        weights = [0.5, 1, 2, 4, 6, 10, 15, 25, 37]
+
+        drawn_cards = []
+        image_files = []
+        embed = discord.Embed(title="\ud83c\udf89 Tirage de cartes réussi !", description="Voici vos 3 cartes :", color=0x4E5D94)
+
+        for _ in range(3):
+            category = random.choices(categories, weights=weights, k=1)[0]
+            card_list = self.cog.cards_by_category.get(category, [])
+            variant_cards = [f for f in card_list if "(Variante)" in f['name']]
+            normal_cards = [f for f in card_list if "(Variante)" not in f['name']]
+            if variant_cards and random.random() < 0.1:
                 card_file = random.choice(variant_cards)
             else:
-                card_file = random.choice(normal_cards)
-        else:
-            card_file = random.choice(card_list)
-        card_name = card_file['name']
+                card_file = random.choice(normal_cards or card_list)
 
-        # Enregistrer la carte obtenue dans l'inventaire de l'utilisateur (Google Sheets)
-        self.cog.add_card_to_user(self.user.id, category, card_name)
-        # Préparer un embed de résultat avec l'image de la carte
-        embed = discord.Embed(title="🎉 Tirage de carte réussi!", description=f"**{self.user.display_name}** obtient une carte **{category}** : **{card_name}**")
-        try:
-            # Récupérer le fichier image depuis Drive
-            file_bytes = self.cog.download_drive_file(card_file['id'])
-            # Envoyer l'image en tant que fichier Discord
-            image_file = discord.File(io.BytesIO(file_bytes), filename=f"{card_name}.png")
-            embed.set_image(url=f"attachment://{card_name}.png")
-            await interaction.response.send_message(embed=embed, file=image_file)
-        except Exception as e:
-            # En cas de problème, envoyer juste le texte
-            await interaction.response.send_message(embed=embed)
+            card_name = card_file['name']
+            self.cog.add_card_to_user(self.user.id, category, card_name)
+            drawn_cards.append((category, card_name))
 
-        # Annoncer dans le salon dédié si carte rare ou variante obtenue
+            try:
+                file_bytes = self.cog.download_drive_file(card_file['id'])
+                image_file = discord.File(io.BytesIO(file_bytes), filename=f"{card_name}.png")
+                image_files.append(image_file)
+            except Exception as e:
+                print(f"Erreur image: {e}")
+
+            embed.add_field(name=category, value=f"**{card_name}**", inline=False)
+
+        await interaction.followup.send(embed=embed, files=image_files)
+
+        # Annonce publique si rare ou variante
         announce_channel = self.cog.bot.get_channel(1017906514838700032)
-        if announce_channel:
-            if "(Variante)" in card_name or category in ["Fondateur", "Maître", "Personnage Historique"]:
-                await announce_channel.send(f"✨ **{self.user.display_name}** a obtenu une carte **{category}** : **{card_name}** !")
+        for cat, name in drawn_cards:
+            if announce_channel and ("(Variante)" in name or cat in ["Fondateur", "Maître", "Historique"]):
+                await announce_channel.send(f"\u2728 **{self.user.display_name}** a obtenu une carte **{cat}** : **{name}** !")
+
+        # Mur des tirages
+        try:
+            all_user_cards = self.cog.sheet_cards.get_all_values()
+            unique_drawn = set()
+            for row in all_user_cards:
+                if len(row) >= 3:
+                    unique_drawn.add((row[1], row[2]))
+            total_cards = sum(len(lst) for lst in self.cog.cards_by_category.values())
+            discovered = len(unique_drawn)
+            remaining = total_cards - discovered
+
+            mur_channel = self.cog.bot.get_channel(1360512727784882207)
+            if mur_channel:
+                drawn_names = ", ".join([f"**{n}** ({c})" for c, n in drawn_cards])
+                await mur_channel.send(
+                    f"\ud83c\udf6e {interaction.user.display_name} a tiré : {drawn_names}\n"
+                    f"\ud83d\udcdc Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes)"
+                )
+        except Exception as e:
+            print("Erreur envoi mur tirages:", e)
+
 
     @discord.ui.button(label="Galerie", style=discord.ButtonStyle.secondary)
     async def show_gallery(self, interaction: discord.Interaction, button: discord.ui.Button):
