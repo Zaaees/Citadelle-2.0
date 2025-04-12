@@ -353,6 +353,45 @@ class Cards(commands.Cog):
         for embed, image_file in embeds_and_files:
             await interaction.followup.send(embed=embed, file=image_file, ephemeral=True)
 
+                # Mur public
+        try:
+            all_user_cards = self.sheet_cards.get_all_values()
+            unique_drawn = set((row[1], row[2]) for row in all_user_cards if len(row) >= 3)
+            total_cards = sum(len(lst) for lst in self.cards_by_category.values())
+            discovered = len(unique_drawn)
+            remaining = total_cards - discovered
+
+            mur_channel = self.bot.get_channel(1360512727784882207)
+            if mur_channel:
+                for cat, name in drawn_cards:
+                    try:
+                        file_id = next((f['id'] for f in self.cards_by_category.get(cat, []) if f['name'] == name), None)
+                        if file_id:
+                            file_bytes = self.download_drive_file(file_id)
+                            safe_name = name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+                            image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
+                            embed_card = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
+                            embed_card.set_image(url=f"attachment://{safe_name}.png")
+                            embed_card.set_footer(text=f"Découverte par : {interaction.user.display_name}")
+                            await mur_channel.send(embed=embed_card, file=image_file)
+
+                    except Exception as e:
+                        logging.error("Erreur envoi image mur (lancement):", e)
+
+                # Supprimer ancien résumé
+                async for msg in mur_channel.history(limit=20):
+                    if msg.author == self.bot.user and msg.content.startswith("📝 Cartes découvertes :"):
+                        await msg.delete()
+                        break
+
+                await mur_channel.send(
+                    f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes)"
+                )
+
+        except Exception as e:
+            logging.error("Erreur envoi mur tirages (lancement):", e)
+
+
 
 class CardsMenuView(discord.ui.View):
     def __init__(self, cog: Cards, user: discord.User):
