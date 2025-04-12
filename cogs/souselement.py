@@ -876,8 +876,10 @@ class AddSubElementButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        if interaction.user.id != self.user_id:
-            msg = await interaction.response.send_message(
+        # Récupérer les données persistées du message (contenant user_id autorisé)
+        message_data = self.view.cog.get_message_data(str(interaction.message.id))
+        if not message_data or interaction.user.id != message_data["user_id"]:
+            await interaction.response.send_message(
                 "Tu n'es pas autorisé à modifier ces sous-éléments.",
                 ephemeral=True
             )
@@ -900,9 +902,6 @@ class AddSubElementButton(discord.ui.Button):
 
 class RemoveSubElementSelect(discord.ui.Select):
     def __init__(self, data, cog, main_message_id):
-        super().__init__(placeholder="Choisissez...", options=options)
-        self.cog = cog
-        self.main_message_id = main_message_id
         options = []
         for element, subelements in data['elements'].items():
             for subelement in subelements:
@@ -913,7 +912,7 @@ class RemoveSubElementSelect(discord.ui.Select):
                         description=f"Sous-élément de {element}"
                     )
                 )
-        
+
         if not options:
             options = [
                 discord.SelectOption(
@@ -922,14 +921,18 @@ class RemoveSubElementSelect(discord.ui.Select):
                     description="Vous n'avez aucun sous-élément à supprimer"
                 )
             ]
-            
+
+        # Appel unique à super().__init__ avec options déjà construites
         super().__init__(
             placeholder="Choisissez un sous-élément à supprimer",
             options=options,
             min_values=1,
             max_values=1
         )
-        self.cog = cog  # Stockage du cog
+
+        self.cog = cog
+        self.main_message_id = main_message_id
+
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -1092,10 +1095,11 @@ class SubElementSelect(discord.ui.Select):
 
         if self.values[0] == "none|none":
             await interaction.followup.send(
-                f"Aucun sous-élément de {self.element_type} n'est disponible pour le moment.", 
+                f"Aucun sous-élément de {self.element} n'est disponible pour le moment.",
                 ephemeral=True
             )
             return
+
 
         try:
             element, name = self.values[0].split("|")
