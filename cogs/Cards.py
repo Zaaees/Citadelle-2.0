@@ -59,7 +59,7 @@ class Cards(commands.Cog):
                 ).execute()
                 files = results.get('files', [])
                 self.cards_by_category[category] = files
-        self.bot.tree.add_command(self.lancement)
+        self.bot.tree.add_command(card_group)
 
         # Map inverse pour retrouver catégorie par nom si besoin (en supposant noms uniques)
         # self.category_by_name = {file['name']: cat for cat, files in self.cards_by_category.items() for file in files}
