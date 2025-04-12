@@ -1,107 +1,152 @@
 import discord
 from discord.ext import commands, tasks
-import datetime
-import logging
-import pytz
+import asyncio
+from datetime import datetime, timedelta
 import os
-import json
-from google.oauth2.service_account import Credentials
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
-
-# Configuration
-CHANNEL_ID = 1038531040852953138
-REMINDER_INTERVAL = datetime.timedelta(hours=2)
-BUMP_INTERVAL = datetime.timedelta(hours=24)
-SERVICE_ACCOUNT_JSON_PATH = os.getenv('SERVICE_ACCOUNT_JSON')
-SHEET_ID = os.getenv('BUMP_SHEET_ID')
-SHEET_RANGE = 'A1:B1'
-TIMEZONE = pytz.timezone('Europe/Paris')
-
-# Initialisation du logger
-logger = logging.getLogger('bump')
-logger.setLevel(logging.INFO)
-handler = logging.FileHandler(filename='bump.log', encoding='utf-8', mode='w')
-handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s: %(message)s'))
-logger.addHandler(handler)
+import json
+import logging
 
 class Bump(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.sheet = self.connect_to_sheets()
-        self.last_bump, self.last_reminder = self.load_timestamps()
+        self.channel_id = 1031999400383348757
+        self.disboard_bot_id = 302050872383242240
+        
+        # Configuration Google Sheets
+        self.SERVICE_ACCOUNT_JSON = json.loads(os.getenv('SERVICE_ACCOUNT_JSON'))
+        self.GOOGLE_SHEET_ID = os.getenv('GOOGLE_SHEET_ID_BUMP')
+        self.sheet = self.setup_google_sheets()
+        
+        # Chargement des données initiales
+        self.last_bump = self.load_last_bump()
+        self.last_reminder = self.load_last_reminder()
         self.check_bump.start()
+        self.setup_logging()
 
-    def connect_to_sheets(self):
-        creds = Credentials.from_service_account_info(json.loads(SERVICE_ACCOUNT_JSON_PATH))
-        return build('sheets', 'v4', credentials=creds).spreadsheets()
+    def setup_google_sheets(self):
+        credentials = service_account.Credentials.from_service_account_info(
+            self.SERVICE_ACCOUNT_JSON,
+            scopes=['https://www.googleapis.com/auth/spreadsheets']
+        )
+        service = build('sheets', 'v4', credentials=credentials)
+        return service.spreadsheets()
 
-    def load_timestamps(self):
-        result = self.sheet.values().get(spreadsheetId=SHEET_ID, range=SHEET_RANGE).execute()
-        values = result.get('values', [[None, None]])[0]
-        last_bump = datetime.datetime.fromisoformat(values[0]) if values[0] else datetime.datetime.now(TIMEZONE)
-        last_reminder = datetime.datetime.fromisoformat(values[1]) if values[1] else datetime.datetime.now(TIMEZONE)
-        return last_bump, last_reminder
-
-    def save_timestamps(self):
-        values = [[self.last_bump.isoformat(), self.last_reminder.isoformat()]]
-        self.sheet.values().update(
-            spreadsheetId=SHEET_ID, range=SHEET_RANGE,
-            valueInputOption='RAW', body={'values': values}
+    def load_last_bump(self):
+        result = self.sheet.values().get(
+            spreadsheetId=self.GOOGLE_SHEET_ID,
+            range='A2'
         ).execute()
+        
+        values = result.get('values', [[datetime.min.isoformat()]])
+        return datetime.fromisoformat(values[0][0])
+
+    def save_last_bump(self):
+        self.sheet.values().update(
+            spreadsheetId=self.GOOGLE_SHEET_ID,
+            range='A2',
+            valueInputOption='RAW',
+            body={'values': [[self.last_bump.isoformat()]]}
+        ).execute()
+
+    def load_last_reminder(self):
+        result = self.sheet.values().get(
+            spreadsheetId=self.GOOGLE_SHEET_ID,
+            range='B2'
+        ).execute()
+        
+        values = result.get('values', [[datetime.min.isoformat()]])
+        return datetime.fromisoformat(values[0][0])
+
+    def save_last_reminder(self):
+        self.sheet.values().update(
+            spreadsheetId=self.GOOGLE_SHEET_ID,
+            range='B2',
+            valueInputOption='RAW',
+            body={'values': [[self.last_reminder.isoformat()]]}
+        ).execute()
+
+    def setup_logging(self):
+        self.logger = logging.getLogger('bump_cog')
+        self.logger.setLevel(logging.INFO)
+        handler = logging.FileHandler('bump.log')
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
+
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        if message.channel.id == self.channel_id and message.author.id == self.disboard_bot_id:
+            self.last_bump = datetime.now()
+            self.save_last_bump()
+            self.check_bump.restart()
 
     @tasks.loop(minutes=1)
     async def check_bump(self):
-        now = datetime.datetime.now(TIMEZONE)
-        channel = self.bot.get_channel(CHANNEL_ID)
+        try:
+            now = datetime.now()
+            time_since_last_bump = now - self.last_bump
+            time_since_last_reminder = now - self.last_reminder
+            
+            self.logger.info(f"Checking bump - Last bump: {time_since_last_bump}, Last reminder: {time_since_last_reminder}")
+            
+            # Vérification pour 24 heures
+            if time_since_last_bump >= timedelta(hours=24):
+                if self.last_reminder < self.last_bump:
+                    channel = self.bot.get_channel(self.channel_id)
+                    if channel:
+                        await channel.send("⚠️ Ça fait 24h ! Bump le serveur enculé")
+                        self.last_reminder = now
+                        self.save_last_reminder()
+                        self.logger.info("24-hour reminder sent successfully")
+                        return
+            # Vérification normale pour 2 heures
+            elif time_since_last_bump >= timedelta(hours=2) and time_since_last_reminder >= timedelta(hours=2):
+                if self.last_reminder < self.last_bump:
+                    channel = self.bot.get_channel(self.channel_id)
+                    if channel:
+                        await channel.send("Bump le serveur")
+                        self.last_reminder = now
+                        self.save_last_reminder()
+                        self.logger.info("Reminder sent successfully")
+                    else:
+                        self.logger.error(f"Channel not found: {self.channel_id}")
 
-        if now >= self.last_bump + REMINDER_INTERVAL and now >= self.last_reminder + REMINDER_INTERVAL:
-            await channel.send("🔔 **N'oubliez pas de bump le serveur !** 🔔")
-            self.last_reminder = now
-            self.save_timestamps()
-            logger.info('Rappel bump envoyé après 2h.')
+            time_to_next_check = min(
+                timedelta(hours=2) - time_since_last_bump,
+                timedelta(hours=2) - time_since_last_reminder
+            )
+            next_check = max(1, int(time_to_next_check.total_seconds() / 60))
+            self.logger.info(f"Next check in {next_check} minutes")
+            self.check_bump.change_interval(minutes=next_check)
 
-        if now >= self.last_bump + BUMP_INTERVAL:
-            await channel.send("⚠️ **Ça fait 24h que personne n'a bump, pensez à bump rapidement !**")
-            self.last_reminder = now
-            self.save_timestamps()
-            logger.info('Rappel bump envoyé après 24h.')
+        except Exception as e:
+            self.logger.error(f"Error in check_bump: {str(e)}")
+            self.check_bump.restart()
+
+    @commands.command(name="bumpstatus")
+    @commands.has_permissions(administrator=True)
+    async def bump_status(self, ctx):
+        """Affiche le statut actuel du système de bump"""
+        now = datetime.now()
+        time_since_last_bump = now - self.last_bump
+        time_since_last_reminder = now - self.last_reminder
+        
+        embed = discord.Embed(title="Statut du Bump", color=discord.Color.blue())
+        embed.add_field(name="Dernier bump", value=f"Il y a {time_since_last_bump.seconds // 3600}h {(time_since_last_bump.seconds // 60) % 60}m")
+        embed.add_field(name="Dernier rappel", value=f"Il y a {time_since_last_reminder.seconds // 3600}h {(time_since_last_reminder.seconds // 60) % 60}m")
+        embed.add_field(name="Task active", value=str(self.check_bump.is_running()))
+        
+        await ctx.send(embed=embed)
 
     @check_bump.before_loop
     async def before_check_bump(self):
         await self.bot.wait_until_ready()
-
-    @commands.Cog.listener()
-    async def on_message(self, message):
-        if message.channel.id != CHANNEL_ID or message.author.bot:
-            return
-
-        if 'bump effectué' in message.content.lower() or 'bump done' in message.content.lower():
-            self.last_bump = datetime.datetime.now(TIMEZONE)
-            self.last_reminder = self.last_bump
-            self.save_timestamps()
-            logger.info('Bump détecté et enregistré.')
-
-    @commands.command()
-    async def bumpstatus(self, ctx):
-        now = datetime.datetime.now(TIMEZONE)
-        elapsed = now - self.last_bump
-
-        days, remainder = divmod(elapsed.total_seconds(), 86400)
-        hours, remainder = divmod(remainder, 3600)
-        minutes = remainder // 60
-
-        status_message = "Dernier bump effectué il y a "
-        if days > 0:
-            status_message += f"{int(days)}j "
-        if hours > 0 or days > 0:
-            status_message += f"{int(hours)}h "
-        status_message += f"{int(minutes)}m."
-
-        await ctx.send(status_message)
 
     def cog_unload(self):
         self.check_bump.cancel()
 
 async def setup(bot):
     await bot.add_cog(Bump(bot))
-    logger.info("Cog bump chargé avec succès.")
+    print("Cog bump chargé avec succès")
