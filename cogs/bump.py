@@ -5,8 +5,10 @@ from datetime import datetime, timedelta
 import os
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 import json
 import logging
+import time
 
 class Bump(commands.Cog):
     def __init__(self, bot):
@@ -34,13 +36,22 @@ class Bump(commands.Cog):
         return service.spreadsheets()
 
     def load_last_bump(self):
-        result = self.sheet.values().get(
-            spreadsheetId=self.GOOGLE_SHEET_ID,
-            range='A2'
-        ).execute()
-        
-        values = result.get('values', [[datetime.min.isoformat()]])
-        return datetime.fromisoformat(values[0][0])
+        for attempt in range(3):  # Retry up to 3 times
+            try:
+                result = self.sheet.values().get(
+                    spreadsheetId=self.GOOGLE_SHEET_ID,
+                    range='A2'
+                ).execute()
+                values = result.get('values', [[datetime.min.isoformat()]])
+                return datetime.fromisoformat(values[0][0])
+            except HttpError as e:
+                if e.resp.status == 503:  # Service unavailable
+                    self.logger.warning(f"Google Sheets API unavailable (attempt {attempt + 1}/3). Retrying...")
+                    time.sleep(2 ** attempt)  # Exponential backoff
+                else:
+                    self.logger.error(f"Error loading last bump: {str(e)}")
+                    raise
+        raise RuntimeError("Failed to load last bump after 3 attempts")
 
     def save_last_bump(self):
         self.sheet.values().update(
@@ -51,13 +62,22 @@ class Bump(commands.Cog):
         ).execute()
 
     def load_last_reminder(self):
-        result = self.sheet.values().get(
-            spreadsheetId=self.GOOGLE_SHEET_ID,
-            range='B2'
-        ).execute()
-        
-        values = result.get('values', [[datetime.min.isoformat()]])
-        return datetime.fromisoformat(values[0][0])
+        for attempt in range(3):  # Retry up to 3 times
+            try:
+                result = self.sheet.values().get(
+                    spreadsheetId=self.GOOGLE_SHEET_ID,
+                    range='B2'
+                ).execute()
+                values = result.get('values', [[datetime.min.isoformat()]])
+                return datetime.fromisoformat(values[0][0])
+            except HttpError as e:
+                if e.resp.status == 503:  # Service unavailable
+                    self.logger.warning(f"Google Sheets API unavailable (attempt {attempt + 1}/3). Retrying...")
+                    time.sleep(2 ** attempt)  # Exponential backoff
+                else:
+                    self.logger.error(f"Error loading last reminder: {str(e)}")
+                    raise
+        raise RuntimeError("Failed to load last reminder after 3 attempts")
 
     def save_last_reminder(self):
         self.sheet.values().update(
