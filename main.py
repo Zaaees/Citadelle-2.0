@@ -85,6 +85,7 @@ class CustomBot(commands.Bot):
         # Charger les cogs
         try:
             await self.load_extension('cogs.inventaire')
+            await self.load_extension('cogs.Cards')
             await self.load_extension('cogs.RPTracker')
             await self.load_extension('cogs.bump')
             await self.load_extension('cogs.vocabulaire')
