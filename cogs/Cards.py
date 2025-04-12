@@ -101,6 +101,8 @@ class Cards(commands.Cog):
     async def cartes(self, interaction: discord.Interaction):
         logging.info("[DEBUG] Commande /cartes déclenchée")
 
+        await interaction.response.defer(ephemeral=True)  # ✅ Ajout indispensable
+
         await self.update_character_ownership(interaction.user)
 
         view = CardsMenuView(self, interaction.user)
