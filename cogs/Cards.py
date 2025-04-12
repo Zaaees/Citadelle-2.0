@@ -754,7 +754,7 @@ class TradeRespondView(discord.ui.View):
             return
 
         self.selected_card = self.card_select.values[0]
-        await interaction.response.send_message("Carte sélectionnée. Cliquez sur **Confirmer l'échange** pour valider.", ephemeral=True)
+        await interaction.followup.send("Carte sélectionnée. Cliquez sur **Confirmer l'échange** pour valider.", ephemeral=True)
 
     async def confirm_trade(self, interaction: discord.Interaction):
         if interaction.user.id != self.target.id:
@@ -773,7 +773,8 @@ class TradeRespondView(discord.ui.View):
         self.cog.remove_card_from_user(self.target.id, cat, name)
         self.cog.add_card_to_user(self.offerer.id, cat, name)
 
-        await interaction.response.send_message(f"✅ Échange effectué : **{self.offer_name}** ↔ **{name}**", ephemeral=True)
+        # 🛠️ ✅ CORRIGÉ ICI
+        await interaction.followup.send(f"✅ Échange effectué : **{self.offer_name}** ↔ **{name}**", ephemeral=True)
 
         try:
             await self.offerer.send(
@@ -782,8 +783,6 @@ class TradeRespondView(discord.ui.View):
             )
         except:
             pass
-
-
 
 async def setup(bot):
     cards = Cards(bot)
