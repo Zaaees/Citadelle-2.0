@@ -567,11 +567,11 @@ class GallerySelectView(discord.ui.View):
 
         await interaction.response.defer(ephemeral=True)
 
-        if not self.values:
+        if not self.select.values:
             await interaction.followup.send("Aucune carte sélectionnée.", ephemeral=True)
             return
 
-        selected = self.values[0]
+        selected = self.select.values[0]
         cat, name = selected.split("|", 1)
 
         embed = discord.Embed(
@@ -595,8 +595,6 @@ class GallerySelectView(discord.ui.View):
 
     @discord.ui.button(label="Échanger", style=discord.ButtonStyle.success)
     async def trade(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-
         await interaction.response.defer(ephemeral=True)
 
         # Récupère toutes les cartes de l'utilisateur
