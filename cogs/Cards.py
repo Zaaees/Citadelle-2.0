@@ -53,6 +53,7 @@ class Cards(commands.Cog):
         # Map inverse pour retrouver catégorie par nom si besoin (en supposant noms uniques)
         # self.category_by_name = {file['name']: cat for cat, files in self.cards_by_category.items() for file in files}
 
+
     def get_user_cards(self, user_id: int):
         """Récupère la liste des cartes (catégorie, nom) possédées par un utilisateur."""
         try:
@@ -92,6 +93,7 @@ class Cards(commands.Cog):
     
     @app_commands.command(name="cartes", description="Gérer vos cartes à collectionner")
     async def cartes(self, interaction: discord.Interaction):
+        await self.update_character_ownership(interaction.user)
         """Commande principale /cartes : affiche le menu des cartes avec les trois options."""
         view = CardsMenuView(self, interaction.user)
 
@@ -103,38 +105,8 @@ class Cards(commands.Cog):
         total_medals = 0
         if inventory_cog:
             students = inventory_cog.load_students()
+            user_character_names = {name for name, data in students.items() if data.get("user_id") == interaction.user.id}
             owned_chars = []
-
-            forum_ids = [1090463730904604682, 1152643359568044094, 1217215470445269032]
-            user_character_names = set()
-            for forum_id in forum_ids:
-                try:
-                    channel = self.bot.get_channel(forum_id)
-                    if not channel:
-                        channel = await self.bot.fetch_channel(forum_id)
-
-                    threads = []
-
-                    threads.extend(channel.threads)
-                    archived = await channel.archived_threads().flatten()
-                    threads.extend(archived)
-                    public_archived = await channel.public_archived_threads().flatten()
-                    threads.extend(t for t in public_archived if t not in threads)
-
-                    for thread in threads:
-                        if thread.owner_id == interaction.user.id:
-                            user_character_names.add(thread.name)
-
-                except Exception as e:
-                    print(f"Erreur récupération threads dans forum {forum_id} :", e)
-
-            changed = False
-            for char_name in user_character_names:
-                if char_name in students and students[char_name].get("user_id") != interaction.user.id:
-                    students[char_name]["user_id"] = interaction.user.id
-                    changed = True
-            if changed:
-                inventory_cog.save_students(students)
 
             for data in students.values():
                 if data.get("user_id") == interaction.user.id:
@@ -201,6 +173,74 @@ class Cards(commands.Cog):
             _, done = downloader.next_chunk()
         return fh.getvalue()
 
+    async def update_character_ownership(self, user: discord.User):
+        """Met à jour les fiches appartenant à un utilisateur à partir des forums de fiches."""
+        inventory_cog = self.bot.get_cog("Inventory")
+        if not inventory_cog:
+            return
+        students = inventory_cog.load_students()
+        forum_ids = [1090463730904604682, 1152643359568044094, 1217215470445269032]
+        user_character_names = set()
+
+        for forum_id in forum_ids:
+            try:
+                channel = self.bot.get_channel(forum_id)
+                if not channel:
+                    channel = await self.bot.fetch_channel(forum_id)
+
+                threads = []
+                threads.extend(channel.threads)
+                archived = await channel.archived_threads().flatten()
+                threads.extend(archived)
+                public_archived = await channel.public_archived_threads().flatten()
+                threads.extend(t for t in public_archived if t not in threads)
+
+                for thread in threads:
+                    if thread.owner_id == user.id:
+                        user_character_names.add(thread.name)
+            except Exception as e:
+                print(f"[update_character_ownership] Erreur forum {forum_id} :", e)
+
+        changed = False
+        for char_name in user_character_names:
+            if char_name in students and students[char_name].get("user_id") != user.id:
+                students[char_name]["user_id"] = user.id
+                changed = True
+
+        if changed:
+            inventory_cog.save_students(students)
+
+    async def update_all_character_owners(self):
+        """Balaye tous les forums de fiches pour assigner les bons owner_id dans students."""
+        inventory_cog = self.bot.get_cog("Inventory")
+        if not inventory_cog:
+            return
+        students = inventory_cog.load_students()
+        forum_ids = [1090463730904604682, 1152643359568044094, 1217215470445269032]
+
+        for forum_id in forum_ids:
+            try:
+                channel = self.bot.get_channel(forum_id)
+                if not channel:
+                    channel = await self.bot.fetch_channel(forum_id)
+
+                threads = []
+                threads.extend(channel.threads)
+                archived = await channel.archived_threads().flatten()
+                threads.extend(archived)
+                public_archived = await channel.public_archived_threads().flatten()
+                threads.extend(t for t in public_archived if t not in threads)
+
+                for thread in threads:
+                    char_name = thread.name
+                    if char_name in students:
+                        students[char_name]["user_id"] = thread.owner_id
+            except Exception as e:
+                print(f"[update_all_character_owners] Erreur forum {forum_id} :", e)
+
+        inventory_cog.save_students(students)
+
+
 class CardsMenuView(discord.ui.View):
     def __init__(self, cog: Cards, user: discord.User):
         super().__init__(timeout=None)
@@ -215,56 +255,18 @@ class CardsMenuView(discord.ui.View):
 
         await interaction.response.defer(thinking=True, ephemeral=True)
 
+        # 🔁 Forcer une mise à jour des propriétaires des fiches
+        await self.cog.update_character_ownership(interaction.user)
+
         # Calcul des tirages disponibles
         inventory_cog = interaction.client.get_cog("Inventory")
         if inventory_cog:
             students = inventory_cog.load_students()
-            owned_chars = []
+            owned_chars = [data for data in students.values() if data.get("user_id") == self.user.id]
+            user_character_names = {name for name, data in students.items() if data.get("user_id") == self.user.id}
 
-            # Vérifie les threads dans les forums de personnages
-            forum_ids = [1090463730904604682, 1152643359568044094, 1217215470445269032]
-            user_character_names = set()
-            for forum_id in forum_ids:
-                try:
-                    channel = self.cog.bot.get_channel(forum_id)
-                    if not channel:
-                        channel = await self.cog.bot.fetch_channel(forum_id)
-
-                    threads = []
-
-                    # Threads actifs
-                    threads.extend(channel.threads)
-
-                    # Threads archivés (publics)
-                    archived = await channel.archived_threads().flatten()
-                    threads.extend(archived)
-
-                    public_archived = await channel.public_archived_threads().flatten()
-                    threads.extend(t for t in public_archived if t not in threads)
-
-                    # Identifier les threads appartenant à l'utilisateur
-                    for thread in threads:
-                        if thread.owner_id == self.user.id:
-                            user_character_names.add(thread.name)
-
-                except Exception as e:
-                    print(f"Erreur récupération threads dans forum {forum_id} :", e)
-
-            # Marquer dans students les personnages qui appartiennent bien à l'utilisateur
-            changed = False
-            for char_name in user_character_names:
-                if char_name in students and students[char_name].get("user_id") != self.user.id:
-                    students[char_name]["user_id"] = self.user.id
-                    changed = True
-            if changed:
-                inventory_cog.save_students(students)
-
-            for data in students.values():
-                if data.get("user_id") == self.user.id:
-                    owned_chars.append(data)
             # Calculer total_medals avec la méthode dédiée
             total_medals = self.cog.compute_total_medals(self.user.id, students, user_character_names)
-
 
         user_cards = self.cog.get_user_cards(self.user.id)
         drawn_count = len(user_cards)
@@ -300,7 +302,8 @@ class CardsMenuView(discord.ui.View):
 
             try:
                 file_bytes = self.cog.download_drive_file(card_file['id'])
-                filename = f"card_{_}_{card_name.replace(' ', '_')}.png"
+                safe_name = card_name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+                filename = f"card_{_}_{safe_name}.png"
                 image_file = discord.File(io.BytesIO(file_bytes), filename=filename)
                 embed_card = discord.Embed(title=card_name, description=f"Catégorie : **{category}**", color=0x4E5D94)
                 embed_card.set_image(url=f"attachment://{filename}")
@@ -334,9 +337,9 @@ class CardsMenuView(discord.ui.View):
                         file_id = next((f['id'] for f in self.cog.cards_by_category.get(cat, []) if f['name'] == name), None)
                         if file_id:
                             file_bytes = self.cog.download_drive_file(file_id)
-                            image_file = discord.File(io.BytesIO(file_bytes), filename=f"{name}.png")
-                            embed_card = discord.Embed(title=name, description=f"Carte **{cat}**")
-                            embed_card.set_image(url=f"attachment://{name}.png")
+                            safe_name = name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+                            image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
+                            embed_card.set_image(url=f"attachment://{safe_name}.png")
                             await mur_channel.send(embed=embed_card, file=image_file)
                     except Exception as e:
                         print("Erreur envoi image mur :", e)
@@ -613,4 +616,7 @@ class TradeConfirmView(discord.ui.View):
             child.disabled = True
 
 async def setup(bot):
-    await bot.add_cog(Cards(bot))
+    cards = Cards(bot)
+    await bot.add_cog(cards)
+    await cards.update_all_character_owners()  # Initialisation globale au chargement
+
