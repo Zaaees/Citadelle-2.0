@@ -262,6 +262,35 @@ class Cards(commands.Cog):
             if unicodedata.category(c) != 'Mn'
         ).lower()
 
+    def draw_cards(self, number: int) -> list[tuple[str, str]]:
+        """Effectue un tirage aléatoire de `number` cartes selon les probabilités définies."""
+        drawn = []
+        rarity_weights = {
+            "Secrète": 0.01,
+            "Fondateur": 0.01,
+            "Historique": 0.02,
+            "Maître": 0.04,
+            "Black Hole": 0.06,
+            "Architectes": 0.10,
+            "Professeurs": 0.15,
+            "Autre": 0.25,
+            "Élèves": 0.36  # pour que la somme approche 1.00
+        }
+
+        categories = list(self.cards_by_category.keys())
+        weights = [rarity_weights.get(cat, 0.01) for cat in categories]
+
+        for _ in range(number):
+            cat = random.choices(categories, weights=weights, k=1)[0]
+            options = self.cards_by_category.get(cat, [])
+            if not options:
+                continue
+            card = random.choice(options)
+            drawn.append((cat, card["name"]))
+
+        return drawn
+
+
 
 class CardsMenuView(discord.ui.View):
     def __init__(self, cog: Cards, user: discord.User):
