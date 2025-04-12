@@ -286,15 +286,16 @@ class Cards(commands.Cog):
         """Effectue un tirage aléatoire de `number` cartes avec rareté adaptative pour les variantes."""
         drawn = []
         rarity_weights = {
-            "Secrète": 0.02,
-            "Fondateur": 0.03,
-            "Historique": 0.04,
-            "Maître": 0.07,
-            "Black Hole": 0.07,
-            "Architectes": 0.06,
-            "Professeurs": 0.13,
-            "Autre": 0.22,
-            "Élèves": 0.36
+           "Secrète":     0.005,
+            "Fondateur":   0.01,
+            "Historique":  0.02,
+            "Maître":      0.06,
+            "Black Hole":  0.06,
+            "Architectes": 0.07,
+            "Professeurs": 0.1167,
+            "Autre":       0.2569,
+            "Élèves":      0.4203
+
         }
 
         categories = list(self.cards_by_category.keys())
@@ -306,6 +307,8 @@ class Cards(commands.Cog):
             options = self.cards_by_category.get(cat, [])
             if not options:
                 continue
+            logging.info(f"[TIRAGE] → Catégorie tirée : {cat} (Cartes disponibles : {len(options)})")
+
 
             # Séparer cartes normales et variantes
             normales = [card for card in options if "(Variante)" not in card["name"]]
@@ -327,6 +330,9 @@ class Cards(commands.Cog):
                 weights=[entry[1] for entry in weighted_cards],
                 k=1
             )[0]
+            is_variante = "(Variante)" in chosen_card["name"]
+            logging.info(f"[TIRAGE] 🎴 Carte tirée : {chosen_card['name']} {'(Variante)' if is_variante else ''}")
+
 
             drawn.append((cat, chosen_card["name"]))
 
