@@ -6,6 +6,11 @@ import os, json, io
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 import gspread
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
 
 class Cards(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -59,7 +64,7 @@ class Cards(commands.Cog):
         try:
             data = self.sheet_cards.get_all_values()
         except Exception as e:
-            print("Erreur de lecture Google Sheets (cartes):", e)
+            logging.error("Erreur de lecture Google Sheets (cartes):", e)
             return []
         rows = data[1:] if data and not data[0][0].isdigit() else data
         user_cards = []
@@ -93,7 +98,7 @@ class Cards(commands.Cog):
     
     @app_commands.command(name="cartes", description="Gérer vos cartes à collectionner")
     async def cartes(self, interaction: discord.Interaction):
-        print("[DEBUG] Commande /cartes déclenchée")
+        logging.info("[DEBUG] Commande /cartes déclenchée")
 
         await self.update_character_ownership(interaction.user)
 
@@ -140,7 +145,7 @@ class Cards(commands.Cog):
         try:
             self.sheet_cards.append_row([str(user_id), category, name])
         except Exception as e:
-            print(f"Erreur lors de l'ajout de la carte dans Google Sheets: {e}")
+            logging.info(f"Erreur lors de l'ajout de la carte dans Google Sheets: {e}")
 
     def remove_card_from_user(self, user_id: int, category: str, name: str):
         """Retire une carte (un exemplaire) d'un utilisateur."""
@@ -156,7 +161,7 @@ class Cards(commands.Cog):
                         self.sheet_cards.delete_row(cell.row)
                         break
         except Exception as e:
-            print(f"Erreur lors de la suppression de la carte: {e}")
+            logging.info(f"Erreur lors de la suppression de la carte: {e}")
 
     def download_drive_file(self, file_id: str) -> bytes:
         """Télécharge un fichier depuis Google Drive par son ID et renvoie son contenu binaire."""
@@ -195,7 +200,7 @@ class Cards(commands.Cog):
                     if thread.owner_id == user.id:
                         user_character_names.add(thread.name)
             except Exception as e:
-                print(f"[update_character_ownership] Erreur forum {forum_id} :", e)
+                logging.info(f"[update_character_ownership] Erreur forum {forum_id} :", e)
 
         changed = False
         for char_name in user_character_names:
@@ -232,7 +237,7 @@ class Cards(commands.Cog):
                     if char_name in students:
                         students[char_name]["user_id"] = thread.owner_id
             except Exception as e:
-                print(f"[update_all_character_owners] Erreur forum {forum_id} :", e)
+                logging.info(f"[update_all_character_owners] Erreur forum {forum_id} :", e)
 
         inventory_cog.save_students(students)
 
@@ -306,7 +311,7 @@ class CardsMenuView(discord.ui.View):
                 embeds_and_files.append((embed_card, image_file))
 
             except Exception as e:
-                print(f"Erreur image: {e}")
+                logging.info(f"Erreur image: {e}")
 
         # Envoi des cartes tirées une par une (embed + image)
         for embed, file in embeds_and_files:
@@ -338,14 +343,14 @@ class CardsMenuView(discord.ui.View):
                             embed_card.set_image(url=f"attachment://{safe_name}.png")
                             await mur_channel.send(embed=embed_card, file=image_file)
                     except Exception as e:
-                        print("Erreur envoi image mur :", e)
+                        logging.error("Erreur envoi image mur :", e)
 
                 # Message de progression général
                 await mur_channel.send(
                     f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes)"
                 )
         except Exception as e:
-            print("Erreur envoi mur tirages:", e)
+            logging.error("Erreur envoi mur tirages:", e)
 
 
 
