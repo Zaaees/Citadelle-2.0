@@ -387,10 +387,11 @@ class CardsMenuView(discord.ui.View):
     @discord.ui.button(label="Galerie", style=discord.ButtonStyle.secondary)
     async def show_gallery(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user_id:
-            await interaction.followup.send("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
+            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
 
-        # Récupérer l'inventaire de cartes de l'utilisateur
+        await interaction.response.defer(ephemeral=True)  # ✅ Correction ici
+
         user_cards = self.cog.get_user_cards(self.user.id)
         if not user_cards:
             await interaction.followup.send("Vous n'avez aucune carte pour le moment.", ephemeral=True)
