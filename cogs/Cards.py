@@ -132,13 +132,22 @@ class Cards(commands.Cog):
 
         draw_limit = total_medals * 3
         remaining_draws = max(draw_limit - drawn_count, 0)
-        remaining_clicks = int(remaining_draws) // 3
+        remaining_clicks = int(remaining_draws) // 3  # nombre de clics restants
+
+        # Déduire les infos utiles
+        medals_used = most_medals if 'most_medals' in locals() else 0
+        bonus_persos = (len(owned_chars) - 1) * 5 if 'owned_chars' in locals() and len(owned_chars) > 1 else 0
+        bonus_tirages = bonus_persos
 
         await interaction.response.send_message(
-            f"**Menu des Cartes :**\n🎴 Tirages restants : **{remaining_clicks}**",
+            f"**Menu des Cartes :**\n"
+            f"🏅 Médailles comptées : **{medals_used}**\n"
+            f"➕ Bonus de tirages : **{bonus_tirages}** (via personnages supplémentaires)\n"
+            f"🎴 Tirages restants : **{remaining_clicks}**",
             view=view,
             ephemeral=True
         )
+
     
     def add_card_to_user(self, user_id: int, category: str, name: str):
         """Ajoute une carte pour un utilisateur dans la persistance."""
