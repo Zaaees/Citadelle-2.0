@@ -191,16 +191,23 @@ class Cards(commands.Cog):
 
                 threads = []
                 threads.extend(channel.threads)
-                archived = await channel.archived_threads().flatten()
+
+                archived = []
+                async for thread in channel.archived_threads():
+                    archived.append(thread)
                 threads.extend(archived)
-                public_archived = await channel.public_archived_threads().flatten()
+
+                public_archived = []
+                async for thread in channel.public_archived_threads():
+                    public_archived.append(thread)
                 threads.extend(t for t in public_archived if t not in threads)
+
 
                 for thread in threads:
                     if thread.owner_id == user.id:
                         user_character_names.add(thread.name)
             except Exception as e:
-                logging.info(f"[update_character_ownership] Erreur forum {forum_id} :", e)
+                logging.info("[update_character_ownership] Erreur forum %s : %s", forum_id, e)
 
         changed = False
         for char_name in user_character_names:
