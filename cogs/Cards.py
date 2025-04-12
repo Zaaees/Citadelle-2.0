@@ -140,8 +140,7 @@ class Cards(commands.Cog):
                 if data.get("user_id") == interaction.user.id:
                     owned_chars.append(data)
                     # Calculer total_medals avec la méthode dédiée
-            total_medals = self.cog.compute_total_medals(self.user.id, students, user_character_names)
-
+            total_medals = self.compute_total_medals(interaction.user.id, students, user_character_names)
             
             if owned_chars:
                 most_medals = max(char.get('medals', 0) for char in owned_chars)
