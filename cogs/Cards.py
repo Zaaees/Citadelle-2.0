@@ -636,6 +636,9 @@ class TradeInitiateView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
 
     async def ask_for_user_ping(self, interaction: discord.Interaction):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Seul l'initiateur peut proposer un échange.", ephemeral=True)
+            return
 
         if not self.card_select.values:
             await interaction.response.send_message("Veuillez d'abord sélectionner une carte.", ephemeral=True)
@@ -643,17 +646,16 @@ class TradeInitiateView(discord.ui.View):
 
         cat, name = self.card_select.values[0].split("|", 1)
 
-        await interaction.response.send_message(
-            f"🔁 Pour proposer un échange de **{name}** (*{cat}*), "
-            f"veuillez répondre à ce message en mentionnant l'utilisateur avec qui vous souhaitez échanger.",
-            ephemeral=True
+        await interaction.followup.send(
+            f"{interaction.user.mention} 🔁 Pour proposer un échange de **{name}** (*{cat}*), "
+            f"merci de mentionner le joueur avec qui vous voulez échanger dans **votre prochain message** ici.",
+            ephemeral=False
         )
 
         def check(m):
             return (
                 m.author.id == interaction.user.id
-                and m.reference
-                and m.reference.message_id == interaction.message.id
+                and m.channel == interaction.channel
                 and m.mentions
             )
 
@@ -662,15 +664,15 @@ class TradeInitiateView(discord.ui.View):
             target_user = response_msg.mentions[0]
 
             if target_user.id == self.user.id:
-                await interaction.followup.send("Vous ne pouvez pas échanger avec vous-même.", ephemeral=True)
+                await interaction.followup.send("🚫 Vous ne pouvez pas échanger avec vous-même.", ephemeral=True)
                 return
 
             offer_embed = discord.Embed(
                 title="Proposition d'échange",
-                description=f"{interaction.user.mention} propose d'échanger sa carte **{name}** *({cat})* avec vous."
+                description=f"{self.user.mention} propose d'échanger sa carte **{name}** *({cat})* avec vous."
             )
 
-            view = TradeConfirmView(self.cog, offerer=interaction.user, target=target_user, card_category=cat, card_name=name)
+            view = TradeConfirmView(self.cog, offerer=self.user, target=target_user, card_category=cat, card_name=name)
 
             try:
                 await target_user.send(embed=offer_embed, view=view)
@@ -681,6 +683,7 @@ class TradeInitiateView(discord.ui.View):
 
         except asyncio.TimeoutError:
             await interaction.followup.send("⏱ Temps écoulé. Aucun utilisateur mentionné pour l'échange.", ephemeral=True)
+
 
 
 class TradeConfirmView(discord.ui.View):
