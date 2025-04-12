@@ -535,13 +535,13 @@ class CardsMenuView(discord.ui.View):
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
-    @card_group.command(name="lancement", description="Tirage gratuit de bienvenue (une seule fois)")
-    async def lancement(interaction: discord.Interaction):
-        cog: Cards = interaction.client.get_cog("Cards")
-        if cog is None:
-            await interaction.response.send_message("Erreur : cog introuvable.", ephemeral=True)
-            return
-        await cog.handle_lancement(interaction)
+@card_group.command(name="lancement", description="Tirage gratuit de bienvenue (une seule fois)")
+async def lancement(interaction: discord.Interaction):
+    cog: Cards = interaction.client.get_cog("Cards")
+    if cog is None:
+        await interaction.response.send_message("Erreur : cog introuvable.", ephemeral=True)
+        return
+    await cog.handle_lancement(interaction)
 
 
 
