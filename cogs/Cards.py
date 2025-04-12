@@ -763,10 +763,12 @@ class TradeRespondView(discord.ui.View):
         )
 
         await interaction.response.send_message(
-            f"✅ Carte sélectionnée : **{name}** (*{cat}*)\nCliquez sur le bouton pour confirmer l’échange.",
+            f"✅ Carte sélectionnée : **{name}** (*{cat}*)\n"
+            f"**Vous avez 1 minute pour confirmer l’échange.**",
             view=confirm_view,
             ephemeral=True
         )
+
 
 
 class TradeFinalConfirmView(discord.ui.View):
@@ -786,6 +788,9 @@ class TradeFinalConfirmView(discord.ui.View):
             await interaction.response.send_message("Vous n'êtes pas autorisé à confirmer cet échange.", ephemeral=True)
             return
 
+        await interaction.response.defer(ephemeral=True)  # ✅ CECI ÉVITE L’ERREUR D’INTERACTION
+
+
         # Échange des cartes
         self.cog.remove_card_from_user(self.offerer.id, self.offer_cat, self.offer_name)
         self.cog.add_card_to_user(self.target.id, self.offer_cat, self.offer_name)
@@ -793,43 +798,16 @@ class TradeFinalConfirmView(discord.ui.View):
         self.cog.remove_card_from_user(self.target.id, self.return_cat, self.return_name)
         self.cog.add_card_to_user(self.offerer.id, self.return_cat, self.return_name)
 
-        await interaction.response.send_message(
-            f"✅ Échange effectué : **{self.offer_name}** ↔ **{self.return_name}**", ephemeral=True
+        await interaction.followup.send(
+            f"✅ Échange effectué : **{self.offer_name}** ↔ **{self.return_name}**",
+            ephemeral=True
         )
+
 
         try:
             await self.offerer.send(
                 f"📦 Échange réussi avec {self.target.display_name} : "
                 f"tu as donné **{self.offer_name}** et reçu **{self.return_name}**."
-            )
-        except:
-            pass
-
-
-    async def confirm_trade(self, interaction: discord.Interaction):
-        if interaction.user.id != self.target.id:
-            await interaction.response.send_message("Vous n'êtes pas autorisé à confirmer cet échange.", ephemeral=True)
-            return
-
-        if not self.selected_card:
-            await interaction.response.send_message("Veuillez d'abord sélectionner une carte.", ephemeral=True)
-            return
-
-        cat, name = self.selected_card.split("|", 1)
-
-        self.cog.remove_card_from_user(self.offerer.id, self.offer_cat, self.offer_name)
-        self.cog.add_card_to_user(self.target.id, self.offer_cat, self.offer_name)
-
-        self.cog.remove_card_from_user(self.target.id, cat, name)
-        self.cog.add_card_to_user(self.offerer.id, cat, name)
-
-        # 🛠️ ✅ CORRIGÉ ICI
-        await interaction.followup.send(f"✅ Échange effectué : **{self.offer_name}** ↔ **{name}**", ephemeral=True)
-
-        try:
-            await self.offerer.send(
-                f"📦 Échange réussi avec {self.target.display_name} : "
-                f"tu as donné **{self.offer_name}** et reçu **{name}**."
             )
         except:
             pass
