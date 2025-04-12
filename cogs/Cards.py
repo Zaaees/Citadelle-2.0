@@ -26,25 +26,29 @@ class Cards(commands.Cog):
         self.drive_service = build('drive', 'v3', credentials=creds)
         # Dictionnaire des dossiers par rareté (IDs des dossiers Google Drive depuis .env)
         self.FOLDER_IDS = {
+            "Historique": os.getenv("FOLDER_PERSONNAGE_HISTORIQUE_ID"),
             "Fondateur": os.getenv("FOLDER_FONDATEUR_ID"),
+            "Black Hole": os.getenv("FOLDER_BLACKHOLE_ID"),
             "Maître": os.getenv("FOLDER_MAITRE_ID"),
+            "Architectes": os.getenv("FOLDER_ARCHITECTES_ID"),
             "Professeurs": os.getenv("FOLDER_PROFESSEURS_ID"),
             "Autre": os.getenv("FOLDER_AUTRE_ID"),
-            "Élèves": os.getenv("FOLDER_ELEVES_ID")
+            "Élèves": os.getenv("FOLDER_ELEVES_ID"),
+            "Secrète": os.getenv("FOLDER_SECRETE_ID")
         }
         # Pré-charger la liste des fichiers (cartes) dans chaque dossier de rareté
         self.cards_by_category = {}  # ex: {"Fondateur": [{"name": ..., "id": ...}, ...], ...}
         for category, folder_id in self.FOLDER_IDS.items():
             if folder_id:
                 results = self.drive_service.files().list(
-                    q=f"'{folder_id}' in parents", 
+                    q=f"'{folder_id}' in parents",
                     fields="files(id, name)"
                 ).execute()
                 files = results.get('files', [])
                 self.cards_by_category[category] = files
         # Map inverse pour retrouver catégorie par nom si besoin (en supposant noms uniques)
         # self.category_by_name = {file['name']: cat for cat, files in self.cards_by_category.items() for file in files}
-        
+
     @app_commands.command(name="cartes", description="Gérer vos cartes à collectionner")
     async def cartes(self, interaction: discord.Interaction):
         """Commande principale /cartes : affiche le menu des cartes avec les trois options."""
@@ -52,9 +56,65 @@ class Cards(commands.Cog):
         view = CardsMenuView(self, interaction.user)
         await interaction.response.send_message("**Menu des Cartes :**", view=view, ephemeral=True)
 
+    def get_user_cards(self, user_id: int):
+        """Récupère la liste des cartes (catégorie, nom) possédées par un utilisateur."""
+        try:
+            data = self.sheet_cards.get_all_values()
+        except Exception as e:
+            print("Erreur de lecture Google Sheets (cartes):", e)
+            return []
+        # La première ligne peut être un en-tête, détectons-la
+        rows = data[1:] if data and not data[0][0].isdigit() else data
+        user_cards = []
+        for row in rows:
+            if not row or len(row) < 3:
+                continue
+            uid_str, cat, name = row[0], row[1], row[2]
+            try:
+                uid = int(uid_str)
+            except:
+                continue
+            if uid == user_id:
+                user_cards.append((cat, name))
+        return user_cards
+
+    def add_card_to_user(self, user_id: int, category: str, name: str):
+        """Ajoute une carte pour un utilisateur dans la persistance."""
+        try:
+            self.sheet_cards.append_row([str(user_id), category, name])
+        except Exception as e:
+            print(f"Erreur lors de l'ajout de la carte dans Google Sheets: {e}")
+
+    def remove_card_from_user(self, user_id: int, category: str, name: str):
+        """Retire une carte (un exemplaire) d'un utilisateur."""
+        try:
+            cell_list = self.sheet_cards.findall(str(user_id))
+            # findall retourne toutes les cellules correspondant à l'user_id
+            for cell in cell_list:
+                # Vérifier si la ligne correspond à la carte voulue
+                row_values = self.sheet_cards.row_values(cell.row)
+                if len(row_values) >= 3:
+                    uid_str, cat, card_name = row_values[0], row_values[1], row_values[2]
+                    if uid_str == str(user_id) and cat == category and card_name == name:
+                        self.sheet_cards.delete_row(cell.row)
+                        break
+        except Exception as e:
+            print(f"Erreur lors de la suppression de la carte: {e}")
+
+    def download_drive_file(self, file_id: str) -> bytes:
+        """Télécharge un fichier depuis Google Drive par son ID et renvoie son contenu binaire."""
+        request = self.drive_service.files().get_media(fileId=file_id)
+        fh = io.BytesIO()
+        from googleapiclient.http import MediaIoBaseDownload
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        return fh.getvalue()
+
 class CardsMenuView(discord.ui.View):
     def __init__(self, cog: Cards, user: discord.User):
-        super().__init__(timeout=None)  # pas de timeout, ou définir un timeout raisonnable
+        super().__init__(timeout=None)
         self.cog = cog
         self.user = user
 
@@ -70,29 +130,72 @@ class CardsMenuView(discord.ui.View):
         total_medals = 0
         if inventory_cog:
             students = inventory_cog.load_students()
-            # Trouver l'entrée correspondant à cet utilisateur
-            for name, data in students.items():
+            # Lier les personnages à l'utilisateur en scannant les forums de personnages
+            forum_ids = [1090463730904604682, 1152643359568044094, 1217215470445269032]
+            user_character_names = set()
+            for forum_id in forum_ids:
+                channel = self.cog.bot.get_channel(forum_id)
+                if not channel:
+                    try:
+                        channel = await self.cog.bot.fetch_channel(forum_id)
+                    except Exception:
+                        continue
+                threads = []
+                if hasattr(channel, "threads"):
+                    threads.extend(channel.threads)
+                try:
+                    archived_threads = await channel.fetch_archived_threads(limit=100)
+                    if hasattr(archived_threads, "threads"):
+                        threads.extend(archived_threads.threads)
+                    else:
+                        async for th in channel.fetch_archived_threads(limit=100):
+                            threads.append(th)
+                except Exception:
+                    pass
+                for thread in threads:
+                    owner_id = thread.owner_id if hasattr(thread, "owner_id") else None
+                    if owner_id == self.user.id:
+                        user_character_names.add(thread.name)
+            # Mettre à jour les user_id manquants et enregistrer si nécessaire
+            changed = False
+            for char_name in user_character_names:
+                if char_name in students and students[char_name].get('user_id') != self.user.id:
+                    students[char_name]['user_id'] = self.user.id
+                    changed = True
+            if changed:
+                inventory_cog.save_students(students)
+            # Calculer le total de médailles pour cet utilisateur (tous ses personnages confondus)
+            for data in students.values():
                 if data.get('user_id') == self.user.id:
-                    total_medals = data.get('medals', 0)
-                    break
+                    total_medals += data.get('medals', 0)
         # Compter combien de cartes cet utilisateur a déjà tirées (persistées)
         user_cards = self.cog.get_user_cards(self.user.id)
         drawn_count = len(user_cards)
-        if drawn_count >= total_medals:
+        draw_limit = total_medals * 3
+        if drawn_count >= draw_limit:
             # Pas de tirage disponible
             await interaction.response.send_message("🎖️ Vous n'avez plus de tirages disponibles.", ephemeral=True)
             return
 
         # Effectuer un tirage aléatoire pondéré selon les raretés
-        categories = ["Fondateur", "Maître", "Professeurs", "Autre", "Élèves"]
-        weights = [1, 4, 10, 15, 70]  # probabilités en pourcentage (somme = 100)
+        categories = ["Secrète", "Fondateur", "Historique", "Maître", "Black Hole", "Architectes", "Professeurs", "Autre", "Élèves"]
+        weights = [0.5, 1, 2, 4, 6, 10, 15, 25, 37]  # probabilités en pourcentage (somme ≈ 100)
         category = random.choices(categories, weights=weights, k=1)[0]
         # Choisir une carte aléatoire dans la catégorie tirée
         card_list = self.cog.cards_by_category.get(category, [])
         if not card_list:
             await interaction.response.send_message(f"Aucune carte disponible pour la catégorie {category}.", ephemeral=True)
             return
-        card_file = random.choice(card_list)  # ex: {"id": ..., "name": ...}
+        variant_cards = [f for f in card_list if "(Variante)" in f['name']]
+        normal_cards = [f for f in card_list if "(Variante)" not in f['name']]
+        if variant_cards and normal_cards:
+            # 10% de chance de tirer une variante, sinon une carte normale
+            if random.random() < 0.1:
+                card_file = random.choice(variant_cards)
+            else:
+                card_file = random.choice(normal_cards)
+        else:
+            card_file = random.choice(card_list)
         card_name = card_file['name']
 
         # Enregistrer la carte obtenue dans l'inventaire de l'utilisateur (Google Sheets)
@@ -110,6 +213,12 @@ class CardsMenuView(discord.ui.View):
             # En cas de problème, envoyer juste le texte
             await interaction.response.send_message(embed=embed)
 
+        # Annoncer dans le salon dédié si carte rare ou variante obtenue
+        announce_channel = self.cog.bot.get_channel(1017906514838700032)
+        if announce_channel:
+            if "(Variante)" in card_name or category in ["Fondateur", "Maître", "Personnage Historique"]:
+                await announce_channel.send(f"✨ **{self.user.display_name}** a obtenu une carte **{category}** : **{card_name}** !")
+
     @discord.ui.button(label="Galerie", style=discord.ButtonStyle.secondary)
     async def show_gallery(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user.id:
@@ -117,24 +226,44 @@ class CardsMenuView(discord.ui.View):
             return
 
         # Récupérer l'inventaire de cartes de l'utilisateur
-        user_cards = self.cog.get_user_cards(self.user.id)  # renvoie une liste de (catégorie, nom)
+        user_cards = self.cog.get_user_cards(self.user.id)
         if not user_cards:
             await interaction.response.send_message("Vous n'avez aucune carte pour le moment.", ephemeral=True)
             return
 
-        # Trier les cartes par rareté (ordre défini des catégories)
-        rarity_order = {"Fondateur": 0, "Maître": 1, "Professeurs": 2, "Autre": 3, "Élèves": 4}
-        user_cards.sort(key=lambda c: rarity_order.get(c[0], 5))  # trie par ordre de rareté
+        # Trier les cartes par rareté selon l'ordre défini des catégories
+        rarity_order = {
+            "Secrète": 0,
+            "Fondateur": 1,
+            "Personnage Historique": 2,
+            "Maître": 3,
+            "Black Hole": 4,
+            "Professeurs": 5,
+            "Architectes": 6,
+            "Autre": 7,
+            "Élèves": 8,
+        }
+        user_cards.sort(key=lambda c: rarity_order.get(c[0], 9))
 
         # Construire un embed listant les cartes par catégorie
         embed = discord.Embed(title=f"Galerie de {interaction.user.display_name}", color=0x4E5D94)
         cards_by_cat = {}
         for cat, name in user_cards:
             cards_by_cat.setdefault(cat, []).append(name)
-        for cat in ["Fondateur", "Maître", "Professeurs", "Autre", "Élèves"]:
+        for cat in ["Personnage Historique", "Fondateur", "Black Hole", "Maître", "Architectes", "Professeurs", "Autre", "Élèves", "Secrète"]:
             if cat in cards_by_cat:
-                # Indiquer la rareté en pourcentage dans le titre de champ
-                rarity_pct = { "Fondateur": "1%", "Maître": "4%", "Professeurs": "10%", "Autre": "15%", "Élèves": "70%" }
+                # Indiquer la rareté en pourcentage dans le titre du champ
+                rarity_pct = {
+                    "Secrète": "???",
+                    "Fondateur": "1%",
+                    "Personnage Historique": "2%",
+                    "Maître": "4%",
+                    "Black Hole": "6%",
+                    "Architectes": "10%",
+                    "Professeurs": "15%",
+                    "Autre": "25%",
+                    "Élèves": "37%",
+                }
                 card_list = cards_by_cat[cat]
                 # Ajouter "(xN)" après le nom pour les doublons
                 names_counts = {}
@@ -148,7 +277,7 @@ class CardsMenuView(discord.ui.View):
                         card_lines.append(f"- **{n}**")
                 value = "\n".join(card_lines)
                 embed.add_field(name=f"{cat} – {rarity_pct.get(cat, '')}", value=value, inline=False)
-        # Préparer une vue avec un Select pour choisir une carte à zoomer
+        # Préparer une vue avec un Select pour choisir une carte à afficher
         view = GallerySelectView(self.cog, self.user.id, user_cards)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
@@ -244,7 +373,7 @@ class TradeInitiateView(discord.ui.View):
         if not self.card_select.values or not self.user_select.values:
             await interaction.response.send_message("Veuillez sélectionner une carte **et** un joueur.", ephemeral=True)
             return
-        target_user = self.user_select.values[0]  # discord.Member sélectionné
+        target_user = self.user_select.values[0]
         cat, name = self.card_select.values[0].split("|", 1)
         # Vérifier que l'utilisateur cible est différent et qu'il possède au moins une carte (sinon échange inutile)
         if target_user.id == self.user.id:
@@ -255,7 +384,7 @@ class TradeInitiateView(discord.ui.View):
             target_cards = []
         # Préparer et envoyer la demande d'échange au joueur cible
         offer_embed = discord.Embed(
-            title="Proposition d'échange", 
+            title="Proposition d'échange",
             description=f"{self.user.mention} propose d'échanger sa carte **{name}** *({cat})* avec vous."
         )
         view = TradeConfirmView(self.cog, offerer=self.user, target=target_user, card_category=cat, card_name=name)
@@ -307,62 +436,6 @@ class TradeConfirmView(discord.ui.View):
             pass
         for child in self.children:
             child.disabled = True
-
-    def get_user_cards(self, user_id: int):
-        """Récupère la liste des cartes (catégorie, nom) possédées par un utilisateur."""
-        try:
-            data = self.sheet_cards.get_all_values()
-        except Exception as e:
-            print("Erreur de lecture Google Sheets (cartes):", e)
-            return []
-        # La première ligne peut être un en-tête, détectons-la
-        rows = data[1:] if data and not data[0][0].isdigit() else data  # suppose que l'entête n'est pas un nombre
-        user_cards = []
-        for row in rows:
-            if not row or len(row) < 3:
-                continue
-            uid_str, cat, name = row[0], row[1], row[2]
-            try:
-                uid = int(uid_str)
-            except:
-                continue
-            if uid == user_id:
-                user_cards.append((cat, name))
-        return user_cards
-
-    def add_card_to_user(self, user_id: int, category: str, name: str):
-        """Ajoute une carte pour un utilisateur dans la persistance."""
-        try:
-            self.sheet_cards.append_row([str(user_id), category, name])
-        except Exception as e:
-            print(f"Erreur lors de l'ajout de la carte dans Google Sheets: {e}")
-
-    def remove_card_from_user(self, user_id: int, category: str, name: str):
-        """Retire une carte (un exemplaire) d'un utilisateur."""
-        try:
-            cell_list = self.sheet_cards.findall(str(user_id))
-            # findall retourne toutes les cellules correspondant à l'user_id
-            for cell in cell_list:
-                # Vérifier si la ligne correspond à la carte voulue
-                row_values = self.sheet_cards.row_values(cell.row)
-                if len(row_values) >= 3:
-                    uid_str, cat, card_name = row_values[0], row_values[1], row_values[2]
-                    if uid_str == str(user_id) and cat == category and card_name == name:
-                        self.sheet_cards.delete_row(cell.row)
-                        break
-        except Exception as e:
-            print(f"Erreur lors de la suppression de la carte: {e}")
-
-    def download_drive_file(self, file_id: str) -> bytes:
-        """Télécharge un fichier depuis Google Drive par son ID et renvoie son contenu binaire."""
-        request = self.drive_service.files().get_media(fileId=file_id)
-        fh = io.BytesIO()
-        from googleapiclient.http import MediaIoBaseDownload
-        downloader = MediaIoBaseDownload(fh, request)
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
-        return fh.getvalue()
 
 async def setup(bot):
     await bot.add_cog(Cards(bot))
