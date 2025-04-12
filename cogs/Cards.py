@@ -622,17 +622,18 @@ class TradeInitiateView(discord.ui.View):
             for cat, name in possible_cards
         ]
         self.card_select = discord.ui.Select(placeholder="Choisir une carte", options=options, min_values=1, max_values=1)
+        self.card_select.callback = self.card_select_callback
         self.add_item(self.card_select)
 
         # Sélecteur de joueur
         self.user_select = discord.ui.UserSelect(placeholder="Choisir un joueur", min_values=1, max_values=1)
+        self.user_select.callback = self.user_select_callback
         self.add_item(self.user_select)
 
         # Bouton de confirmation
         self.confirm = discord.ui.Button(label="Proposer l'échange", style=discord.ButtonStyle.primary)
         self.confirm.callback = self.confirm_callback
         self.add_item(self.confirm)
-
 
     async def confirm_callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.user.id:
@@ -671,6 +672,11 @@ class TradeInitiateView(discord.ui.View):
             await interaction.channel.send(f"{target_user.mention}", embed=offer_embed, view=view)
             await interaction.followup.send("Proposition d'échange envoyée publiquement (le destinataire n'a pas pu être contacté en DM).", ephemeral=True)
 
+    async def card_select_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+    async def user_select_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
 
 
 class TradeConfirmView(discord.ui.View):
