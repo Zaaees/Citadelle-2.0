@@ -14,8 +14,6 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 
-card_group = app_commands.Group(name="cards", description="Commandes liées aux cartes")
-
 class Cards(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -328,11 +326,13 @@ class Cards(commands.Cog):
             await interaction.response.send_message("Erreur lors de l'enregistrement. Réessayez plus tard.", ephemeral=True)
             return
 
+        await interaction.response.defer(ephemeral=True)  # ✅ indispensable pour permettre followup
+
         view = CardsMenuView(self, interaction.user)
         drawn_cards = await view.perform_draw(interaction)
 
         if not drawn_cards:
-            await interaction.response.send_message("Vous n’avez plus de tirages disponibles.", ephemeral=True)
+            await interaction.followup.send("Vous n’avez plus de tirages disponibles.", ephemeral=True)
             return
 
         embeds_and_files = []
@@ -534,15 +534,13 @@ class CardsMenuView(discord.ui.View):
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
-@card_group.command(name="lancement", description="Tirage gratuit de bienvenue (une seule fois)")
+@app_commands.command(name="lancement", description="Tirage gratuit de bienvenue (une seule fois)")
 async def lancement(interaction: discord.Interaction):
     cog: Cards = interaction.client.get_cog("Cards")
     if cog is None:
         await interaction.response.send_message("Erreur : cog introuvable.", ephemeral=True)
         return
     await cog.handle_lancement(interaction)
-
-
 
 class GallerySelectView(discord.ui.View):
     def __init__(self, cog: Cards, user_id: int, cards_list: list):
@@ -820,8 +818,9 @@ class TradeFinalConfirmView(discord.ui.View):
 async def setup(bot):
     cards = Cards(bot)
     await bot.add_cog(cards)
-    bot.tree.add_command(card_group)  # 👈 à ajouter
+    bot.tree.add_command(lancement)  # 👈 commande slash individuelle
     await bot.tree.sync()
     await cards.update_all_character_owners()
+
 
 
