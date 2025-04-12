@@ -4,6 +4,7 @@ import datetime
 import logging
 import pytz
 import os
+import json
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
@@ -31,7 +32,7 @@ class Bump(commands.Cog):
         self.check_bump.start()
 
     def connect_to_sheets(self):
-        creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_JSON_PATH)
+        creds = Credentials.from_service_account_info(json.loads(SERVICE_ACCOUNT_JSON_PATH))
         return build('sheets', 'v4', credentials=creds).spreadsheets()
 
     def load_timestamps(self):
