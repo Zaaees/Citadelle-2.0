@@ -626,14 +626,16 @@ class TradeInitiateView(discord.ui.View):
         self.card_select.callback = self.card_select_callback
         self.add_item(self.card_select)
 
+        # Bouton de confirmation (ouvre l'étape de ping)
         self.confirm = discord.ui.Button(label="Proposer l'échange", style=discord.ButtonStyle.primary)
-        self.confirm.callback = self.ask_for_user_modal
+        self.confirm.callback = self.ask_for_user_ping
         self.add_item(self.confirm)
 
+    # ✅ Cette méthode vient juste après __init__
+    async def card_select_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
     async def ask_for_user_ping(self, interaction: discord.Interaction):
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message("Seul l'initiateur peut proposer un échange.", ephemeral=True)
-            return
 
         if not self.card_select.values:
             await interaction.response.send_message("Veuillez d'abord sélectionner une carte.", ephemeral=True)
