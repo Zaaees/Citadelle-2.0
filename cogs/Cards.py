@@ -625,15 +625,21 @@ class TradeInitiateView(discord.ui.View):
         self.card_select.callback = self.card_select_callback
         self.add_item(self.card_select)
 
-        # Sélecteur de joueur
-        self.user_select = discord.ui.UserSelect(placeholder="Choisir un joueur", min_values=1, max_values=1)
-        self.user_select.callback = self.user_select_callback
-        self.add_item(self.user_select)
-
-        # Bouton de confirmation
         self.confirm = discord.ui.Button(label="Proposer l'échange", style=discord.ButtonStyle.primary)
-        self.confirm.callback = self.confirm_callback
+        self.confirm.callback = self.ask_for_user_modal
         self.add_item(self.confirm)
+
+    async def ask_for_user_modal(self, interaction: discord.Interaction):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Seul l'initiateur peut confirmer cet échange.", ephemeral=True)
+            return
+
+        if not self.card_select.values:
+            await interaction.response.send_message("Veuillez sélectionner une carte.", ephemeral=True)
+            return
+
+        cat, name = self.card_select.values[0].split("|", 1)
+        await interaction.response.send_modal(TradeTargetModal(self.cog, self.user, cat, name))
 
     async def confirm_callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.user.id:
@@ -677,6 +683,56 @@ class TradeInitiateView(discord.ui.View):
 
     async def user_select_callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
+
+class TradeTargetModal(discord.ui.Modal, title="Avec qui souhaitez-vous échanger ?"):
+    def __init__(self, cog: Cards, offerer: discord.User, cat: str, name: str):
+        super().__init__()
+        self.cog = cog
+        self.offerer = offerer
+        self.cat = cat
+        self.name = name
+
+        self.target_input = discord.ui.TextInput(
+            label="Mentionnez le joueur (@)",
+            placeholder="Ex: @NomDuJoueur",
+            required=True,
+            max_length=100
+        )
+        self.add_item(self.target_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        mention = self.target_input.value.strip()
+        if not mention.startswith("<@") or ">" not in mention:
+            await interaction.response.send_message("Mention invalide. Veuillez ping un utilisateur.", ephemeral=True)
+            return
+
+        try:
+            user_id = int(mention.replace("<@", "").replace("!", "").replace(">", ""))
+            target_user = interaction.guild.get_member(user_id)
+        except Exception:
+            target_user = None
+
+        if not target_user:
+            await interaction.response.send_message("Utilisateur introuvable.", ephemeral=True)
+            return
+
+        if target_user.id == self.offerer.id:
+            await interaction.response.send_message("Vous ne pouvez pas échanger avec vous-même.", ephemeral=True)
+            return
+
+        offer_embed = discord.Embed(
+            title="Proposition d'échange",
+            description=f"{self.offerer.mention} propose d'échanger sa carte **{self.name}** *({self.cat})* avec vous."
+        )
+
+        view = TradeConfirmView(self.cog, offerer=self.offerer, target=target_user, card_category=self.cat, card_name=self.name)
+
+        try:
+            await target_user.send(embed=offer_embed, view=view)
+            await interaction.response.send_message(f"📨 Proposition d'échange envoyée à {target_user.mention} !", ephemeral=True)
+        except discord.Forbidden:
+            await interaction.channel.send(f"{target_user.mention}", embed=offer_embed, view=view)
+            await interaction.response.send_message("Proposition envoyée publiquement (le destinataire n'a pas pu être contacté en DM).", ephemeral=True)
 
 
 class TradeConfirmView(discord.ui.View):
