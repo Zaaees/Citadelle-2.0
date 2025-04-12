@@ -73,6 +73,21 @@ class Cards(commands.Cog):
             if uid == user_id:
                 user_cards.append((cat, name))
         return user_cards
+    
+    def compute_total_medals(self, user_id: int, students: dict, user_character_names: set) -> int:
+        owned_chars = []
+        for char_name in user_character_names:
+            if char_name in students and students[char_name].get("user_id") != user_id:
+                students[char_name]["user_id"] = user_id
+        for data in students.values():
+            if data.get("user_id") == user_id:
+                owned_chars.append(data)
+        if owned_chars:
+            most_medals = max(char.get("medals", 0) for char in owned_chars)
+            bonus_draws = (len(owned_chars) - 1) * 5
+            return most_medals + bonus_draws
+        return 0
+
 
     
     @app_commands.command(name="cartes", description="Gérer vos cartes à collectionner")
@@ -124,11 +139,15 @@ class Cards(commands.Cog):
             for data in students.values():
                 if data.get("user_id") == interaction.user.id:
                     owned_chars.append(data)
+                    # Calculer total_medals avec la méthode dédiée
+            total_medals = self.cog.compute_total_medals(self.user.id, students, user_character_names)
 
+            
             if owned_chars:
                 most_medals = max(char.get('medals', 0) for char in owned_chars)
                 bonus_draws = (len(owned_chars) - 1) * 5
                 total_medals = most_medals + bonus_draws
+
 
         draw_limit = total_medals * 3
         remaining_draws = max(draw_limit - drawn_count, 0)
@@ -199,8 +218,6 @@ class CardsMenuView(discord.ui.View):
 
         # Calcul des tirages disponibles
         inventory_cog = interaction.client.get_cog("Inventory")
-        total_medals = 0
-        total_medals = 0
         if inventory_cog:
             students = inventory_cog.load_students()
             owned_chars = []
@@ -246,7 +263,8 @@ class CardsMenuView(discord.ui.View):
             for data in students.values():
                 if data.get("user_id") == self.user.id:
                     owned_chars.append(data)
-
+            # Calculer total_medals avec la méthode dédiée
+            total_medals = self.cog.compute_total_medals(self.user.id, students, user_character_names)
 
 
         user_cards = self.cog.get_user_cards(self.user.id)
@@ -349,14 +367,15 @@ class CardsMenuView(discord.ui.View):
         rarity_order = {
             "Secrète": 0,
             "Fondateur": 1,
-            "Personnage Historique": 2,
+            "Historique": 2,
             "Maître": 3,
             "Black Hole": 4,
-            "Professeurs": 5,
-            "Architectes": 6,
+            "Architectes": 5,
+            "Professeurs": 6,
             "Autre": 7,
             "Élèves": 8,
         }
+
         user_cards.sort(key=lambda c: rarity_order.get(c[0], 9))
 
         # Construire un embed listant les cartes par catégorie
@@ -364,13 +383,14 @@ class CardsMenuView(discord.ui.View):
         cards_by_cat = {}
         for cat, name in user_cards:
             cards_by_cat.setdefault(cat, []).append(name)
-        for cat in ["Personnage Historique", "Fondateur", "Black Hole", "Maître", "Architectes", "Professeurs", "Autre", "Élèves", "Secrète"]:
+        for cat in ["Secrète", "Fondateur", "Historique", "Maître", "Black Hole", "Architectes", "Professeurs", "Autre", "Élèves"]:
+
             if cat in cards_by_cat:
                 # Indiquer la rareté en pourcentage dans le titre du champ
                 rarity_pct = {
                     "Secrète": "???",
                     "Fondateur": "1%",
-                    "Personnage Historique": "2%",
+                    "Historique": "2%",
                     "Maître": "4%",
                     "Black Hole": "6%",
                     "Architectes": "10%",
