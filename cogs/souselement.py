@@ -469,7 +469,7 @@ class SousElements(commands.Cog):
                     if message_id:
                         # Obtenir le thread directement à partir de son ID
                         thread_id = THREAD_CHANNELS[element]
-                        thread = self.bot.get_channel(thread_id)
+                        thread = await self.bot.fetch_channel(thread_id)
                         
                         if thread:
                             success, original_state = await self.ensure_thread_unarchived(thread)
