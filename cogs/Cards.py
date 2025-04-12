@@ -444,7 +444,7 @@ class CardsMenuView(discord.ui.View):
                 embed.add_field(name=f"{cat} – {rarity_pct.get(cat, '')}", value=value, inline=False)
         # Préparer une vue avec un Select pour choisir une carte à afficher
         view = GallerySelectView(self.cog, self.user.id, user_cards)
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     @app_commands.command(name="lancement", description="Tirage gratuit de bienvenue (une seule fois)")
     async def lancement(self, interaction: discord.Interaction):
