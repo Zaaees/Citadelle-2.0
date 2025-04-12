@@ -607,7 +607,7 @@ class GallerySelectView(discord.ui.View):
 
         # Ouvre une nouvelle vue avec sélecteur de carte + joueur
         view = TradeInitiateView(self.cog, self.user, possible_cards=unique_cards)
-        await interaction.followup.send("Choisissez une carte **et** un joueur avec qui échanger :", view=view, ephemeral=True)
+        await interaction.followup.send("Choisissez une carte à échanger puis cliquez sur **Proposer l'échange** :", view=view, ephemeral=True)
 
 
 class TradeInitiateView(discord.ui.View):
@@ -641,47 +641,7 @@ class TradeInitiateView(discord.ui.View):
         cat, name = self.card_select.values[0].split("|", 1)
         await interaction.response.send_modal(TradeTargetModal(self.cog, self.user, cat, name))
 
-    async def confirm_callback(self, interaction: discord.Interaction):
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message("Seul l'initiateur peut confirmer cet échange.", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        if not self.user_select.values:
-            await interaction.followup.send("Veuillez sélectionner un joueur.", ephemeral=True)
-            return
-
-        if not self.card_select.values:
-            await interaction.followup.send("Veuillez sélectionner une carte.", ephemeral=True)
-            return
-
-        target_user = self.user_select.values[0]
-        cat, name = self.card_select.values[0].split("|", 1)
-
-        if target_user.id == self.user.id:
-            await interaction.followup.send("Vous ne pouvez pas échanger avec vous-même.", ephemeral=True)
-            return
-
-        # ✅ Manquait : embed à envoyer
-        offer_embed = discord.Embed(
-            title="Proposition d'échange",
-            description=f"{self.user.mention} propose d'échanger sa carte **{name}** *({cat})* avec vous."
-        )
-
-        view = TradeConfirmView(self.cog, offerer=self.user, target=target_user, card_category=cat, card_name=name)
-
-        try:
-            await target_user.send(embed=offer_embed, view=view)
-            await interaction.followup.send(f"📨 Proposition d'échange envoyée à {target_user.mention} !", ephemeral=True)
-        except discord.Forbidden:
-            await interaction.channel.send(f"{target_user.mention}", embed=offer_embed, view=view)
-            await interaction.followup.send("Proposition d'échange envoyée publiquement (le destinataire n'a pas pu être contacté en DM).", ephemeral=True)
-
     async def card_select_callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-
-    async def user_select_callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
 class TradeTargetModal(discord.ui.Modal, title="Avec qui souhaitez-vous échanger ?"):
