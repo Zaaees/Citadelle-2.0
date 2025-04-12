@@ -696,22 +696,22 @@ class TradeConfirmView(discord.ui.View):
 
     @discord.ui.button(label="Accepter", style=discord.ButtonStyle.success)
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Seul le destinataire peut accepter
         if interaction.user.id != self.target.id:
             await interaction.response.send_message("Vous n'êtes pas l'utilisateur visé par cet échange.", ephemeral=True)
             return
-        # Effectuer l'échange : retirer la carte de l'offreur et l'ajouter au destinataire
-        self.cog.remove_card_from_user(self.offerer.id, self.card_category, self.card_name)
-        self.cog.add_card_to_user(self.target.id, self.card_category, self.card_name)
-        await interaction.response.send_message(f"✅ Échange accepté ! {self.offerer.mention} a donné **{self.card_name}** à {self.target.mention}.")
-        # On peut éventuellement notifier l'offreur via DM
-        try:
-            await self.offerer.send(f"✨ {self.target.display_name} a accepté votre échange et reçu votre carte **{self.card_name}**.")
-        except:
-            pass
-        # Désactiver les boutons après l'échange conclu
-        for child in self.children:
-            child.disabled = True
+
+        # Récupère les cartes du destinataire
+        user_cards = self.cog.get_user_cards(self.target.id)
+        unique_cards = list({(cat, name) for cat, name in user_cards})
+
+        if not unique_cards:
+            await interaction.response.send_message("❌ Vous n'avez aucune carte à proposer en retour.", ephemeral=True)
+            return
+
+        view = TradeRespondView(self.cog, self.offerer, self.target, self.card_category, self.card_name, unique_cards)
+        await interaction.response.send_message("Sélectionnez une carte à offrir en retour :", view=view, ephemeral=True)
+
+    
 
     @discord.ui.button(label="Refuser", style=discord.ButtonStyle.danger)
     async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -725,6 +725,48 @@ class TradeConfirmView(discord.ui.View):
             pass
         for child in self.children:
             child.disabled = True
+            
+class TradeRespondView(discord.ui.View):
+        def __init__(self, cog: Cards, offerer: discord.User, target: discord.User, offer_cat: str, offer_name: str, possible_cards: list[tuple[str, str]]):
+            super().__init__(timeout=60)
+            self.cog = cog
+            self.offerer = offerer
+            self.target = target
+            self.offer_cat = offer_cat
+            self.offer_name = offer_name
+
+            options = [
+                discord.SelectOption(label=f"{name} ({cat})", value=f"{cat}|{name}")
+                for cat, name in possible_cards
+            ]
+
+            self.card_select = discord.ui.Select(placeholder="Choisir une carte à offrir", options=options, min_values=1, max_values=1)
+            self.card_select.callback = self.card_selected
+            self.add_item(self.card_select)
+
+        async def card_selected(self, interaction: discord.Interaction):
+            if interaction.user.id != self.target.id:
+                await interaction.response.send_message("Vous n'êtes pas autorisé à faire cet échange.", ephemeral=True)
+                return
+
+            cat, name = self.card_select.values[0].split("|", 1)
+
+            # Effectuer l'échange réel
+            self.cog.remove_card_from_user(self.offerer.id, self.offer_cat, self.offer_name)
+            self.cog.add_card_to_user(self.target.id, self.offer_cat, self.offer_name)
+
+            self.cog.remove_card_from_user(self.target.id, cat, name)
+            self.cog.add_card_to_user(self.offerer.id, cat, name)
+
+            await interaction.response.send_message(f"✅ Échange effectué : **{self.offer_name}** ↔ **{name}**", ephemeral=True)
+
+            try:
+                await self.offerer.send(
+                    f"📦 Échange réussi avec {self.target.display_name} : "
+                    f"tu as donné **{self.offer_name}** et reçu **{name}**."
+                )
+            except:
+                pass
 
 async def setup(bot):
     cards = Cards(bot)
