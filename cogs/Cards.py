@@ -392,7 +392,7 @@ class Cards(commands.Cog):
             await interaction.followup.send(embed=embed, file=image_file, ephemeral=True)
 
         # Annonce publique si carte rare ou variante
-        announce_channel = self.bot.get_channel(1017906514838700032)
+        announce_channel = self.bot.get_channel(1360512727784882207)
         for cat, name in drawn_cards:
             if announce_channel and ("(Variante)" in name or cat in ["Secrète", "Fondateur", "Historique"]):
                 clean_name = name.removesuffix(".png") if name.endswith(".png") else name
@@ -481,7 +481,7 @@ class CardsMenuView(discord.ui.View):
             await interaction.followup.send(embed=embed, file=file, ephemeral=True)
 
         # Annonce publique si carte rare ou variante
-        announce_channel = self.cog.bot.get_channel(1017906514838700032)
+        announce_channel = self.cog.bot.get_channel(1360512727784882207)
         for cat, name in drawn_cards:
             if announce_channel and ("(Variante)" in name or cat in ["Fondateur", "Secrète", "Historique"]):
                 clean_name = name[:-4] if name.endswith(".png") else name
