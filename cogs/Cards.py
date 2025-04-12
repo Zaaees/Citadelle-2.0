@@ -6,6 +6,7 @@ import os, json, io
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 import gspread
+import unicodedata
 import logging
 logging.basicConfig(
     level=logging.INFO,
@@ -206,9 +207,13 @@ class Cards(commands.Cog):
 
         changed = False
         for char_name in user_character_names:
-            if char_name in students and students[char_name].get("user_id") != user.id:
-                students[char_name]["user_id"] = user.id
-                changed = True
+            for student_name in students:
+                if self.normalize_name(char_name) == self.normalize_name(student_name):
+                    if students[student_name].get("user_id") != user.id:
+                        students[student_name]["user_id"] = user.id
+                        changed = True
+                    break
+
 
         if changed:
             inventory_cog.save_students(students)
@@ -236,13 +241,23 @@ class Cards(commands.Cog):
                 threads.extend(archived)
 
                 for thread in threads:
-                    char_name = thread.name
-                    if char_name in students:
-                        students[char_name]["user_id"] = thread.owner_id
+                    thread_name = thread.name
+                    for student_name in students:
+                        if self.normalize_name(thread_name) == self.normalize_name(student_name):
+                            students[student_name]["user_id"] = thread.owner_id
+                            break
+
             except Exception as e:
                 logging.info("[update_all_character_owners] Erreur forum %s : %s", forum_id, e)
 
         inventory_cog.save_students(students)
+
+    def normalize_name(self, name: str) -> str:
+        """Supprime les accents et met en minuscules pour comparaison insensible."""
+        return ''.join(
+            c for c in unicodedata.normalize('NFD', name)
+            if unicodedata.category(c) != 'Mn'
+        ).lower()
 
 
 class CardsMenuView(discord.ui.View):
@@ -478,6 +493,8 @@ class GallerySelectView(discord.ui.View):
         super().__init__(timeout=120)
         self.cog = cog
         self.user_id = user_id
+        self.user = cog.bot.get_user(user_id)  # ✅ Ajout ici
+
         # Définir les options du sélecteur (une par carte unique)
         # On combine catégorie et nom dans la value pour identification
         unique_cards = []
@@ -520,7 +537,7 @@ class GallerySelectView(discord.ui.View):
 
     @discord.ui.button(label="Échanger", style=discord.ButtonStyle.success)
     async def trade(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user.id:
+        if interaction.user.id != self.user_id:
             await interaction.response.send_message("Vous ne pouvez pas initier cet échange.", ephemeral=True)
             return
         # Récupérer les cartes de l'utilisateur initiateur
