@@ -49,6 +49,28 @@ class Cards(commands.Cog):
         # Map inverse pour retrouver catégorie par nom si besoin (en supposant noms uniques)
         # self.category_by_name = {file['name']: cat for cat, files in self.cards_by_category.items() for file in files}
 
+    def get_user_cards(self, user_id: int):
+        """Récupère la liste des cartes (catégorie, nom) possédées par un utilisateur."""
+        try:
+            data = self.sheet_cards.get_all_values()
+        except Exception as e:
+            print("Erreur de lecture Google Sheets (cartes):", e)
+            return []
+        rows = data[1:] if data and not data[0][0].isdigit() else data
+        user_cards = []
+        for row in rows:
+            if not row or len(row) < 3:
+                continue
+            uid_str, cat, name = row[0], row[1], row[2]
+            try:
+                uid = int(uid_str)
+            except:
+                continue
+            if uid == user_id:
+                user_cards.append((cat, name))
+        return user_cards
+
+    
     @app_commands.command(name="cartes", description="Gérer vos cartes à collectionner")
     async def cartes(self, interaction: discord.Interaction):
         """Commande principale /cartes : affiche le menu des cartes avec les trois options."""
@@ -73,6 +95,7 @@ class Cards(commands.Cog):
         await interaction.followup.send(f"🎴 Tirages restants : **{remaining_draws}**", ephemeral=True)
 
 
+    
     def add_card_to_user(self, user_id: int, category: str, name: str):
         """Ajoute une carte pour un utilisateur dans la persistance."""
         try:
