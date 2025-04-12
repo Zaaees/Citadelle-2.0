@@ -82,6 +82,24 @@ class Cards(commands.Cog):
                 user_cards.append((cat, name))
         return user_cards
     
+    def safe_exchange(self, user1_id, card1, user2_id, card2) -> bool:
+        """
+        Échange deux cartes entre deux utilisateurs si chacun possède bien la carte demandée.
+        Renvoie True si l'échange a été effectué, False sinon.
+        """
+        cards1 = self.get_user_cards(user1_id)
+        cards2 = self.get_user_cards(user2_id)
+
+        if card1 not in cards1 or card2 not in cards2:
+            return False
+
+        self.remove_card_from_user(user1_id, card1[0], card1[1])
+        self.remove_card_from_user(user2_id, card2[0], card2[1])
+        self.add_card_to_user(user1_id, card2[0], card2[1])
+        self.add_card_to_user(user2_id, card1[0], card1[1])
+        return True
+
+    
     def compute_total_medals(self, user_id: int, students: dict, user_character_names: set) -> int:
         owned_chars = []
         for char_name in user_character_names:
@@ -788,21 +806,21 @@ class TradeFinalConfirmView(discord.ui.View):
             await interaction.response.send_message("Vous n'êtes pas autorisé à confirmer cet échange.", ephemeral=True)
             return
 
-        await interaction.response.defer(ephemeral=True)  # ✅ CECI ÉVITE L’ERREUR D’INTERACTION
+        await interaction.response.defer(ephemeral=True)
 
+        success = self.cog.safe_exchange(
+            self.offerer.id, (self.offer_cat, self.offer_name),
+            self.target.id, (self.return_cat, self.return_name)
+        )
 
-        # Échange des cartes
-        self.cog.remove_card_from_user(self.offerer.id, self.offer_cat, self.offer_name)
-        self.cog.add_card_to_user(self.target.id, self.offer_cat, self.offer_name)
-
-        self.cog.remove_card_from_user(self.target.id, self.return_cat, self.return_name)
-        self.cog.add_card_to_user(self.offerer.id, self.return_cat, self.return_name)
+        if not success:
+            await interaction.followup.send("❌ L’échange a échoué : une des cartes n’est plus disponible.", ephemeral=True)
+            return
 
         await interaction.followup.send(
             f"✅ Échange effectué : **{self.offer_name}** ↔ **{self.return_name}**",
             ephemeral=True
         )
-
 
         try:
             await self.offerer.send(
@@ -811,6 +829,7 @@ class TradeFinalConfirmView(discord.ui.View):
             )
         except:
             pass
+
 
 async def setup(bot):
     cards = Cards(bot)
