@@ -298,12 +298,16 @@ class Cards(commands.Cog):
 
         }
 
-        categories = [
+        all_categories = [
             "Secrète", "Fondateur", "Historique", "Maître", "Black Hole",
             "Architectes", "Professeurs", "Autre", "Élèves"
         ]
+        categories = all_categories
         weights = [rarity_weights.get(cat, 0.01) for cat in categories]
 
+        # 🔧 Normalisation des poids
+        total = sum(weights)
+        weights = [w / total for w in weights]
 
         for _ in range(number):
             # Tirage de la catégorie en fonction de sa rareté globale
@@ -337,6 +341,8 @@ class Cards(commands.Cog):
             is_variante = "(Variante)" in chosen_card["name"]
             logging.info(f"[TIRAGE] 🎴 Carte tirée : {chosen_card['name']} {'(Variante)' if is_variante else ''}")
 
+            if chosen_card not in options:
+                logging.warning(f"[ANOMALIE] La carte {chosen_card['name']} ne semble pas être dans {cat} !")
 
             drawn.append((cat, chosen_card["name"]))
 
@@ -389,7 +395,9 @@ class Cards(commands.Cog):
         announce_channel = self.bot.get_channel(1017906514838700032)
         for cat, name in drawn_cards:
             if announce_channel and ("(Variante)" in name or cat in ["Secrète", "Fondateur", "Historique"]):
-                await announce_channel.send(f"✨ **{interaction.user.display_name}** a obtenu une carte **{cat}** : **{name}** !")
+                clean_name = name.removesuffix(".png") if name.endswith(".png") else name
+                await announce_channel.send(f"✨ **{interaction.user.display_name}** a obtenu une carte **{cat}** : **{clean_name}** !")
+
 
         # Mur public
         try:
@@ -476,7 +484,9 @@ class CardsMenuView(discord.ui.View):
         announce_channel = self.cog.bot.get_channel(1017906514838700032)
         for cat, name in drawn_cards:
             if announce_channel and ("(Variante)" in name or cat in ["Fondateur", "Secrète", "Historique"]):
-                await announce_channel.send(f"✨ **{self.user.display_name}** a obtenu une carte **{cat}** : **{name}** !")
+                clean_name = name[:-4] if name.endswith(".png") else name
+                await announce_channel.send(f"✨ **{self.user.display_name}** a obtenu une carte **{cat}** : **{clean_name}** !")
+
 
         # Mur public
         try:
