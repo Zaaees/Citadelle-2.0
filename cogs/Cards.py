@@ -133,7 +133,7 @@ class Cards(commands.Cog):
         bonus_persos = (len(owned_chars) - 1) * 5 if 'owned_chars' in locals() and len(owned_chars) > 1 else 0
         bonus_tirages = bonus_persos
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"**Menu des Cartes :**\n"
             f"🏅 Médailles comptées : **{medals_used}**\n"
             f"➕ Bonus de tirages : **{bonus_tirages}** (via personnages supplémentaires)\n"
@@ -141,6 +141,7 @@ class Cards(commands.Cog):
             view=view,
             ephemeral=True
         )
+
 
     
     def add_card_to_user(self, user_id: int, category: str, name: str):
