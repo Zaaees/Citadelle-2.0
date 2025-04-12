@@ -283,30 +283,52 @@ class Cards(commands.Cog):
         ).lower()
 
     def draw_cards(self, number: int) -> list[tuple[str, str]]:
-        """Effectue un tirage aléatoire de `number` cartes selon les probabilités définies."""
+        """Effectue un tirage aléatoire de `number` cartes avec rareté adaptative pour les variantes."""
         drawn = []
         rarity_weights = {
-            "Secrète": 0.005,
-            "Fondateur": 0.015,
-            "Historique": 0.02,
-            "Maître": 0.04,
-            "Black Hole": 0.06,
-            "Architectes": 0.10,
-            "Professeurs": 0.15,
-            "Autre": 0.25,
-            "Élèves": 0.36  # pour que la somme approche 1.00
+            "Secrète": 0.02,
+            "Fondateur": 0.03,
+            "Historique": 0.04,
+            "Maître": 0.07,
+            "Black Hole": 0.07,
+            "Architectes": 0.06,
+            "Professeurs": 0.13,
+            "Autre": 0.22,
+            "Élèves": 0.36
         }
 
         categories = list(self.cards_by_category.keys())
         weights = [rarity_weights.get(cat, 0.01) for cat in categories]
 
         for _ in range(number):
+            # Tirage de la catégorie en fonction de sa rareté globale
             cat = random.choices(categories, weights=weights, k=1)[0]
             options = self.cards_by_category.get(cat, [])
             if not options:
                 continue
-            card = random.choice(options)
-            drawn.append((cat, card["name"]))
+
+            # Séparer cartes normales et variantes
+            normales = [card for card in options if "(Variante)" not in card["name"]]
+            variantes = [card for card in options if "(Variante)" in card["name"]]
+
+            if not normales and not variantes:
+                continue
+
+            # Poids : 1.0 pour chaque carte normale, 0.5 pour chaque variante (deux fois plus rare)
+            weighted_cards = []
+            for card in normales:
+                weighted_cards.append((card, 1.0))
+            for card in variantes:
+                weighted_cards.append((card, 0.5))
+
+            # Tirage d’une carte dans la catégorie, avec pondération des variantes
+            chosen_card = random.choices(
+                population=[entry[0] for entry in weighted_cards],
+                weights=[entry[1] for entry in weighted_cards],
+                k=1
+            )[0]
+
+            drawn.append((cat, chosen_card["name"]))
 
         return drawn
 
@@ -734,9 +756,6 @@ class TradeInitiateView(discord.ui.View):
                 await interaction.channel.send("Le joueur ne peut pas être contacté en DM. L’échange est proposé ici.")
         except asyncio.TimeoutError:
             await interaction.channel.send("⏱ Temps écoulé. Aucun joueur mentionné, échange annulé.")
-
-
-
 
 class TradeConfirmView(discord.ui.View):
     def __init__(self, cog: Cards, offerer: discord.User, target: discord.User, card_category: str, card_name: str):
