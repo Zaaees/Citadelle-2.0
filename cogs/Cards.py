@@ -132,7 +132,7 @@ class Cards(commands.Cog):
 
         draw_limit = total_medals * 3
         remaining_draws = max(draw_limit - drawn_count, 0)
-        remaining_clicks = remaining_draws // 3  # nombre de clics restants
+        remaining_clicks = int(remaining_draws) // 3
 
         await interaction.response.send_message(
             f"**Menu des Cartes :**\n🎴 Tirages restants : **{remaining_clicks}**",
@@ -243,9 +243,10 @@ class CardsMenuView(discord.ui.View):
         user_cards = self.cog.get_user_cards(self.user.id)
         drawn_count = len(user_cards)
         draw_limit = total_medals * 3
-        if drawn_count + 3 > draw_limit:
-            await interaction.followup.send("🎖️ Vous n'avez plus assez de tirages disponibles (3 requis).", ephemeral=True)
+        if (draw_limit - drawn_count) < 3:
+            await interaction.followup.send("🎖️ Vous n'avez plus assez de tirages disponibles (1 tirage requis, soit 3 cartes).", ephemeral=True)
             return
+
 
         # Tirage des cartes
         categories = ["Secrète", "Fondateur", "Historique", "Maître", "Black Hole", "Architectes", "Professeurs", "Autre", "Élèves"]
