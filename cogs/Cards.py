@@ -298,8 +298,12 @@ class Cards(commands.Cog):
 
         }
 
-        categories = list(self.cards_by_category.keys())
+        categories = [
+            "Secrète", "Fondateur", "Historique", "Maître", "Black Hole",
+            "Architectes", "Professeurs", "Autre", "Élèves"
+        ]
         weights = [rarity_weights.get(cat, 0.01) for cat in categories]
+
 
         for _ in range(number):
             # Tirage de la catégorie en fonction de sa rareté globale
