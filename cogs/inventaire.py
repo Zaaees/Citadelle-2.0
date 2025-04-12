@@ -3,14 +3,10 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import json
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-import io
 from dotenv import load_dotenv
 import gspread
 from google.oauth2.service_account import Credentials as ServiceAccountCredentials
 from gspread.exceptions import CellNotFound
-import asyncio
 import datetime
 import time
 import traceback
@@ -39,8 +35,9 @@ class Inventory(commands.Cog):
         """Initialize Google Sheets connection with retry mechanism"""
         for attempt in range(max_retries):
             try:
+                # Charger les identifiants de service depuis la chaîne JSON d'environnement
                 creds = ServiceAccountCredentials.from_service_account_info(
-                    eval(os.getenv('SERVICE_ACCOUNT_JSON')), 
+                    json.loads(os.getenv('SERVICE_ACCOUNT_JSON')), 
                     scopes=self.SCOPES
                 )
                 self.client = gspread.authorize(creds)
@@ -107,9 +104,6 @@ class Inventory(commands.Cog):
             # Préparer les nouvelles données
             new_data = [header]  # Commencer avec l'en-tête
             
-            # Créer un dictionnaire des lignes existantes par nom
-            existing_rows = {row[0]: idx + 1 for idx, row in enumerate(all_data[1:], 1) if row[0]}
-            
             # Ajouter toutes les entrées des étudiants
             for name, data in students.items():
                 medals = data['medals']
@@ -126,36 +120,27 @@ class Inventory(commands.Cog):
             raise  # Propager l'erreur pour la gestion d'erreur
 
     def format_student_list(self, students):
-        def get_year(medals):
-            if 0 <= medals < 7:
-                return "Première années"
-            elif 7 <= medals < 18:
-                return "Deuxième années"
-            elif 18 <= medals < 30:
-                return "Troisième années"
-            else:
-                return "Quatrième années"
-
-        def format_medals(medals):
-            # Pour les nombres entiers, convertir en int pour supprimer le .0
-            if medals.is_integer():
-                medals = int(medals)
-            # Gérer le singulier/pluriel
-            return f"{medals} médaille" if medals == 1 else f"{medals} médailles"
-
         sorted_students = sorted(students.items(), key=lambda x: x[1]['medals'], reverse=True)
         
         years = {
-            "Quatrième années": [], 
-            "Troisième années": [], 
-            "Deuxième années": [], 
-            "Première années": []
+            "Quatrième année": [], 
+            "Troisième année": [], 
+            "Deuxième année": [], 
+            "Première année": []
         }
 
         for name, data in sorted_students:
-            year = get_year(data['medals'])
-            years[year].append(f"  - ***{name} :** {format_medals(data['medals'])}*")
-
+            level = self.get_year(data['medals'])
+            if level == 1:
+                category = "Première année"
+            elif level == 2:
+                category = "Deuxième année"
+            elif level == 3:
+                category = "Troisième année"
+            else:
+                category = "Quatrième année"
+            years[category].append(f"  - ***{name} :** {self.format_medals_count(data['medals'])}*")
+        
         message = "## ✮ Liste des personnages et leurs médailles ✮\n** **\n"  
         for i, (year, students_list) in enumerate(years.items()):
             if students_list:
@@ -164,9 +149,8 @@ class Inventory(commands.Cog):
                     message += "\n\n"  
                 else:
                     message += "\n"  
-
         return message.rstrip()
-    
+
     def get_year(self, medals):
         if 0 <= medals < 7:
             return 1
@@ -176,6 +160,12 @@ class Inventory(commands.Cog):
             return 3
         else:
             return 4
+
+    def format_medals_count(self, count: float) -> str:
+        # Formater le nombre de médailles avec la bonne forme singulier/pluriel
+        if isinstance(count, float) and count.is_integer():
+            count = int(count)
+        return f"{count} médaille" if count == 1 else f"{count} médailles"
 
     def log_medal_change(self, name: str, change: float, new_total: float, modified_by: str):
         try:
@@ -222,11 +212,15 @@ class Inventory(commands.Cog):
                 new_medals = students[nom]['medals']
                 self.log_medal_change(nom, montant, new_medals, str(interaction.user))
                 
-                embed = discord.Embed(
-                    title=nom,
-                    description=f"**{montant}** médailles ajoutées. Total actuel : **{new_medals}** médailles.",
-                    color=0x6d5380
-                )
+                # Construire la description avec la bonne conjugaison singulier/pluriel
+                added_count = montant
+                if added_count.is_integer(): added_count = int(added_count)
+                total_count = new_medals
+                if total_count.is_integer(): total_count = int(total_count)
+                desc_change = "ajoutée" if added_count == 1 else "ajoutées"
+                desc_total_word = "médaille" if total_count == 1 else "médailles"
+                description = f"**{added_count}** médaille{'s' if added_count != 1 else ''} {desc_change}. Total actuel : **{total_count}** {desc_total_word}."
+                embed = discord.Embed(title=nom, description=description, color=0x6d5380)
                 embeds.append(embed)
                 
                 # Sauvegarder immédiatement après chaque modification
@@ -271,12 +265,13 @@ class Inventory(commands.Cog):
                         cell = self.sheet.find(nom)
                         self.sheet.delete_row(cell.row)  # Suppression de la ligne
                         del students[nom]  # Supprimer également de la liste locale
-                        embed = discord.Embed(
-                            title=nom,
-                            description=f"**{montant}** médailles retirées. {nom} a été supprimé de la liste car son total est de 0 ou moins.",
-                            color=0x6d5380
-                        )
-                    except gspread.exceptions.CellNotFound:
+                        # Construire le message de suppression avec pluriel adapté
+                        removed_count = montant
+                        if removed_count.is_integer(): removed_count = int(removed_count)
+                        desc_change = "retirée" if removed_count == 1 else "retirées"
+                        description = f"**{removed_count}** médaille{'s' if removed_count != 1 else ''} {desc_change}. {nom} a été supprimé de la liste car son total est de 0 ou moins."
+                        embed = discord.Embed(title=nom, description=description, color=0x6d5380)
+                    except CellNotFound:
                         embed = discord.Embed(
                             title="Erreur",
                             description=f"Impossible de trouver {nom} dans la feuille pour suppression.",
@@ -285,11 +280,15 @@ class Inventory(commands.Cog):
                 else:
                     # Mettre à jour le nombre de médailles si > 0
                     self.sheet.update_cell(self.sheet.find(nom).row, 2, students[nom]['medals'])
-                    embed = discord.Embed(
-                        title=nom,
-                        description=f"**{montant}** médailles retirées. Total actuel : **{students[nom]['medals']}** médailles.",
-                        color=0x6d5380
-                    )
+                    # Construire le message de retrait avec pluriel adapté
+                    removed_count = montant
+                    if removed_count.is_integer(): removed_count = int(removed_count)
+                    total_count = students[nom]['medals']
+                    if total_count.is_integer(): total_count = int(total_count)
+                    desc_change = "retirée" if removed_count == 1 else "retirées"
+                    desc_total_word = "médaille" if total_count == 1 else "médailles"
+                    description = f"**{removed_count}** médaille{'s' if removed_count != 1 else ''} {desc_change}. Total actuel : **{total_count}** {desc_total_word}."
+                    embed = discord.Embed(title=nom, description=description, color=0x6d5380)
             else:
                 # Si l'élève n'est pas trouvé dans la liste
                 embed = discord.Embed(
@@ -368,13 +367,15 @@ class Inventory(commands.Cog):
                 students = self.load_students()
                 student_data = students.get(character_name, {})
                 user_id = student_data.get('user_id')
+                # Formater l'année (1ère année au lieu de 1ème année)
+                year_suffix = "1ère" if new_year == 1 else f"{new_year}ème"
                 
                 if user_id:
                     # Si l'utilisateur est lié, on utilise son ID pour le ping
-                    message = f"Félicitations à <@{user_id}> ({character_name}) pour son passage à la {new_year}ème année !"
+                    message = f"Félicitations à <@{user_id}> ({character_name}) pour son passage à la {year_suffix} année !"
                 else:
                     # Si aucun utilisateur n'est lié, on affiche juste le nom du personnage
-                    message = f"Félicitations à **{character_name}** pour son passage à la {new_year}ème année !"
+                    message = f"Félicitations à **{character_name}** pour son passage à la {year_suffix} année !"
                 
                 await alert_channel.send(message)
 
