@@ -538,26 +538,6 @@ class CardsMenuView(discord.ui.View):
             await interaction.followup.send(embed=embed, file=image_file, ephemeral=True)
 
 
-    @commands.command(name="give_tirage")
-    @commands.has_permissions(administrator=True)
-    async def give_tirage(self, ctx, user: discord.User, nombre: int, *, raison: str = "aucune raison donnée"):
-        if nombre <= 0:
-            await ctx.send("Le nombre de tirages doit être positif.")
-            return
-
-        # Ajouter manuellement les cartes dans Google Sheets
-        for _ in range(nombre * 3):
-            category = random.choice(list(self.cards_by_category.keys()))
-            card_list = self.cards_by_category[category]
-            card = random.choice(card_list)
-            self.add_card_to_user(user.id, category, card['name'])
-
-        annonce_channel = self.bot.get_channel(1017906514838700032)
-        if annonce_channel:
-            await annonce_channel.send(f"🎁 **{user.display_name}** a reçu **{nombre} tirage(s)** (soit {nombre*3} cartes) pour : *{raison}*")
-        await ctx.send(f"{user.display_name} a bien reçu {nombre} tirage(s).")
-
-
 class GallerySelectView(discord.ui.View):
     def __init__(self, cog: Cards, user_id: int, cards_list: list):
         super().__init__(timeout=120)
@@ -834,5 +814,7 @@ class TradeFinalConfirmView(discord.ui.View):
 async def setup(bot):
     cards = Cards(bot)
     await bot.add_cog(cards)
-    await cards.update_all_character_owners()  # Initialisation globale au chargement
+    await bot.tree.sync()  # ← ajoute cette ligne
+    await cards.update_all_character_owners()
+
 
