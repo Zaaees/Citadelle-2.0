@@ -21,6 +21,10 @@ class Cards(commands.Cog):
         # Ouvrir la feuille Google Sheets dédiée aux cartes (ID dans .env)
         spreadsheet = self.gspread_client.open_by_key(os.getenv('GOOGLE_SHEET_ID_CARTES'))
         self.sheet_cards = spreadsheet.sheet1  # première feuille utilisée pour l'inventaire des cartes
+        try:
+            self.sheet_lancement = spreadsheet.worksheet("Lancement")
+        except gspread.exceptions.WorksheetNotFound:
+            self.sheet_lancement = spreadsheet.add_worksheet(title="Lancement", rows="1000", cols="2")
 
         # Service Google Drive pour accéder aux images des cartes
         self.drive_service = build('drive', 'v3', credentials=creds)
@@ -84,9 +88,47 @@ class Cards(commands.Cog):
         total_medals = 0
         if inventory_cog:
             students = inventory_cog.load_students()
+            owned_chars = []
+
+            forum_ids = [1090463730904604682, 1152643359568044094, 1217215470445269032]
+            user_character_names = set()
+            for forum_id in forum_ids:
+                try:
+                    channel = self.bot.get_channel(forum_id)
+                    if not channel:
+                        channel = await self.bot.fetch_channel(forum_id)
+
+                    threads = []
+
+                    threads.extend(channel.threads)
+                    archived = await channel.archived_threads().flatten()
+                    threads.extend(archived)
+                    public_archived = await channel.public_archived_threads().flatten()
+                    threads.extend(t for t in public_archived if t not in threads)
+
+                    for thread in threads:
+                        if thread.owner_id == interaction.user.id:
+                            user_character_names.add(thread.name)
+
+                except Exception as e:
+                    print(f"Erreur récupération threads dans forum {forum_id} :", e)
+
+            changed = False
+            for char_name in user_character_names:
+                if char_name in students and students[char_name].get("user_id") != interaction.user.id:
+                    students[char_name]["user_id"] = interaction.user.id
+                    changed = True
+            if changed:
+                inventory_cog.save_students(students)
+
             for data in students.values():
-                if data.get('user_id') == interaction.user.id:
-                    total_medals += data.get('medals', 0)
+                if data.get("user_id") == interaction.user.id:
+                    owned_chars.append(data)
+
+            if owned_chars:
+                most_medals = max(char.get('medals', 0) for char in owned_chars)
+                bonus_draws = (len(owned_chars) - 1) * 5
+                total_medals = most_medals + bonus_draws
 
         draw_limit = total_medals * 3
         remaining_draws = max(draw_limit - drawn_count, 0)
@@ -144,16 +186,59 @@ class CardsMenuView(discord.ui.View):
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
 
-        await interaction.response.defer()  # rendre la réponse publique
+        await interaction.response.defer(thinking=True, ephemeral=True)
 
         # Calcul des tirages disponibles
         inventory_cog = interaction.client.get_cog("Inventory")
         total_medals = 0
+        total_medals = 0
         if inventory_cog:
             students = inventory_cog.load_students()
+            owned_chars = []
+
+            # Vérifie les threads dans les forums de personnages
+            forum_ids = [1090463730904604682, 1152643359568044094, 1217215470445269032]
+            user_character_names = set()
+            for forum_id in forum_ids:
+                try:
+                    channel = self.cog.bot.get_channel(forum_id)
+                    if not channel:
+                        channel = await self.cog.bot.fetch_channel(forum_id)
+
+                    threads = []
+
+                    # Threads actifs
+                    threads.extend(channel.threads)
+
+                    # Threads archivés (publics)
+                    archived = await channel.archived_threads().flatten()
+                    threads.extend(archived)
+
+                    public_archived = await channel.public_archived_threads().flatten()
+                    threads.extend(t for t in public_archived if t not in threads)
+
+                    # Identifier les threads appartenant à l'utilisateur
+                    for thread in threads:
+                        if thread.owner_id == self.user.id:
+                            user_character_names.add(thread.name)
+
+                except Exception as e:
+                    print(f"Erreur récupération threads dans forum {forum_id} :", e)
+
+            # Marquer dans students les personnages qui appartiennent bien à l'utilisateur
+            changed = False
+            for char_name in user_character_names:
+                if char_name in students and students[char_name].get("user_id") != self.user.id:
+                    students[char_name]["user_id"] = self.user.id
+                    changed = True
+            if changed:
+                inventory_cog.save_students(students)
+
             for data in students.values():
-                if data.get('user_id') == self.user.id:
-                    total_medals += data.get('medals', 0)
+                if data.get("user_id") == self.user.id:
+                    owned_chars.append(data)
+
+
 
         user_cards = self.cog.get_user_cards(self.user.id)
         drawn_count = len(user_cards)
@@ -172,9 +257,15 @@ class CardsMenuView(discord.ui.View):
         for _ in range(3):
             category = random.choices(categories, weights=weights, k=1)[0]
             card_list = self.cog.cards_by_category.get(category, [])
-            variant_cards = [f for f in card_list if "(Variante)" in f['name']]
             normal_cards = [f for f in card_list if "(Variante)" not in f['name']]
-            card_file = random.choice(variant_cards if variant_cards and random.random() < 0.1 else normal_cards or card_list)
+            card_file = random.choice(normal_cards) if normal_cards else random.choice(card_list)
+
+            # Vérifier si une variante de cette carte existe
+            base_name = card_file['name'].replace(" (Variante)", "")
+            variant_match = next((f for f in card_list if f['name'] == base_name + " (Variante)"), None)
+            if variant_match and random.random() < 0.1:
+                card_file = variant_match
+
 
             card_name = card_file['name']
             self.cog.add_card_to_user(self.user.id, category, card_name)
@@ -193,7 +284,7 @@ class CardsMenuView(discord.ui.View):
 
         # Envoi des cartes tirées une par une (embed + image)
         for embed, file in embeds_and_files:
-            await interaction.followup.send(embed=embed, file=file)
+            await interaction.followup.send(embed=embed, file=file, ephemeral=True)
 
         # Annonce publique si carte rare ou variante
         announce_channel = self.cog.bot.get_channel(1017906514838700032)
@@ -293,6 +384,48 @@ class CardsMenuView(discord.ui.View):
         # Préparer une vue avec un Select pour choisir une carte à afficher
         view = GallerySelectView(self.cog, self.user.id, user_cards)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+    @app_commands.command(name="lancement", description="Tirage gratuit de bienvenue (une seule fois)")
+    async def lancement(self, interaction: discord.Interaction):
+        user_id_str = str(interaction.user.id)
+        try:
+            all_rows = self.sheet_lancement.get_all_values()
+            if any(row and row[0] == user_id_str for row in all_rows):
+                await interaction.response.send_message("🚫 Vous avez déjà utilisé votre tirage de lancement.", ephemeral=True)
+                return
+        except:
+            pass
+
+        # Marquer l'utilisateur comme ayant utilisé le lancement
+        try:
+            self.sheet_lancement.append_row([user_id_str, interaction.user.display_name])
+        except:
+            await interaction.response.send_message("Erreur lors de l'enregistrement. Réessayez plus tard.", ephemeral=True)
+            return
+
+        # Forcer un tirage comme dans draw_card
+        view = CardsMenuView(self, interaction.user)
+        await view.draw_card(interaction, None)  # simulate bouton
+
+    @commands.command(name="give_tirage")
+    @commands.has_permissions(administrator=True)
+    async def give_tirage(self, ctx, user: discord.User, nombre: int, *, raison: str = "aucune raison donnée"):
+        if nombre <= 0:
+            await ctx.send("Le nombre de tirages doit être positif.")
+            return
+
+        # Ajouter manuellement les cartes dans Google Sheets
+        for _ in range(nombre * 3):
+            category = random.choice(list(self.cards_by_category.keys()))
+            card_list = self.cards_by_category[category]
+            card = random.choice(card_list)
+            self.add_card_to_user(user.id, category, card['name'])
+
+        annonce_channel = self.bot.get_channel(1017906514838700032)
+        if annonce_channel:
+            await annonce_channel.send(f"🎁 **{user.display_name}** a reçu **{nombre} tirage(s)** (soit {nombre*3} cartes) pour : *{raison}*")
+        await ctx.send(f"{user.display_name} a bien reçu {nombre} tirage(s).")
+
 
 class GallerySelectView(discord.ui.View):
     def __init__(self, cog: Cards, user_id: int, cards_list: list):
