@@ -385,13 +385,13 @@ class CardsMenuView(discord.ui.View):
     @discord.ui.button(label="Galerie", style=discord.ButtonStyle.secondary)
     async def show_gallery(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
+            await interaction.followup.send("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
 
         # Récupérer l'inventaire de cartes de l'utilisateur
         user_cards = self.cog.get_user_cards(self.user.id)
         if not user_cards:
-            await interaction.response.send_message("Vous n'avez aucune carte pour le moment.", ephemeral=True)
+            await interaction.followup.send("Vous n'avez aucune carte pour le moment.", ephemeral=True)
             return
 
         # Trier les cartes par rareté selon l'ordre défini des catégories
@@ -414,10 +414,9 @@ class CardsMenuView(discord.ui.View):
         cards_by_cat = {}
         for cat, name in user_cards:
             cards_by_cat.setdefault(cat, []).append(name)
-        for cat in ["Secrète", "Fondateur", "Historique", "Maître", "Black Hole", "Architectes", "Professeurs", "Autre", "Élèves"]:
 
+        for cat in rarity_order:
             if cat in cards_by_cat:
-                # Indiquer la rareté en pourcentage dans le titre du champ
                 rarity_pct = {
                     "Secrète": "???",
                     "Fondateur": "1%",
@@ -430,7 +429,6 @@ class CardsMenuView(discord.ui.View):
                     "Élèves": "37%",
                 }
                 card_list = cards_by_cat[cat]
-                # Ajouter "(xN)" après le nom pour les doublons
                 names_counts = {}
                 for n in card_list:
                     names_counts[n] = names_counts.get(n, 0) + 1
@@ -442,9 +440,10 @@ class CardsMenuView(discord.ui.View):
                         card_lines.append(f"- **{n}**")
                 value = "\n".join(card_lines)
                 embed.add_field(name=f"{cat} – {rarity_pct.get(cat, '')}", value=value, inline=False)
-        # Préparer une vue avec un Select pour choisir une carte à afficher
+
         view = GallerySelectView(self.cog, self.user.id, user_cards)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
 
     @app_commands.command(name="lancement", description="Tirage gratuit de bienvenue (une seule fois)")
     async def lancement(self, interaction: discord.Interaction):
