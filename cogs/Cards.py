@@ -748,13 +748,67 @@ class TradeRespondView(discord.ui.View):
         self.confirm_button.callback = self.confirm_trade
         self.add_item(self.confirm_button)
 
-    async def card_selected(self, interaction: discord.Interaction):
+        async def card_selected(self, interaction: discord.Interaction):
+            if interaction.user.id != self.target.id:
+                await interaction.response.send_message("Vous n'êtes pas autorisé à faire cet échange.", ephemeral=True)
+                return
+
+            self.selected_card = self.card_select.values[0]
+            cat, name = self.selected_card.split("|", 1)
+
+            # Nouvelle vue avec juste le bouton de confirmation
+            confirm_view = TradeFinalConfirmView(
+                cog=self.cog,
+                offerer=self.offerer,
+                target=self.target,
+                offer_cat=self.offer_cat,
+                offer_name=self.offer_name,
+                return_cat=cat,
+                return_name=name
+            )
+
+            await interaction.response.send_message(
+                f"✅ Carte sélectionnée : **{name}** (*{cat}*)\nCliquez sur le bouton pour confirmer l’échange.",
+                view=confirm_view,
+                ephemeral=True
+            )
+
+class TradeFinalConfirmView(discord.ui.View):
+    def __init__(self, cog: Cards, offerer: discord.User, target: discord.User, offer_cat: str, offer_name: str, return_cat: str, return_name: str):
+        super().__init__(timeout=60)
+        self.cog = cog
+        self.offerer = offerer
+        self.target = target
+        self.offer_cat = offer_cat
+        self.offer_name = offer_name
+        self.return_cat = return_cat
+        self.return_name = return_name
+
+    @discord.ui.button(label="Confirmer l'échange", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.target.id:
-            await interaction.response.send_message("Vous n'êtes pas autorisé à faire cet échange.", ephemeral=True)
+            await interaction.response.send_message("Vous n'êtes pas autorisé à confirmer cet échange.", ephemeral=True)
             return
 
-        self.selected_card = self.card_select.values[0]
-        await interaction.followup.send("Carte sélectionnée. Cliquez sur **Confirmer l'échange** pour valider.", ephemeral=True)
+        # Échange des cartes
+        self.cog.remove_card_from_user(self.offerer.id, self.offer_cat, self.offer_name)
+        self.cog.add_card_to_user(self.target.id, self.offer_cat, self.offer_name)
+
+        self.cog.remove_card_from_user(self.target.id, self.return_cat, self.return_name)
+        self.cog.add_card_to_user(self.offerer.id, self.return_cat, self.return_name)
+
+        await interaction.response.send_message(
+            f"✅ Échange effectué : **{self.offer_name}** ↔ **{self.return_name}**", ephemeral=True
+        )
+
+        try:
+            await self.offerer.send(
+                f"📦 Échange réussi avec {self.target.display_name} : "
+                f"tu as donné **{self.offer_name}** et reçu **{self.return_name}**."
+            )
+        except:
+            pass
+
 
     async def confirm_trade(self, interaction: discord.Interaction):
         if interaction.user.id != self.target.id:
