@@ -93,51 +93,62 @@ class Cards(commands.Cog):
     
     @app_commands.command(name="cartes", description="Gérer vos cartes à collectionner")
     async def cartes(self, interaction: discord.Interaction):
-        await self.update_character_ownership(interaction.user)
-        """Commande principale /cartes : affiche le menu des cartes avec les trois options."""
-        view = CardsMenuView(self, interaction.user)
+        async def update_character_ownership(self, user: discord.User):
+            """Met à jour les fiches appartenant à un utilisateur à partir des forums de fiches."""
+            inventory_cog = self.bot.get_cog("Inventory")
+            if not inventory_cog:
+                print("[DEBUG] Inventory cog non trouvé.")
+                return
 
-        # Calcul des tirages restants
-        user_cards = self.get_user_cards(interaction.user.id)
-        drawn_count = len(user_cards)
-
-        inventory_cog = interaction.client.get_cog("Inventory")
-        total_medals = 0
-        if inventory_cog:
             students = inventory_cog.load_students()
-            user_character_names = {name for name, data in students.items() if data.get("user_id") == interaction.user.id}
-            owned_chars = []
+            print(f"[DEBUG] Étudiants chargés ({len(students)}): {list(students.keys())}")
 
-            for data in students.values():
-                if data.get("user_id") == interaction.user.id:
-                    owned_chars.append(data)
-                    # Calculer total_medals avec la méthode dédiée
-            total_medals = self.compute_total_medals(interaction.user.id, students, user_character_names)
-            
-            if owned_chars:
-                most_medals = max(char.get('medals', 0) for char in owned_chars)
-                bonus_draws = (len(owned_chars) - 1) * 5
-                total_medals = most_medals + bonus_draws
+            forum_ids = [1090463730904604682, 1152643359568044094, 1217215470445269032]
+            user_character_names = set()
 
+            for forum_id in forum_ids:
+                try:
+                    channel = self.bot.get_channel(forum_id)
+                    if not channel:
+                        channel = await self.bot.fetch_channel(forum_id)
+                    print(f"[DEBUG] Forum chargé : {channel.name} ({forum_id})")
 
-        draw_limit = total_medals * 3
-        remaining_draws = max(draw_limit - drawn_count, 0)
-        remaining_clicks = int(remaining_draws) // 3  # nombre de clics restants
+                    threads = []
+                    threads.extend(channel.threads)
 
-        # Déduire les infos utiles
-        medals_used = most_medals if 'most_medals' in locals() else 0
-        bonus_persos = (len(owned_chars) - 1) * 5 if 'owned_chars' in locals() and len(owned_chars) > 1 else 0
-        bonus_tirages = bonus_persos
+                    archived = await channel.archived_threads().flatten()
+                    threads.extend(archived)
 
-        await interaction.response.send_message(
-            f"**Menu des Cartes :**\n"
-            f"🏅 Médailles comptées : **{medals_used}**\n"
-            f"➕ Bonus de tirages : **{bonus_tirages}** (via personnages supplémentaires)\n"
-            f"🎴 Tirages restants : **{remaining_clicks}**",
-            view=view,
-            ephemeral=True
-        )
+                    public_archived = await channel.public_archived_threads().flatten()
+                    threads.extend(t for t in public_archived if t not in threads)
 
+                    print(f"[DEBUG] {len(threads)} threads trouvés dans {channel.name}")
+
+                    for thread in threads:
+                        print(f"[DEBUG] Thread : {thread.name} | Owner ID : {thread.owner_id}")
+                        if thread.owner_id == user.id:
+                            user_character_names.add(thread.name)
+
+                except Exception as e:
+                    print(f"[update_character_ownership] Erreur forum {forum_id} : {e}")
+
+            print(f"[DEBUG] Threads possédés par {user.display_name} : {user_character_names}")
+
+            changed = False
+            for char_name in user_character_names:
+                if char_name in students:
+                    if students[char_name].get("user_id") != user.id:
+                        print(f"[DEBUG] ➕ Mise à jour : {char_name} -> {user.id}")
+                        students[char_name]["user_id"] = user.id
+                        changed = True
+                else:
+                    print(f"[DEBUG] ⚠️ Thread non trouvé dans students : {char_name}")
+
+            if changed:
+                print(f"[DEBUG] ✅ Sauvegarde des changements pour {user.display_name}")
+                inventory_cog.save_students(students)
+            else:
+                print(f"[DEBUG] Aucun changement détecté pour {user.display_name}")
     
     def add_card_to_user(self, user_id: int, category: str, name: str):
         """Ajoute une carte pour un utilisateur dans la persistance."""
