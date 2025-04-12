@@ -213,37 +213,36 @@ class Cards(commands.Cog):
         if changed:
             inventory_cog.save_students(students)
 
+    async def update_all_character_owners(self):
+        """Balaye tous les forums de fiches pour assigner les bons owner_id dans students."""
+        inventory_cog = self.bot.get_cog("Inventory")
+        if not inventory_cog:
+            return
+        students = inventory_cog.load_students()
+        forum_ids = [1090463730904604682, 1152643359568044094, 1217215470445269032]
 
-        async def update_all_character_owners(self):
-            """Balaye tous les forums de fiches pour assigner les bons owner_id dans students."""
-            inventory_cog = self.bot.get_cog("Inventory")
-            if not inventory_cog:
-                return
-            students = inventory_cog.load_students()
-            forum_ids = [1090463730904604682, 1152643359568044094, 1217215470445269032]
+        for forum_id in forum_ids:
+            try:
+                channel = self.bot.get_channel(forum_id)
+                if not channel:
+                    channel = await self.bot.fetch_channel(forum_id)
 
-            for forum_id in forum_ids:
-                try:
-                    channel = self.bot.get_channel(forum_id)
-                    if not channel:
-                        channel = await self.bot.fetch_channel(forum_id)
+                threads = []
+                threads.extend(channel.threads)
 
-                    threads = []
-                    threads.extend(channel.threads)
+                archived = []
+                async for thread in channel.archived_threads():
+                    archived.append(thread)
+                threads.extend(archived)
 
-                    archived = []
-                    async for thread in channel.archived_threads():
-                        archived.append(thread)
-                    threads.extend(archived)
+                for thread in threads:
+                    char_name = thread.name
+                    if char_name in students:
+                        students[char_name]["user_id"] = thread.owner_id
+            except Exception as e:
+                logging.info("[update_all_character_owners] Erreur forum %s : %s", forum_id, e)
 
-                    for thread in threads:
-                        char_name = thread.name
-                        if char_name in students:
-                            students[char_name]["user_id"] = thread.owner_id
-                except Exception as e:
-                    logging.info(f"[update_all_character_owners] Erreur forum {forum_id} :", e)
-
-            inventory_cog.save_students(students)
+        inventory_cog.save_students(students)
 
 
 class CardsMenuView(discord.ui.View):
