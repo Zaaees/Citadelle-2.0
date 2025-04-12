@@ -14,6 +14,8 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 
+card_group = app_commands.Group(name="cards", description="Commandes liées aux cartes")
+
 class Cards(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -311,6 +313,42 @@ class Cards(commands.Cog):
 
         return drawn
 
+    async def handle_lancement(self, interaction: discord.Interaction):
+        user_id_str = str(interaction.user.id)
+        try:
+            all_rows = self.sheet_lancement.get_all_values()
+            if any(row and row[0] == user_id_str for row in all_rows):
+                await interaction.response.send_message("🚫 Vous avez déjà utilisé votre tirage de lancement.", ephemeral=True)
+                return
+        except:
+            pass
+
+        try:
+            self.sheet_lancement.append_row([user_id_str, interaction.user.display_name])
+        except:
+            await interaction.response.send_message("Erreur lors de l'enregistrement. Réessayez plus tard.", ephemeral=True)
+            return
+
+        view = CardsMenuView(self, interaction.user)
+        drawn_cards = await view.perform_draw(interaction)
+
+        if not drawn_cards:
+            await interaction.response.send_message("Vous n’avez plus de tirages disponibles.", ephemeral=True)
+            return
+
+        embeds_and_files = []
+        for cat, name in drawn_cards:
+            file_id = next((f['id'] for f in self.cards_by_category.get(cat, []) if f['name'] == name), None)
+            if file_id:
+                file_bytes = self.download_drive_file(file_id)
+                safe_name = name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+                image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
+                embed = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
+                embed.set_image(url=f"attachment://{safe_name}.png")
+                embeds_and_files.append((embed, image_file))
+
+        for embed, image_file in embeds_and_files:
+            await interaction.followup.send(embed=embed, file=image_file, ephemeral=True)
 
 
 class CardsMenuView(discord.ui.View):
@@ -497,47 +535,14 @@ class CardsMenuView(discord.ui.View):
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
-    @app_commands.command(name="lancement", description="Tirage gratuit de bienvenue (une seule fois)")
-    async def lancement(self, interaction: discord.Interaction):
-        user_id_str = str(interaction.user.id)
-        try:
-            all_rows = self.sheet_lancement.get_all_values()
-            if any(row and row[0] == user_id_str for row in all_rows):
-                await interaction.response.send_message("🚫 Vous avez déjà utilisé votre tirage de lancement.", ephemeral=True)
-                return
-        except:
-            pass
-
-        # Marquer l'utilisateur comme ayant utilisé le lancement
-        try:
-            self.sheet_lancement.append_row([user_id_str, interaction.user.display_name])
-        except:
-            await interaction.response.send_message("Erreur lors de l'enregistrement. Réessayez plus tard.", ephemeral=True)
+    @card_group.command(name="lancement", description="Tirage gratuit de bienvenue (une seule fois)")
+    async def lancement(interaction: discord.Interaction):
+        cog: Cards = interaction.client.get_cog("Cards")
+        if cog is None:
+            await interaction.response.send_message("Erreur : cog introuvable.", ephemeral=True)
             return
+        await cog.handle_lancement(interaction)
 
-        # Forcer un tirage comme dans draw_card
-        view = CardsMenuView(self, interaction.user)
-        drawn_cards = await view.perform_draw(interaction)
-
-        if not drawn_cards:
-            await interaction.response.send_message("Vous n’avez plus de tirages disponibles.", ephemeral=True)
-            return
-
-        # Générer les embeds
-        embeds_and_files = []
-        for cat, name in drawn_cards:
-            file_id = next((f['id'] for f in self.cards_by_category.get(cat, []) if f['name'] == name), None)
-            if file_id:
-                file_bytes = self.download_drive_file(file_id)
-                safe_name = name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
-                image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
-                embed = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
-                embed.set_image(url=f"attachment://{safe_name}.png")
-                embeds_and_files.append((embed, image_file))
-
-        # Envoi propre
-        for embed, image_file in embeds_and_files:
-            await interaction.followup.send(embed=embed, file=image_file, ephemeral=True)
 
 
 class GallerySelectView(discord.ui.View):
@@ -816,7 +821,8 @@ class TradeFinalConfirmView(discord.ui.View):
 async def setup(bot):
     cards = Cards(bot)
     await bot.add_cog(cards)
-    await bot.tree.sync()  # ← ajoute cette ligne
+    bot.tree.add_command(card_group)  # 👈 à ajouter
+    await bot.tree.sync()
     await cards.update_all_character_owners()
 
 
