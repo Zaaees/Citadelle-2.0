@@ -326,7 +326,7 @@ class Cards(commands.Cog):
             await interaction.response.send_message("Erreur lors de l'enregistrement. Réessayez plus tard.", ephemeral=True)
             return
 
-        await interaction.response.defer(ephemeral=True)  # ✅ indispensable pour permettre followup
+        await interaction.response.defer(ephemeral=True)
 
         view = CardsMenuView(self, interaction.user)
         drawn_cards = await view.perform_draw(interaction)
@@ -353,7 +353,13 @@ class Cards(commands.Cog):
         for embed, image_file in embeds_and_files:
             await interaction.followup.send(embed=embed, file=image_file, ephemeral=True)
 
-                # Mur public
+        # Annonce publique si carte rare ou variante
+        announce_channel = self.bot.get_channel(1017906514838700032)
+        for cat, name in drawn_cards:
+            if announce_channel and ("(Variante)" in name or cat in ["Secrète", "Fondateur", "Historique"]):
+                await announce_channel.send(f"✨ **{interaction.user.display_name}** a obtenu une carte **{cat}** : **{name}** !")
+
+        # Mur public
         try:
             all_user_cards = self.sheet_cards.get_all_values()
             unique_drawn = set((row[1], row[2]) for row in all_user_cards if len(row) >= 3)
@@ -390,6 +396,7 @@ class Cards(commands.Cog):
 
         except Exception as e:
             logging.error("Erreur envoi mur tirages (lancement):", e)
+
 
 
 
@@ -436,7 +443,7 @@ class CardsMenuView(discord.ui.View):
         # Annonce publique si carte rare ou variante
         announce_channel = self.cog.bot.get_channel(1017906514838700032)
         for cat, name in drawn_cards:
-            if announce_channel and ("(Variante)" in name or cat in ["Fondateur", "Maître", "Historique"]):
+            if announce_channel and ("(Variante)" in name or cat in ["Fondateur", "Secrète", "Historique"]):
                 await announce_channel.send(f"✨ **{self.user.display_name}** a obtenu une carte **{cat}** : **{name}** !")
 
         # Mur public
