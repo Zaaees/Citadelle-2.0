@@ -595,41 +595,35 @@ class GallerySelectView(discord.ui.View):
 
     @discord.ui.button(label="Échanger", style=discord.ButtonStyle.success)
     async def trade(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message("Vous ne pouvez pas initier cet échange.", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+
+        if not self.select.values:
+            await interaction.followup.send("Veuillez sélectionner une carte à échanger en premier.", ephemeral=True)
             return
-        # Récupérer les cartes de l'utilisateur initiateur
-        user_cards = self.cog.get_user_cards(self.user.id)
-        if not user_cards:
-            await interaction.response.send_message("Vous n'avez aucune carte à échanger.", ephemeral=True)
-            return
-        # Envoyer un menu pour choisir la carte et le joueur cible (en éphemère)
-        view = TradeInitiateView(self.cog, self.user)
-        await interaction.response.send_message("Choisissez une carte et un joueur avec qui échanger :", view=view, ephemeral=True)
+
+        selected = self.select.values[0]
+        cat, name = selected.split("|", 1)
+
+        # Envoyer le menu de sélection de joueur uniquement
+        view = TradeInitiateView(self.cog, self.user, selected_card=(cat, name))
+        await interaction.followup.send("Choisissez un joueur avec qui échanger :", view=view, ephemeral=True)
 
 class TradeInitiateView(discord.ui.View):
-    def __init__(self, cog: Cards, user: discord.User):
+    def __init__(self, cog: Cards, user: discord.User, selected_card: tuple[str, str]):
         super().__init__(timeout=60)
         self.cog = cog
         self.user = user
-        # Sélecteur de carte (cartes de l'utilisateur initiateur)
-        options = []
-        user_cards = self.cog.get_user_cards(user.id)
-        seen = set()
-        for cat, name in user_cards:
-            # ne lister chaque carte unique qu'une fois
-            if (cat, name) not in seen:
-                seen.add((cat, name))
-                options.append(discord.SelectOption(label=f"{name} ({cat})", value=f"{cat}|{name}"))
-        self.card_select = discord.ui.Select(placeholder="Votre carte à échanger", options=options, min_values=1, max_values=1)
-        self.add_item(self.card_select)
-        # Sélecteur d'utilisateur (choisir le partenaire d'échange)
+        self.selected_card = selected_card  # tuple (cat, name)
+
+        # On ne propose que le choix du joueur
         self.user_select = discord.ui.UserSelect(placeholder="Choisir un joueur", min_values=1, max_values=1)
         self.add_item(self.user_select)
+
         # Bouton de confirmation
         self.confirm = discord.ui.Button(label="Proposer l'échange", style=discord.ButtonStyle.primary)
         self.confirm.callback = self.confirm_callback
         self.add_item(self.confirm)
+
 
     async def confirm_callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.user.id:
@@ -638,12 +632,12 @@ class TradeInitiateView(discord.ui.View):
 
         await interaction.response.defer(ephemeral=True)
 
-        if not self.card_select.values or not self.user_select.values:
+        if not self.user_select.values:
             await interaction.followup.send("Veuillez sélectionner une carte **et** un joueur.", ephemeral=True)
             return
 
         target_user = self.user_select.values[0]
-        cat, name = self.card_select.values[0].split("|", 1)
+        cat, name = self.selected_card
 
         if target_user.id == self.user.id:
             await interaction.followup.send("Vous ne pouvez pas échanger avec vous-même.", ephemeral=True)
