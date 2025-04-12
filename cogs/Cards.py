@@ -331,12 +331,16 @@ class Cards(commands.Cog):
         view = CardsMenuView(self, interaction.user)
         drawn_cards = await view.perform_draw(interaction)
 
+        logging.info(f"[DEBUG] Tirage obtenu : {drawn_cards}")
+        await interaction.followup.send("🔍 Tirage en cours...", ephemeral=True)
+
         if not drawn_cards:
             await interaction.followup.send("Vous n’avez plus de tirages disponibles.", ephemeral=True)
             return
 
         embeds_and_files = []
         for cat, name in drawn_cards:
+            logging.info(f"[DEBUG] Traitement de carte : {cat} | {name}")
             file_id = next((f['id'] for f in self.cards_by_category.get(cat, []) if f['name'] == name), None)
             if file_id:
                 file_bytes = self.download_drive_file(file_id)
@@ -377,6 +381,7 @@ class CardsMenuView(discord.ui.View):
         # Générer les embeds
         embeds_and_files = []
         for cat, name in drawn_cards:
+            logging.info(f"[DEBUG] Traitement de carte : {cat} | {name}")
             file_id = next((f['id'] for f in self.cog.cards_by_category.get(cat, []) if f['name'] == name), None)
             if file_id:
                 file_bytes = self.cog.download_drive_file(file_id)
