@@ -934,94 +934,103 @@ class RemoveSubElementSelect(discord.ui.Select):
         self.main_message_id = main_message_id
 
 
-    async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        
-        if self.values[0] == "none":
+async def callback(self, interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    if self.values[0] == "none":
+        await interaction.followup.send(
+            "Vous n'avez aucun sous-élément à supprimer.",
+            ephemeral=True,
+        )
+        return
+
+    try:
+        element, subelement = self.values[0].split("|")
+        parent_message_id = self.main_message_id
+        data = self.cog.get_message_data(parent_message_id)
+
+        if subelement not in data['elements'][element]:
             await interaction.followup.send(
-                "Vous n'avez aucun sous-élément à supprimer.",
+                f"Ce sous-élément n'est pas dans votre liste.",
                 ephemeral=True,
             )
             return
 
-        try:
-            element, subelement = self.values[0].split("|")
-            # Récupérer l'ID du message parent au lieu du message éphémère
-            parent_message_id = self.main_message_id
-            data = self.cog.get_message_data(parent_message_id)
+        # Retirer le sous-élément
+        data['elements'][element].remove(subelement)
+        self.cog.save_message_data(parent_message_id, data)
 
-            if subelement in data['elements'][element]:
-                data['elements'][element].remove(subelement)
-                self.cog.save_message_data(parent_message_id, data)
-                
-                # Mise à jour du message principal
-                parent_message = await interaction.channel.fetch_message(int(parent_message_id))
-                await self.cog.update_message(parent_message, data)
-                
-                # Mise à jour dans le thread des sous-éléments
-                thread = interaction.guild.get_channel(THREAD_CHANNELS[element])
-                
-                if thread:
-                    success, original_state = await self.cog.ensure_thread_unarchived(thread)
-                    was_archived, was_locked = original_state
-                    
-                    if not success:
-                        await interaction.followup.send(
-                            f"Impossible de désarchiver le thread {element}. Le sous-élément a été supprimé de votre liste, mais la mise à jour globale n'a pas pu être effectuée.",
-                            ephemeral=True
-                        )
-                    else:
-                        try:
-                            # Chercher et mettre à jour le message
-                            async for message in thread.history():
-                                if message.embeds and message.embeds[0].title == subelement:
-                                    embed = message.embeds[0]
-                                    desc_parts = embed.description.split("**Utilisé par :**")
-                                    used_by_text = desc_parts[1].strip() if len(desc_parts) > 1 else ""
-                                    
-                                    current_users = [u.strip() for u in used_by_text.split(",") if u.strip() != "-" and u.strip() != data['character_name']]
-                                    used_by_text = ", ".join(current_users) if current_users else "-"
-                                    
-                                    new_desc = f"{desc_parts[0]}**Utilisé par :** {used_by_text}"
-                                    embed.description = new_desc
-                                    await message.edit(embed=embed)
-                                    break
-                            
-                            # Restaurer l'état original du thread
-                            if was_archived or was_locked:
-                                await thread.edit(archived=was_archived, locked=was_locked)
-                                
-                        except discord.Forbidden as e:
-                            print(f"Permissions insuffisantes pour le thread {element}: {str(e)}")
-                        except Exception as e:
-                            print(f"Erreur lors de la mise à jour du thread {element}: {str(e)}")
-                
-                # Mise à jour de la base de données
-                await self.cog.update_subelement_users(
-                    element,
-                    subelement,
-                    interaction.user.id,
-                    data['character_name'],
-                    adding=False
-                )
-                
-                # Supprimer le message avec la liste des sous-éléments
-                try:
-                    original_message = await interaction.message.channel.fetch_message(interaction.message.id)
-                    await original_message.delete()
-                except (discord.NotFound, discord.HTTPException):
-                    pass
-            else:
+        # Mise à jour du message principal
+        parent_message = await interaction.channel.fetch_message(int(parent_message_id))
+        await self.cog.update_message(parent_message, data)
+
+        # Thread du sous-élément
+        thread = interaction.guild.get_channel(THREAD_CHANNELS[element])
+        if thread:
+            success, original_state = await self.cog.ensure_thread_unarchived(thread)
+            was_archived, was_locked = original_state
+
+            if not success:
                 await interaction.followup.send(
-                    f"Ce sous-élément n'est pas dans votre liste.",
-                    ephemeral=True,
+                    f"Impossible de désarchiver le thread {element}. "
+                    "Le sous-élément a été supprimé de votre liste, "
+                    "mais la mise à jour globale n'a pas pu être effectuée.",
+                    ephemeral=True
                 )
-        except Exception as e:
-            print(f"Erreur lors de la suppression du sous-élément: {e}")
-            await interaction.followup.send(
-                "Une erreur est survenue lors de la suppression du sous-élément.",
-                ephemeral=True,
-            )
+            else:
+                try:
+                    async for message in thread.history():
+                        if message.embeds and message.embeds[0].title == subelement:
+                            embed = message.embeds[0]
+                            desc_parts = embed.description.split("**Utilisé par :**")
+                            used_by_text = desc_parts[1].strip() if len(desc_parts) > 1 else ""
+
+                            current_users = [
+                                u.strip() for u in used_by_text.split(",")
+                                if u.strip() != "-" and u.strip() != data['character_name']
+                            ]
+                            new_used_by = ", ".join(current_users) if current_users else "-"
+
+                            embed.description = f"{desc_parts[0]}**Utilisé par :** {new_used_by}"
+                            await message.edit(embed=embed)
+                            break
+
+                    if was_archived or was_locked:
+                        await thread.edit(archived=was_archived, locked=was_locked)
+
+                except discord.Forbidden as e:
+                    print(f"Permissions insuffisantes pour le thread {element}: {str(e)}")
+                except Exception as e:
+                    print(f"Erreur lors de la mise à jour du thread {element}: {str(e)}")
+
+        # Mise à jour dans la base de données des sous-éléments
+        await self.cog.update_subelement_users(
+            element,
+            subelement,
+            interaction.user.id,
+            data['character_name'],
+            adding=False
+        )
+
+        # ✅ Confirmation utilisateur
+        await interaction.followup.send(
+            f"✅ Sous-élément supprimé avec succès dans {thread.mention}!",
+            ephemeral=True
+        )
+
+        # 🧹 Supprimer le menu de sélection
+        try:
+            original_message = await interaction.message.channel.fetch_message(interaction.message.id)
+            await original_message.delete()
+        except (discord.NotFound, discord.HTTPException):
+            pass
+
+    except Exception as e:
+        print(f"Erreur lors de la suppression du sous-élément: {e}")
+        await interaction.followup.send(
+            "Une erreur est survenue lors de la suppression du sous-élément.",
+            ephemeral=True,
+        )
 
 class RemoveSubElementButton(discord.ui.Button):
     def __init__(self):
