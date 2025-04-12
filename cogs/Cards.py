@@ -347,6 +347,7 @@ class CardsMenuView(discord.ui.View):
                             embed_card.set_image(url=f"attachment://{safe_name}.png")
                             embed_card.set_footer(text=f"Découverte par : {self.user.display_name}")
                             await mur_channel.send(embed=embed_card, file=image_file)
+
                     except Exception as e:
                         logging.error("Erreur envoi image mur :", e)
 
@@ -368,7 +369,7 @@ class CardsMenuView(discord.ui.View):
 
     @discord.ui.button(label="Galerie", style=discord.ButtonStyle.secondary)
     async def show_gallery(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user.id:
+        if interaction.user.id != self.user_id:
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
 
