@@ -266,8 +266,8 @@ class Cards(commands.Cog):
         """Effectue un tirage aléatoire de `number` cartes selon les probabilités définies."""
         drawn = []
         rarity_weights = {
-            "Secrète": 0.01,
-            "Fondateur": 0.01,
+            "Secrète": 0.005,
+            "Fondateur": 0.015,
             "Historique": 0.02,
             "Maître": 0.04,
             "Black Hole": 0.06,
@@ -561,30 +561,37 @@ class GallerySelectView(discord.ui.View):
         self.add_item(self.select)
 
     async def select_callback(self, interaction: discord.Interaction):
-        # Quand l'utilisateur sélectionne une carte dans la galerie
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message("Cette sélection ne vous appartient pas.", ephemeral=True)
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Vous ne pouvez pas interagir avec cette sélection.", ephemeral=True)
             return
-        value = self.select.values[0]  # ex: "Fondateur|NomDeCarte"
-        cat, name = value.split("|", 1)
-        # Retrouver l'ID du fichier correspondant à cette carte
-        file_id = None
-        for f in self.cog.cards_by_category.get(cat, []):
-            if f['name'] == name:
-                file_id = f['id']
-                break
-        if not file_id:
-            await interaction.response.send_message("Image introuvable pour cette carte.", ephemeral=True)
+
+        await interaction.response.defer(ephemeral=True)
+
+        if not self.values:
+            await interaction.followup.send("Aucune carte sélectionnée.", ephemeral=True)
             return
-        # Télécharger l'image et l'envoyer
-        try:
+
+        selected = self.values[0]
+        cat, name = selected.split("|", 1)
+
+        embed = discord.Embed(
+            title=f"{name}",
+            description=f"Catégorie : **{cat}**",
+            color=0x4E5D94
+        )
+
+        # Envoi propre
+        file_id = next((f['id'] for f in self.cog.cards_by_category.get(cat, []) if f['name'] == name), None)
+        if file_id:
             file_bytes = self.cog.download_drive_file(file_id)
-            image_file = discord.File(io.BytesIO(file_bytes), filename=f"{name}.png")
-            embed = discord.Embed(title=name, description=f"Carte **{cat}**")
-            embed.set_image(url=f"attachment://{name}.png")
-            await interaction.response.send_message(embed=embed, file=image_file, ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"Carte sélectionnée : **{name}** (catégorie {cat}). *Impossible de charger l'image.*", ephemeral=True)
+            safe_name = name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+            image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
+            embed.set_image(url=f"attachment://{safe_name}.png")
+
+            await interaction.followup.send(embed=embed, file=image_file, ephemeral=True)
+        else:
+            await interaction.followup.send("Impossible de retrouver l'image de cette carte.", ephemeral=True)
+
 
     @discord.ui.button(label="Échanger", style=discord.ButtonStyle.success)
     async def trade(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -625,36 +632,39 @@ class TradeInitiateView(discord.ui.View):
         self.add_item(self.confirm)
 
     async def confirm_callback(self, interaction: discord.Interaction):
-        # Vérifier l'auteur
         if interaction.user.id != self.user.id:
             await interaction.response.send_message("Seul l'initiateur peut confirmer cet échange.", ephemeral=True)
             return
-        # Obtenir la sélection de carte et d'utilisateur
+
+        await interaction.response.defer(ephemeral=True)
+
         if not self.card_select.values or not self.user_select.values:
-            await interaction.response.send_message("Veuillez sélectionner une carte **et** un joueur.", ephemeral=True)
+            await interaction.followup.send("Veuillez sélectionner une carte **et** un joueur.", ephemeral=True)
             return
+
         target_user = self.user_select.values[0]
         cat, name = self.card_select.values[0].split("|", 1)
-        # Vérifier que l'utilisateur cible est différent et qu'il possède au moins une carte (sinon échange inutile)
+
         if target_user.id == self.user.id:
-            await interaction.response.send_message("Vous ne pouvez pas échanger avec vous-même.", ephemeral=True)
+            await interaction.followup.send("Vous ne pouvez pas échanger avec vous-même.", ephemeral=True)
             return
-        target_cards = self.cog.get_user_cards(target_user.id)
-        if target_cards is None:
-            target_cards = []
-        # Préparer et envoyer la demande d'échange au joueur cible
+
+        target_cards = self.cog.get_user_cards(target_user.id) or []
+
         offer_embed = discord.Embed(
             title="Proposition d'échange",
             description=f"{self.user.mention} propose d'échanger sa carte **{name}** *({cat})* avec vous."
         )
+
         view = TradeConfirmView(self.cog, offerer=self.user, target=target_user, card_category=cat, card_name=name)
+
         try:
             await target_user.send(embed=offer_embed, view=view)
-            await interaction.response.send_message(f"📨 Proposition d'échange envoyée à {target_user.mention} !", ephemeral=True)
+            await interaction.followup.send(f"📨 Proposition d'échange envoyée à {target_user.mention} !", ephemeral=True)
         except discord.Forbidden:
-            # Si on ne peut pas DM l'utilisateur cible, on envoie la demande dans le canal courant
             await interaction.channel.send(f"{target_user.mention}", embed=offer_embed, view=view)
-            await interaction.response.send_message("Proposition d'échange envoyée publiquement (le destinataire n'a pas pu être contacté en DM).", ephemeral=True)
+            await interaction.followup.send("Proposition d'échange envoyée publiquement (le destinataire n'a pas pu être contacté en DM).", ephemeral=True)
+
 
 class TradeConfirmView(discord.ui.View):
     def __init__(self, cog: Cards, offerer: discord.User, target: discord.User, card_category: str, card_name: str):
