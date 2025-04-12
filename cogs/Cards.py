@@ -75,9 +75,8 @@ class Cards(commands.Cog):
     async def cartes(self, interaction: discord.Interaction):
         """Commande principale /cartes : affiche le menu des cartes avec les trois options."""
         view = CardsMenuView(self, interaction.user)
-        await interaction.response.send_message("**Menu des Cartes :**", view=view, ephemeral=True)
 
-        # Ajout : Affichage du nombre de tirages restants
+        # Calcul des tirages restants
         user_cards = self.get_user_cards(interaction.user.id)
         drawn_count = len(user_cards)
 
@@ -91,10 +90,13 @@ class Cards(commands.Cog):
 
         draw_limit = total_medals * 3
         remaining_draws = max(draw_limit - drawn_count, 0)
+        remaining_clicks = remaining_draws // 3  # nombre de clics restants
 
-        await interaction.followup.send(f"🎴 Tirages restants : **{remaining_draws}**", ephemeral=True)
-
-
+        await interaction.response.send_message(
+            f"**Menu des Cartes :**\n🎴 Tirages restants : **{remaining_clicks}**",
+            view=view,
+            ephemeral=True
+        )
     
     def add_card_to_user(self, user_id: int, category: str, name: str):
         """Ajoute une carte pour un utilisateur dans la persistance."""
@@ -180,10 +182,12 @@ class CardsMenuView(discord.ui.View):
 
             try:
                 file_bytes = self.cog.download_drive_file(card_file['id'])
-                image_file = discord.File(io.BytesIO(file_bytes), filename=f"{card_name}.png")
+                filename = f"card_{_}_{card_name.replace(' ', '_')}.png"
+                image_file = discord.File(io.BytesIO(file_bytes), filename=filename)
                 embed_card = discord.Embed(title=card_name, description=f"Catégorie : **{category}**", color=0x4E5D94)
-                embed_card.set_image(url=f"attachment://{card_name}.png")
+                embed_card.set_image(url=f"attachment://{filename}")
                 embeds_and_files.append((embed_card, image_file))
+
             except Exception as e:
                 print(f"Erreur image: {e}")
 
