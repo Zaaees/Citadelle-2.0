@@ -384,17 +384,17 @@ class SousElements(commands.Cog):
     async def load_persistent_views(self):
         await self.bot.wait_until_ready()
         try:
-            all_data = self.sheet.get_all_values()[1:]  # Skip header
+            all_data = self.sheet.get_all_values()[1:]
             processed = set()
-            
+
             for row in all_data:
                 message_id = row[0]
                 if message_id in processed:
                     continue
-                
                 processed.add(message_id)
-                view = SousElementsView(self, row[3])
+                view = SousElementsView(self, row[3])  # Vue avec boutons persistants
                 self.bot.add_view(view, message_id=int(message_id))
+
         except Exception as e:
             print(f"Erreur chargement vues persistantes: {e}")
 
@@ -1043,29 +1043,33 @@ class RemoveSubElementButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         message_data = self.view.cog.get_message_data(str(interaction.message.id))
-        if not message_data or interaction.user.id != message_data["user_id"]:
-            response = await interaction.response.send_message(
+        if not message_data or interaction.user.id != message_data['user_id']:
+            await interaction.response.send_message(
                 "Tu n'es pas autorisé à modifier ces sous-éléments.",
                 ephemeral=True
             )
-            await asyncio.sleep(2)
-            await response.delete()
             return
 
-        # Crée la vue non persistante
+        # Création d'une vue temporaire pour le menu déroulant de suppression
         view = discord.ui.View(timeout=None)
+
+        # ATTENTION : le select doit avoir un custom_id explicite, même s'il est temporaire
+        custom_id = f"remove_select_{interaction.user.id}_{interaction.message.id}"
+
         select = RemoveSubElementSelect(message_data, self.view.cog, str(interaction.message.id))
+        select.custom_id = custom_id  # <-- custom_id explicite pour Discord
+
         view.add_item(select)
 
-        # Envoie le menu de suppression de manière éphémère
+        # Envoi du menu temporaire (éphémère) en réponse à l'interaction
         await interaction.response.send_message(
             "Sélectionnez le sous-élément à supprimer :",
             view=view,
             ephemeral=True
         )
 
-        # Enregistre l’ID du message contenant le menu
-        select.select_message_id = (await interaction.original_response()).id
+        # PAS de bot.add_view(view) ici (vue non persistante) !
+
 
 class SousElementsView(discord.ui.View):
     def __init__(self, cog, character_name):
