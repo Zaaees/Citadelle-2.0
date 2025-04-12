@@ -510,7 +510,7 @@ class GallerySelectView(discord.ui.View):
 
     async def select_callback(self, interaction: discord.Interaction):
         # Quand l'utilisateur sélectionne une carte dans la galerie
-        if interaction.user.id != self.user_id:
+        if interaction.user.id != self.user.id:
             await interaction.response.send_message("Cette sélection ne vous appartient pas.", ephemeral=True)
             return
         value = self.select.values[0]  # ex: "Fondateur|NomDeCarte"
