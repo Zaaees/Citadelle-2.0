@@ -646,10 +646,9 @@ class TradeInitiateView(discord.ui.View):
 
         cat, name = self.card_select.values[0].split("|", 1)
 
-        await interaction.followup.send(
+        await interaction.channel.send(
             f"{interaction.user.mention} 🔁 Pour proposer un échange de **{name}** (*{cat}*), "
-            f"merci de mentionner le joueur avec qui vous voulez échanger dans **votre prochain message** ici.",
-            ephemeral=False
+            f"merci de mentionner le joueur avec qui vous voulez échanger dans **votre prochain message** ici."
         )
 
         def check(m):
@@ -664,7 +663,7 @@ class TradeInitiateView(discord.ui.View):
             target_user = response_msg.mentions[0]
 
             if target_user.id == self.user.id:
-                await interaction.followup.send("🚫 Vous ne pouvez pas échanger avec vous-même.", ephemeral=True)
+                await interaction.channel.send("🚫 Vous ne pouvez pas échanger avec vous-même.")
                 return
 
             offer_embed = discord.Embed(
@@ -676,13 +675,13 @@ class TradeInitiateView(discord.ui.View):
 
             try:
                 await target_user.send(embed=offer_embed, view=view)
-                await interaction.followup.send(f"📨 Proposition envoyée à {target_user.mention} !", ephemeral=True)
+                await interaction.channel.send(f"📨 Proposition envoyée à {target_user.mention} en message privé !")
             except discord.Forbidden:
                 await interaction.channel.send(f"{target_user.mention}", embed=offer_embed, view=view)
-                await interaction.followup.send("Proposition envoyée publiquement (le destinataire n'a pas pu être contacté en DM).", ephemeral=True)
-
+                await interaction.channel.send("Le joueur ne peut pas être contacté en DM. L’échange est proposé ici.")
         except asyncio.TimeoutError:
-            await interaction.followup.send("⏱ Temps écoulé. Aucun utilisateur mentionné pour l'échange.", ephemeral=True)
+            await interaction.channel.send("⏱ Temps écoulé. Aucun joueur mentionné, échange annulé.")
+
 
 
 
