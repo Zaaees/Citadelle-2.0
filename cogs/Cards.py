@@ -597,25 +597,36 @@ class GallerySelectView(discord.ui.View):
     async def trade(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
 
-        if not self.select.values:
-            await interaction.followup.send("Veuillez sélectionner une carte à échanger en premier.", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+
+        # Récupère toutes les cartes de l'utilisateur
+        user_cards = self.cog.get_user_cards(self.user.id)
+        unique_cards = list({(cat, name) for cat, name in user_cards})
+
+        if not unique_cards:
+            await interaction.followup.send("Vous n'avez aucune carte à échanger.", ephemeral=True)
             return
 
-        selected = self.select.values[0]
-        cat, name = selected.split("|", 1)
+        # Ouvre une nouvelle vue avec sélecteur de carte + joueur
+        view = TradeInitiateView(self.cog, self.user, possible_cards=unique_cards)
+        await interaction.followup.send("Choisissez une carte **et** un joueur avec qui échanger :", view=view, ephemeral=True)
 
-        # Envoyer le menu de sélection de joueur uniquement
-        view = TradeInitiateView(self.cog, self.user, selected_card=(cat, name))
-        await interaction.followup.send("Choisissez un joueur avec qui échanger :", view=view, ephemeral=True)
 
 class TradeInitiateView(discord.ui.View):
-    def __init__(self, cog: Cards, user: discord.User, selected_card: tuple[str, str]):
+    def __init__(self, cog: Cards, user: discord.User, possible_cards: list[tuple[str, str]]):
         super().__init__(timeout=60)
         self.cog = cog
         self.user = user
-        self.selected_card = selected_card  # tuple (cat, name)
 
-        # On ne propose que le choix du joueur
+        # Sélecteur de carte
+        options = [
+            discord.SelectOption(label=f"{name} ({cat})", value=f"{cat}|{name}")
+            for cat, name in possible_cards
+        ]
+        self.card_select = discord.ui.Select(placeholder="Choisir une carte", options=options, min_values=1, max_values=1)
+        self.add_item(self.card_select)
+
+        # Sélecteur de joueur
         self.user_select = discord.ui.UserSelect(placeholder="Choisir un joueur", min_values=1, max_values=1)
         self.add_item(self.user_select)
 
@@ -633,18 +644,21 @@ class TradeInitiateView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
 
         if not self.user_select.values:
-            await interaction.followup.send("Veuillez sélectionner une carte **et** un joueur.", ephemeral=True)
+            await interaction.followup.send("Veuillez sélectionner un joueur.", ephemeral=True)
+            return
+
+        if not self.card_select.values:
+            await interaction.followup.send("Veuillez sélectionner une carte.", ephemeral=True)
             return
 
         target_user = self.user_select.values[0]
-        cat, name = self.selected_card
+        cat, name = self.card_select.values[0].split("|", 1)
 
         if target_user.id == self.user.id:
             await interaction.followup.send("Vous ne pouvez pas échanger avec vous-même.", ephemeral=True)
             return
 
-        target_cards = self.cog.get_user_cards(target_user.id) or []
-
+        # ✅ Manquait : embed à envoyer
         offer_embed = discord.Embed(
             title="Proposition d'échange",
             description=f"{self.user.mention} propose d'échanger sa carte **{name}** *({cat})* avec vous."
@@ -658,6 +672,7 @@ class TradeInitiateView(discord.ui.View):
         except discord.Forbidden:
             await interaction.channel.send(f"{target_user.mention}", embed=offer_embed, view=view)
             await interaction.followup.send("Proposition d'échange envoyée publiquement (le destinataire n'a pas pu être contacté en DM).", ephemeral=True)
+
 
 
 class TradeConfirmView(discord.ui.View):
