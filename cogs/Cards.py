@@ -734,44 +734,40 @@ class TradeRespondView(discord.ui.View):
         self.target = target
         self.offer_cat = offer_cat
         self.offer_name = offer_name
-        self.selected_card = None  # 🆕
+        self.selected_card = None
 
         options = [
             discord.SelectOption(label=f"{name} ({cat})", value=f"{cat}|{name}")
             for cat, name in possible_cards
         ]
         self.card_select = discord.ui.Select(placeholder="Choisir une carte à offrir", options=options, min_values=1, max_values=1)
-        self.card_select.callback = self.card_selected
+        self.card_select.callback = self.card_selected  # ✅ maintenant elle existe
         self.add_item(self.card_select)
 
-        self.confirm_button = discord.ui.Button(label="Confirmer l'échange", style=discord.ButtonStyle.success)
-        self.confirm_button.callback = self.confirm_trade
-        self.add_item(self.confirm_button)
+    async def card_selected(self, interaction: discord.Interaction):
+        if interaction.user.id != self.target.id:
+            await interaction.response.send_message("Vous n'êtes pas autorisé à faire cet échange.", ephemeral=True)
+            return
 
-        async def card_selected(self, interaction: discord.Interaction):
-            if interaction.user.id != self.target.id:
-                await interaction.response.send_message("Vous n'êtes pas autorisé à faire cet échange.", ephemeral=True)
-                return
+        self.selected_card = self.card_select.values[0]
+        cat, name = self.selected_card.split("|", 1)
 
-            self.selected_card = self.card_select.values[0]
-            cat, name = self.selected_card.split("|", 1)
+        confirm_view = TradeFinalConfirmView(
+            cog=self.cog,
+            offerer=self.offerer,
+            target=self.target,
+            offer_cat=self.offer_cat,
+            offer_name=self.offer_name,
+            return_cat=cat,
+            return_name=name
+        )
 
-            # Nouvelle vue avec juste le bouton de confirmation
-            confirm_view = TradeFinalConfirmView(
-                cog=self.cog,
-                offerer=self.offerer,
-                target=self.target,
-                offer_cat=self.offer_cat,
-                offer_name=self.offer_name,
-                return_cat=cat,
-                return_name=name
-            )
+        await interaction.response.send_message(
+            f"✅ Carte sélectionnée : **{name}** (*{cat}*)\nCliquez sur le bouton pour confirmer l’échange.",
+            view=confirm_view,
+            ephemeral=True
+        )
 
-            await interaction.response.send_message(
-                f"✅ Carte sélectionnée : **{name}** (*{cat}*)\nCliquez sur le bouton pour confirmer l’échange.",
-                view=confirm_view,
-                ephemeral=True
-            )
 
 class TradeFinalConfirmView(discord.ui.View):
     def __init__(self, cog: Cards, offerer: discord.User, target: discord.User, offer_cat: str, offer_name: str, return_cat: str, return_name: str):
