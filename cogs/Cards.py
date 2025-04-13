@@ -187,6 +187,22 @@ class Cards(commands.Cog):
         except Exception as e:
             logging.info(f"Erreur lors de la suppression de la carte: {e}")
 
+    def find_card_by_name(self, input_name: str) -> tuple[str, str, str] | None:
+        """
+        Recherche une carte par nom (tolérance accents, majuscules, .png) dans toutes les catégories.
+        Retourne (catégorie, nom exact, file_id) ou None.
+        """
+        normalized_input = self.normalize_name(input_name.removesuffix(".png"))
+
+        for cat, files in self.cards_by_category.items():
+            for file in files:
+                file_name = file["name"]
+                normalized_file = self.normalize_name(file_name.removesuffix(".png"))
+                if normalized_file == normalized_input:
+                    return (cat, file_name, file["id"])
+        return None
+
+    
     def download_drive_file(self, file_id: str) -> bytes:
         """Télécharge un fichier depuis Google Drive par son ID et renvoie son contenu binaire."""
         request = self.drive_service.files().get_media(fileId=file_id)
@@ -671,24 +687,89 @@ class CardNameModal(discord.ui.Modal, title="Afficher une carte"):
             await interaction.response.send_message("🚫 Vous ne possédez pas cette carte.", ephemeral=True)
             return
 
-        cat, name = match
-        file_id = next((f['id'] for f in self.cog.cards_by_category.get(cat, []) if f['name'] == name), None)
-
-        if file_id:
-            file_bytes = self.cog.download_drive_file(file_id)
-            safe_name = name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
-            image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
-
-            embed = discord.Embed(
-                title=name,
-                description=f"Catégorie : **{cat}**",
-                color=0x4E5D94
-            )
-            embed.set_image(url=f"attachment://{safe_name}.png")
-
-            await interaction.response.send_message(embed=embed, file=image_file, ephemeral=True)
-        else:
+                # Cherche l'image correspondante dans toutes les catégories
+        result = self.cog.find_card_by_name(name)
+        if not result:
             await interaction.response.send_message("❌ Image introuvable pour cette carte.", ephemeral=True)
+            return
+
+        cat, name, file_id = result
+        file_bytes = self.cog.download_drive_file(file_id)
+        safe_name = name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
+
+        embed = discord.Embed(
+            title=name,
+            description=f"Catégorie : **{cat}**",
+            color=0x4E5D94
+        )
+        embed.set_image(url=f"attachment://{safe_name}.png")
+
+        await interaction.response.send_message(embed=embed, file=image_file, ephemeral=True)
+
+class TradeOfferCardModal(discord.ui.Modal, title="Proposer un échange"):
+    card_name = discord.ui.TextInput(label="Nom exact de la carte à échanger", placeholder="Ex : Alex (Variante)", required=True)
+
+    def __init__(self, cog: Cards, user: discord.User):
+        super().__init__()
+        self.cog = cog
+        self.user = user
+
+    async def on_submit(self, interaction: discord.Interaction):
+        input_name = self.card_name.value.strip()
+        normalized_input = self.cog.normalize_name(input_name.removesuffix(".png"))
+
+        owned_cards = self.cog.get_user_cards(self.user.id)
+
+        match = next(
+            ((cat, name) for cat, name in owned_cards
+             if self.cog.normalize_name(name.removesuffix(".png")) == normalized_input),
+            None
+        )
+
+        if not match:
+            await interaction.response.send_message("🚫 Vous ne possédez pas cette carte.", ephemeral=True)
+            return
+
+        offer_cat, offer_name = match
+
+        await interaction.response.send_message(
+            f"{interaction.user.mention} 🔁 Vous allez proposer un échange avec **{offer_name}** (*{offer_cat}*).\n"
+            "Merci de **mentionner le joueur** avec qui vous voulez échanger dans **votre prochain message ici**.",
+            ephemeral=False
+        )
+
+        def check(m):
+            return (
+                m.author.id == self.user.id
+                and m.channel == interaction.channel
+                and m.mentions
+            )
+
+        try:
+            response_msg = await self.cog.bot.wait_for("message", check=check, timeout=60)
+            target_user = response_msg.mentions[0]
+
+            if target_user.id == self.user.id:
+                await interaction.channel.send("🚫 Vous ne pouvez pas échanger avec vous-même.")
+                return
+
+            offer_embed = discord.Embed(
+                title="Proposition d'échange",
+                description=f"{self.user.mention} propose d'échanger sa carte **{offer_name}** *({offer_cat})* avec vous."
+            )
+
+            view = TradeConfirmView(self.cog, offerer=self.user, target=target_user, card_category=offer_cat, card_name=offer_name)
+
+            try:
+                await target_user.send(embed=offer_embed, view=view)
+                await interaction.channel.send(f"📨 Proposition envoyée à {target_user.mention} en message privé !")
+            except discord.Forbidden:
+                await interaction.channel.send(f"{target_user.mention}", embed=offer_embed, view=view)
+                await interaction.channel.send("Le joueur ne peut pas être contacté en DM. L’échange est proposé ici.")
+
+        except asyncio.TimeoutError:
+            await interaction.channel.send("⏱ Temps écoulé. Aucun joueur mentionné, échange annulé.")
 
 
 @app_commands.command(name="lancement", description="Tirage gratuit de bienvenue (une seule fois)")
@@ -706,28 +787,17 @@ class TradeInitiateView(discord.ui.View):
         self.cog = cog
         self.user = user
 
-        # Sélecteur de carte
-        options = [
-            discord.SelectOption(label=f"{name} ({cat})", value=f"{cat}|{name}")
-            for cat, name in possible_cards
-        ]
-        self.card_select = discord.ui.Select(placeholder="Choisir une carte", options=options, min_values=1, max_values=1)
-        self.card_select.callback = self.card_select_callback
-        self.add_item(self.card_select)
-
         # Bouton de confirmation (ouvre l'étape de ping)
         self.confirm = discord.ui.Button(label="Proposer l'échange", style=discord.ButtonStyle.primary)
         self.confirm.callback = self.ask_for_user_ping
         self.add_item(self.confirm)
 
-    # ✅ Cette méthode vient juste après __init__
-    async def card_select_callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-
     async def ask_for_user_ping(self, interaction: discord.Interaction):
         if interaction.user.id != self.user.id:
             await interaction.response.send_message("Seul l'initiateur peut proposer un échange.", ephemeral=True)
             return
+
+        await interaction.response.send_modal(TradeOfferCardModal(self.cog, self.user))
 
         if not self.card_select.values:
             await interaction.response.send_message("Veuillez d'abord sélectionner une carte.", ephemeral=True)
@@ -821,40 +891,16 @@ class TradeRespondView(discord.ui.View):
         self.offer_cat = offer_cat
         self.offer_name = offer_name
         self.selected_card = None
+        self.choose_card_button = discord.ui.Button(label="Choisir une carte à offrir", style=discord.ButtonStyle.primary)
+        self.choose_card_button.callback = self.choose_card
+        self.add_item(self.choose_card_button)
 
-        options = [
-            discord.SelectOption(label=f"{name} ({cat})", value=f"{cat}|{name}")
-            for cat, name in possible_cards
-        ]
-        self.card_select = discord.ui.Select(placeholder="Choisir une carte à offrir", options=options, min_values=1, max_values=1)
-        self.card_select.callback = self.card_selected  # ✅ maintenant elle existe
-        self.add_item(self.card_select)
-
-    async def card_selected(self, interaction: discord.Interaction):
+    async def choose_card(self, interaction: discord.Interaction):
         if interaction.user.id != self.target.id:
-            await interaction.response.send_message("Vous n'êtes pas autorisé à faire cet échange.", ephemeral=True)
+            await interaction.response.send_message("Vous n'êtes pas autorisé à répondre à cet échange.", ephemeral=True)
             return
 
-        self.selected_card = self.card_select.values[0]
-        cat, name = self.selected_card.split("|", 1)
-
-        confirm_view = TradeFinalConfirmView(
-            cog=self.cog,
-            offerer=self.offerer,
-            target=self.target,
-            offer_cat=self.offer_cat,
-            offer_name=self.offer_name,
-            return_cat=cat,
-            return_name=name
-        )
-
-        await interaction.response.send_message(
-            f"✅ Carte sélectionnée : **{name}** (*{cat}*)\n"
-            f"**Vous avez 1 minute pour confirmer l’échange.**",
-            view=confirm_view,
-            ephemeral=True
-        )
-
+        await interaction.response.send_modal(TradeResponseModal(self.cog, self.offerer, self.target, self.offer_cat, self.offer_name))
 
 
 class TradeFinalConfirmView(discord.ui.View):
@@ -898,6 +944,50 @@ class TradeFinalConfirmView(discord.ui.View):
         except:
             pass
 
+class TradeResponseModal(discord.ui.Modal, title="Réponse à l’échange"):
+    card_name = discord.ui.TextInput(label="Nom exact de la carte que vous proposez en retour", placeholder="Ex : Inès (Variante)", required=True)
+
+    def __init__(self, cog: Cards, offerer: discord.User, target: discord.User, offer_cat: str, offer_name: str):
+        super().__init__()
+        self.cog = cog
+        self.offerer = offerer
+        self.target = target
+        self.offer_cat = offer_cat
+        self.offer_name = offer_name
+
+    async def on_submit(self, interaction: discord.Interaction):
+        input_name = self.card_name.value.strip()
+        normalized_input = self.cog.normalize_name(input_name.removesuffix(".png"))
+
+        owned_cards = self.cog.get_user_cards(interaction.user.id)
+        match = next(
+            ((cat, name) for cat, name in owned_cards
+             if self.cog.normalize_name(name.removesuffix(".png")) == normalized_input),
+            None
+        )
+
+        if not match:
+            await interaction.response.send_message("🚫 Vous ne possédez pas cette carte.", ephemeral=True)
+            return
+
+        return_cat, return_name = match
+
+        confirm_view = TradeFinalConfirmView(
+            cog=self.cog,
+            offerer=self.offerer,
+            target=self.target,
+            offer_cat=self.offer_cat,
+            offer_name=self.offer_name,
+            return_cat=return_cat,
+            return_name=return_name
+        )
+
+        await interaction.response.send_message(
+            f"✅ Carte sélectionnée : **{return_name}** (*{return_cat}*)\n"
+            f"**Vous avez 1 minute pour confirmer l’échange.**",
+            view=confirm_view,
+            ephemeral=True
+        )
 
 async def setup(bot):
     cards = Cards(bot)
