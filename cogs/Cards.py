@@ -623,8 +623,61 @@ class CardsMenuView(discord.ui.View):
                 value = "\n".join(card_lines)
                 embed.add_field(name=f"{cat} – {rarity_pct.get(cat, '')}", value=value, inline=False)
 
-        view = GallerySelectView(self.cog, self.user.id, user_cards)
+        view = GalleryActionView(self.cog, self.user)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+
+class GalleryActionView(discord.ui.View):
+    def __init__(self, cog: Cards, user: discord.User):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.user = user
+
+    @discord.ui.button(label="Afficher une carte", style=discord.ButtonStyle.primary)
+    async def show_card_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Ce bouton ne vous est pas destiné.", ephemeral=True)
+            return
+
+        await interaction.response.send_modal(CardNameModal(self.cog, self.user))
+
+class CardNameModal(discord.ui.Modal, title="Afficher une carte"):
+    card_name = discord.ui.TextInput(label="Nom exact de la carte (sans .png)", placeholder="Ex : Dorian (Variante)", required=True)
+
+    def __init__(self, cog: Cards, user: discord.User):
+        super().__init__()
+        self.cog = cog
+        self.user = user
+
+    async def on_submit(self, interaction: discord.Interaction):
+        input_name = self.card_name.value.strip()
+
+        # Vérifie si l'utilisateur possède bien cette carte
+        owned_cards = self.cog.get_user_cards(self.user.id)
+        match = next(((cat, name) for cat, name in owned_cards if name == input_name), None)
+
+        if not match:
+            await interaction.response.send_message("🚫 Vous ne possédez pas cette carte.", ephemeral=True)
+            return
+
+        cat, name = match
+        file_id = next((f['id'] for f in self.cog.cards_by_category.get(cat, []) if f['name'] == name), None)
+
+        if file_id:
+            file_bytes = self.cog.download_drive_file(file_id)
+            safe_name = name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+            image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
+
+            embed = discord.Embed(
+                title=name,
+                description=f"Catégorie : **{cat}**",
+                color=0x4E5D94
+            )
+            embed.set_image(url=f"attachment://{safe_name}.png")
+
+            await interaction.response.send_message(embed=embed, file=image_file, ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ Image introuvable pour cette carte.", ephemeral=True)
 
 
 @app_commands.command(name="lancement", description="Tirage gratuit de bienvenue (une seule fois)")
@@ -634,76 +687,6 @@ async def lancement(interaction: discord.Interaction):
         await interaction.response.send_message("Erreur : cog introuvable.", ephemeral=True)
         return
     await cog.handle_lancement(interaction)
-
-class GallerySelectView(discord.ui.View):
-    def __init__(self, cog: Cards, user_id: int, cards_list: list):
-        super().__init__(timeout=120)
-        self.cog = cog
-        self.user_id = user_id
-        self.user = cog.bot.get_user(user_id)  # ✅ Ajout ici
-
-        # Définir les options du sélecteur (une par carte unique)
-        # On combine catégorie et nom dans la value pour identification
-        unique_cards = []
-        seen = set()
-        for cat, name in cards_list:
-            if (cat, name) not in seen:
-                seen.add((cat, name))
-                label = f"{name} ({cat})"
-                unique_cards.append(discord.SelectOption(label=label, value=f"{cat}|{name}"))
-        # Créer le menu déroulant
-        self.select = discord.ui.Select(placeholder="Choisir une carte à afficher", options=unique_cards, min_values=1, max_values=1)
-        self.select.callback = self.select_callback
-        self.add_item(self.select)
-
-    async def select_callback(self, interaction: discord.Interaction):
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message("Vous ne pouvez pas interagir avec cette sélection.", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        if not self.select.values:
-            await interaction.followup.send("Aucune carte sélectionnée.", ephemeral=True)
-            return
-
-        selected = self.select.values[0]
-        cat, name = selected.split("|", 1)
-
-        embed = discord.Embed(
-            title=f"{name}",
-            description=f"Catégorie : **{cat}**",
-            color=0x4E5D94
-        )
-
-        # Envoi propre
-        file_id = next((f['id'] for f in self.cog.cards_by_category.get(cat, []) if f['name'] == name), None)
-        if file_id:
-            file_bytes = self.cog.download_drive_file(file_id)
-            safe_name = name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
-            image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
-            embed.set_image(url=f"attachment://{safe_name}.png")
-
-            await interaction.followup.send(embed=embed, file=image_file, ephemeral=True)
-        else:
-            await interaction.followup.send("Impossible de retrouver l'image de cette carte.", ephemeral=True)
-
-
-    @discord.ui.button(label="Échanger", style=discord.ButtonStyle.success)
-    async def trade(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-
-        # Récupère toutes les cartes de l'utilisateur
-        user_cards = self.cog.get_user_cards(self.user.id)
-        unique_cards = list({(cat, name) for cat, name in user_cards})
-
-        if not unique_cards:
-            await interaction.followup.send("Vous n'avez aucune carte à échanger.", ephemeral=True)
-            return
-
-        # Ouvre une nouvelle vue avec sélecteur de carte + joueur
-        view = TradeInitiateView(self.cog, self.user, possible_cards=unique_cards)
-        await interaction.followup.send("Choisissez une carte à échanger puis cliquez sur **Proposer l'échange** :", view=view, ephemeral=True)
 
 
 class TradeInitiateView(discord.ui.View):
