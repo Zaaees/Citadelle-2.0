@@ -15,15 +15,6 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 
-def refresh_cards_cache(self):
-    """Recharge le cache depuis Google Sheets (limité par minute)."""
-    try:
-        self.cards_cache = self.sheet_cards.get_all_values()
-        self.cards_cache_time = time.time()
-    except Exception as e:
-        logging.error(f"[CACHE] Erreur de lecture Google Sheets : {e}")
-        self.cards_cache = None
-
 class Cards(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -74,6 +65,15 @@ class Cards(commands.Cog):
         # self.category_by_name = {file['name']: cat for cat, files in self.cards_by_category.items() for file in files}
 
 
+    def refresh_cards_cache(self):
+        """Recharge le cache depuis Google Sheets (limité par minute)."""
+        try:
+            self.cards_cache = self.sheet_cards.get_all_values()
+            self.cards_cache_time = time.time()
+        except Exception as e:
+            logging.error(f"[CACHE] Erreur de lecture Google Sheets : {e}")
+            self.cards_cache = None
+    
     def get_user_cards(self, user_id: int):
         """Récupère les cartes d’un utilisateur depuis le cache ou les données."""
         now = time.time()
