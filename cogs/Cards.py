@@ -84,14 +84,9 @@ class Cards(commands.Cog):
         return user_cards
     
     def safe_exchange(self, user1_id, card1, user2_id, card2) -> bool:
-        """
-        Échange deux cartes entre deux utilisateurs si chacun possède bien la carte demandée.
-        Renvoie True si l'échange a été effectué, False sinon.
-        """
         cards1 = self.get_user_cards(user1_id)
         cards2 = self.get_user_cards(user2_id)
 
-        # Normalisation pour comparaison tolérante
         def contains_card(card_list, card):
             return any(
                 cat == card[0] and self.normalize_name(name.removesuffix(".png")) == self.normalize_name(card[1].removesuffix(".png"))
@@ -102,11 +97,17 @@ class Cards(commands.Cog):
             logging.warning(f"[SAFE_EXCHANGE] Échec : carte(s) non trouvée(s) - {card1=} {card2=}")
             return False
 
-        self.remove_card_from_user(user1_id, card1[0], card1[1])
-        self.remove_card_from_user(user2_id, card2[0], card2[1])
+        success1 = self.remove_card_from_user(user1_id, card1[0], card1[1])
+        success2 = self.remove_card_from_user(user2_id, card2[0], card2[1])
+
+        if not (success1 and success2):
+            logging.error(f"[SAFE_EXCHANGE] Suppression échouée - success1={success1}, success2={success2}")
+            return False
+
         self.add_card_to_user(user1_id, card2[0], card2[1])
         self.add_card_to_user(user2_id, card1[0], card1[1])
         return True
+
 
     def compute_total_medals(self, user_id: int, students: dict, user_character_names: set) -> int:
         owned_chars = []
@@ -178,13 +179,10 @@ class Cards(commands.Cog):
         except Exception as e:
             logging.info(f"Erreur lors de l'ajout de la carte dans Google Sheets: {e}")
 
-    def remove_card_from_user(self, user_id: int, category: str, name: str):
-        """Retire une carte (un exemplaire) d'un utilisateur."""
+    def remove_card_from_user(self, user_id: int, category: str, name: str) -> bool:
         try:
             cell_list = self.sheet_cards.findall(str(user_id))
-            # findall retourne toutes les cellules correspondant à l'user_id
             for cell in cell_list:
-                # Vérifier si la ligne correspond à la carte voulue
                 row_values = self.sheet_cards.row_values(cell.row)
                 if len(row_values) >= 3:
                     uid_str, cat, card_name = row_values[0], row_values[1], row_values[2]
@@ -194,9 +192,12 @@ class Cards(commands.Cog):
                         and self.normalize_name(card_name.removesuffix(".png")) == self.normalize_name(name.removesuffix(".png"))
                     ):
                         self.sheet_cards.delete_row(cell.row)
-                        break
+                        return True
+            logging.warning(f"[REMOVE] Carte non trouvée pour suppression : {user_id=} {category=} {name=}")
         except Exception as e:
-            logging.info(f"Erreur lors de la suppression de la carte: {e}")
+            logging.error(f"[REMOVE] Erreur lors de la suppression de la carte: {e}")
+        return False
+
 
     def find_card_by_name(self, input_name: str) -> tuple[str, str, str] | None:
         """
