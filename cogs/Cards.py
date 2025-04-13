@@ -15,6 +15,76 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 
+class TradeExchangeState:
+    def __init__(self, cog, offerer, target, offer_cat, offer_name, return_cat, return_name):
+        self.cog = cog
+        self.offerer = offerer
+        self.target = target
+        self.offer_cat = offer_cat
+        self.offer_name = offer_name
+        self.return_cat = return_cat
+        self.return_name = return_name
+        self.confirmed_by_offer = False
+        self.confirmed_by_target = False
+        self.completed = False  # Pour éviter double validation
+
+class TradeConfirmTargetView(discord.ui.View):
+    def __init__(self, state: TradeExchangeState):
+        super().__init__(timeout=60)
+        self.state = state
+
+    @discord.ui.button(label="Confirmer l'échange (destinataire)", style=discord.ButtonStyle.success)
+    async def confirm_target(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.state.target.id:
+            await interaction.response.send_message("Vous n'êtes pas le destinataire de l’échange.", ephemeral=True)
+            return
+
+        self.state.confirmed_by_target = True
+        await interaction.response.send_message("✅ Vous avez confirmé. En attente du proposeur.", ephemeral=True)
+        await self.check_and_finalize(interaction)
+
+    async def check_and_finalize(self, interaction: discord.Interaction):
+        if self.state.confirmed_by_offer and self.state.confirmed_by_target and not self.state.completed:
+            await finalize_exchange(self.state, interaction)
+
+async def finalize_exchange(state: TradeExchangeState, interaction: discord.Interaction):
+    state.completed = True
+    success = state.cog.safe_exchange(
+        state.offerer.id, (state.offer_cat, state.offer_name),
+        state.target.id, (state.return_cat, state.return_name)
+    )
+
+    if success:
+        await state.offerer.send(
+            f"📦 Échange confirmé ! Tu as donné **{state.offer_name}** et reçu **{state.return_name}**."
+        )
+        await state.target.send(
+            f"📦 Échange confirmé ! Tu as donné **{state.return_name}** et reçu **{state.offer_name}**."
+        )
+    else:
+        await state.offerer.send("❌ L’échange a échoué : une des cartes n’était plus disponible.")
+        await state.target.send("❌ L’échange a échoué : une des cartes n’était plus disponible.")
+
+class TradeConfirmOffererView(discord.ui.View):
+    def __init__(self, state: TradeExchangeState):
+        super().__init__(timeout=60)
+        self.state = state
+
+    @discord.ui.button(label="Confirmer l'échange (proposeur)", style=discord.ButtonStyle.success)
+    async def confirm_offer(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.state.offerer.id:
+            await interaction.response.send_message("Vous n'êtes pas le proposeur de l’échange.", ephemeral=True)
+            return
+
+        self.state.confirmed_by_offer = True
+        await interaction.response.send_message("✅ Vous avez confirmé. En attente du destinataire.", ephemeral=True)
+        await self.check_and_finalize(interaction)
+
+    async def check_and_finalize(self, interaction: discord.Interaction):
+        if self.state.confirmed_by_offer and self.state.confirmed_by_target and not self.state.completed:
+            await finalize_exchange(self.state, interaction)
+
+
 class Cards(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -989,7 +1059,7 @@ class TradeResponseModal(discord.ui.Modal, title="Réponse à l’échange"):
 
         return_cat, return_name = match
 
-        confirm_view = TradeFinalConfirmView(
+        state = TradeExchangeState(
             cog=self.cog,
             offerer=self.offerer,
             target=self.target,
@@ -999,12 +1069,25 @@ class TradeResponseModal(discord.ui.Modal, title="Réponse à l’échange"):
             return_name=return_name
         )
 
+        # Message au destinataire (toi-même)
         await interaction.response.send_message(
             f"✅ Carte sélectionnée : **{return_name}** (*{return_cat}*)\n"
-            f"**Vous avez 1 minute pour confirmer l’échange.**",
-            view=confirm_view,
+            f"**Vous devez confirmer l’échange.**",
+            view=TradeConfirmTargetView(state),
             ephemeral=True
         )
+
+        # Message au proposeur
+        try:
+            await self.offerer.send(
+                f"💬 **{self.target.display_name}** souhaite échanger avec la carte **{return_name}** (*{return_cat}*).\n"
+                f"Confirmez pour finaliser l’échange.",
+                view=TradeConfirmOffererView(state)
+            )
+        except:
+            logging.warning("[TRADE] Impossible d’envoyer un DM au proposeur.")
+
+
 
 async def setup(bot):
     cards = Cards(bot)
