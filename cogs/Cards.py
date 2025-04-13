@@ -8,15 +8,27 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 import gspread
 import unicodedata
+import time
 import logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 
+def refresh_cards_cache(self):
+    """Recharge le cache depuis Google Sheets (limité par minute)."""
+    try:
+        self.cards_cache = self.sheet_cards.get_all_values()
+        self.cards_cache_time = time.time()
+    except Exception as e:
+        logging.error(f"[CACHE] Erreur de lecture Google Sheets : {e}")
+        self.cards_cache = None
+
 class Cards(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.cards_cache = None  # Cache temporaire du contenu de sheet_cards
+        self.cards_cache_time = 0
         # Charger les identifiants du service Google (mêmes credentials que le cog inventaire)
         creds_info = json.loads(os.getenv('SERVICE_ACCOUNT_JSON'))
         creds = Credentials.from_service_account_info(creds_info, scopes=[
@@ -63,13 +75,15 @@ class Cards(commands.Cog):
 
 
     def get_user_cards(self, user_id: int):
-        """Récupère la liste des cartes (catégorie, nom) possédées par un utilisateur."""
-        try:
-            data = self.sheet_cards.get_all_values()
-        except Exception as e:
-            logging.error(f"Erreur de lecture Google Sheets (cartes): {e}")
+        """Récupère les cartes d’un utilisateur depuis le cache ou les données."""
+        now = time.time()
+        if not self.cards_cache or now - self.cards_cache_time > 5:  # 5 sec de validité
+            self.refresh_cards_cache()
+
+        if not self.cards_cache:
             return []
-        rows = data[1:] if data and not data[0][0].isdigit() else data
+
+        rows = self.cards_cache[1:] if self.cards_cache and not self.cards_cache[0][0].isdigit() else self.cards_cache
         user_cards = []
         for row in rows:
             if not row or len(row) < 3:
@@ -82,6 +96,7 @@ class Cards(commands.Cog):
             if uid == user_id:
                 user_cards.append((cat, name))
         return user_cards
+
     
     def safe_exchange(self, user1_id, card1, user2_id, card2) -> bool:
         cards1 = self.get_user_cards(user1_id)
@@ -180,23 +195,28 @@ class Cards(commands.Cog):
             logging.info(f"Erreur lors de l'ajout de la carte dans Google Sheets: {e}")
 
     def remove_card_from_user(self, user_id: int, category: str, name: str) -> bool:
-        try:
-            cell_list = self.sheet_cards.findall(str(user_id))
-            for cell in cell_list:
-                row_values = self.sheet_cards.row_values(cell.row)
-                if len(row_values) >= 3:
-                    uid_str, cat, card_name = row_values[0], row_values[1], row_values[2]
-                    if (
-                        uid_str == str(user_id)
-                        and cat == category
-                        and self.normalize_name(card_name.removesuffix(".png")) == self.normalize_name(name.removesuffix(".png"))
-                    ):
-                        self.sheet_cards.delete_row(cell.row)
-                        return True
-            logging.warning(f"[REMOVE] Carte non trouvée pour suppression : {user_id=} {category=} {name=}")
-        except Exception as e:
-            logging.error(f"[REMOVE] Erreur lors de la suppression de la carte: {e}")
-        return False
+        if not self.cards_cache or time.time() - self.cards_cache_time > 5:
+            self.refresh_cards_cache()
+        if not self.cards_cache:
+            return False
+
+        for i, row in enumerate(self.cards_cache):
+            if len(row) < 3:
+                continue
+            uid_str, cat, card_name = row[0], row[1], row[2]
+            if (
+                uid_str == str(user_id)
+                and cat == category
+                and self.normalize_name(card_name.removesuffix(".png")) == self.normalize_name(name.removesuffix(".png"))
+            ):
+                try:
+                    self.sheet_cards.delete_row(i + 1)  # +1 car gspread commence à 1
+                    self.cards_cache = None  # Invalide le cache car la structure a changé
+                    return True
+                except Exception as e:
+                    logging.error(f"[REMOVE] Échec suppression ligne {i+1}: {e}")
+                    return False
+
 
 
     def find_card_by_name(self, input_name: str) -> tuple[str, str, str] | None:
