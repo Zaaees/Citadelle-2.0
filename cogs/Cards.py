@@ -91,7 +91,15 @@ class Cards(commands.Cog):
         cards1 = self.get_user_cards(user1_id)
         cards2 = self.get_user_cards(user2_id)
 
-        if card1 not in cards1 or card2 not in cards2:
+        # Normalisation pour comparaison tolérante
+        def contains_card(card_list, card):
+            return any(
+                cat == card[0] and self.normalize_name(name.removesuffix(".png")) == self.normalize_name(card[1].removesuffix(".png"))
+                for cat, name in card_list
+            )
+
+        if not contains_card(cards1, card1) or not contains_card(cards2, card2):
+            logging.warning(f"[SAFE_EXCHANGE] Échec : carte(s) non trouvée(s) - {card1=} {card2=}")
             return False
 
         self.remove_card_from_user(user1_id, card1[0], card1[1])
@@ -100,7 +108,6 @@ class Cards(commands.Cog):
         self.add_card_to_user(user2_id, card1[0], card1[1])
         return True
 
-    
     def compute_total_medals(self, user_id: int, students: dict, user_character_names: set) -> int:
         owned_chars = []
         for char_name in user_character_names:
