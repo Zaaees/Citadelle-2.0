@@ -790,65 +790,6 @@ async def lancement(interaction: discord.Interaction):
     await cog.handle_lancement(interaction)
 
 
-class TradeInitiateView(discord.ui.View):
-    def __init__(self, cog: Cards, user: discord.User, possible_cards: list[tuple[str, str]]):
-        super().__init__(timeout=60)
-        self.cog = cog
-        self.user = user
-
-        # Bouton de confirmation (ouvre l'étape de ping)
-        self.confirm = discord.ui.Button(label="Proposer l'échange", style=discord.ButtonStyle.primary)
-        self.confirm.callback = self.ask_for_user_ping
-        self.add_item(self.confirm)
-
-    async def ask_for_user_ping(self, interaction: discord.Interaction):
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message("Seul l'initiateur peut proposer un échange.", ephemeral=True)
-            return
-
-        await interaction.response.send_modal(TradeOfferCardModal(self.cog, self.user))
-
-        if not self.card_select.values:
-            await interaction.response.send_message("Veuillez d'abord sélectionner une carte.", ephemeral=True)
-            return
-
-        cat, name = self.card_select.values[0].split("|", 1)
-
-        await interaction.channel.send(
-            f"{interaction.user.mention} 🔁 Pour proposer un échange de **{name}** (*{cat}*), "
-            f"merci de mentionner le joueur avec qui vous voulez échanger dans **votre prochain message** ici."
-        )
-
-        def check(m):
-            return (
-                m.author.id == interaction.user.id
-                and m.channel == interaction.channel
-                and m.mentions
-            )
-
-        try:
-            response_msg = await self.cog.bot.wait_for("message", check=check, timeout=60)
-            target_user = response_msg.mentions[0]
-
-            if target_user.id == self.user.id:
-                await interaction.channel.send("🚫 Vous ne pouvez pas échanger avec vous-même.")
-                return
-
-            offer_embed = discord.Embed(
-                title="Proposition d'échange",
-                description=f"{self.user.mention} propose d'échanger sa carte **{name}** *({cat})* avec vous."
-            )
-
-            view = TradeConfirmView(self.cog, offerer=self.user, target=target_user, card_category=cat, card_name=name)
-
-            try:
-                await target_user.send(embed=offer_embed, view=view)
-                await interaction.channel.send(f"📨 Proposition envoyée à {target_user.mention} en message privé !")
-            except discord.Forbidden:
-                await interaction.channel.send(f"{target_user.mention}", embed=offer_embed, view=view)
-                await interaction.channel.send("Le joueur ne peut pas être contacté en DM. L’échange est proposé ici.")
-        except asyncio.TimeoutError:
-            await interaction.channel.send("⏱ Temps écoulé. Aucun joueur mentionné, échange annulé.")
 
 class TradeConfirmView(discord.ui.View):
     def __init__(self, cog: Cards, offerer: discord.User, target: discord.User, card_category: str, card_name: str):
@@ -900,13 +841,14 @@ class TradeRespondView(discord.ui.View):
         self.offer_cat = offer_cat
         self.offer_name = offer_name
         self.selected_card = None
-        self.choose_card_button = discord.ui.Button(label="Choisir une carte à offrir", style=discord.ButtonStyle.primary)
+        self.choose_card_button = discord.ui.Button(label="Choisir une carte à échanger", style=discord.ButtonStyle.primary)
         self.choose_card_button.callback = self.choose_card
         self.add_item(self.choose_card_button)
 
+
     async def choose_card(self, interaction: discord.Interaction):
         if interaction.user.id != self.target.id:
-            await interaction.response.send_message("Vous n'êtes pas autorisé à répondre à cet échange.", ephemeral=True)
+            await interaction.response.send_message("Vous n'êtes pas autorisé à répondre à cet échangse.", ephemeral=True)
             return
 
         await interaction.response.send_modal(TradeResponseModal(self.cog, self.offerer, self.target, self.offer_cat, self.offer_name))
