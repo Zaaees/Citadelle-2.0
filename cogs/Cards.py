@@ -896,7 +896,12 @@ class TradeFinalConfirmView(discord.ui.View):
             pass
 
 class TradeResponseModal(discord.ui.Modal, title="Réponse à l’échange"):
-    card_name = discord.ui.TextInput(label="Nom exact de la carte que vous proposez en retour", placeholder="Ex : Inès (Variante)", required=True)
+    card_name = discord.ui.TextInput(
+    label="Carte que vous proposez (sans .png)", 
+    placeholder="Ex : Inès (Variante)", 
+    required=True
+)
+
 
     def __init__(self, cog: Cards, offerer: discord.User, target: discord.User, offer_cat: str, offer_name: str):
         super().__init__()
