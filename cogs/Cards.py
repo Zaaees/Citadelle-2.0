@@ -67,7 +67,7 @@ class Cards(commands.Cog):
         try:
             data = self.sheet_cards.get_all_values()
         except Exception as e:
-            logging.error("Erreur de lecture Google Sheets (cartes):", e)
+            logging.error(f"Erreur de lecture Google Sheets (cartes): {e}")
             return []
         rows = data[1:] if data and not data[0][0].isdigit() else data
         user_cards = []
@@ -188,7 +188,11 @@ class Cards(commands.Cog):
                 row_values = self.sheet_cards.row_values(cell.row)
                 if len(row_values) >= 3:
                     uid_str, cat, card_name = row_values[0], row_values[1], row_values[2]
-                    if uid_str == str(user_id) and cat == category and card_name == name:
+                    if (
+                        uid_str == str(user_id)
+                        and cat == category
+                        and self.normalize_name(card_name.removesuffix(".png")) == self.normalize_name(name.removesuffix(".png"))
+                    ):
                         self.sheet_cards.delete_row(cell.row)
                         break
         except Exception as e:
@@ -750,7 +754,7 @@ class TradeOfferCardModal(discord.ui.Modal, title="Proposer un échange"):
         offer_cat, offer_name = match
 
         await interaction.response.send_message(
-            f"{interaction.user.mention} 🔁 Vous allez proposer un échange avec **{offer_name}** (*{offer_cat}*).\n"
+            f"{interaction.user.mention} 🔁 Vous allez proposer un échange de la carte **{offer_name.removesuffix('.png')}** (*{offer_cat}*).\n"
             "Merci de **mentionner le joueur** avec qui vous voulez échanger dans **votre prochain message ici**.",
             ephemeral=False
         )
@@ -779,7 +783,7 @@ class TradeOfferCardModal(discord.ui.Modal, title="Proposer un échange"):
 
             try:
                 await target_user.send(embed=offer_embed, view=view)
-                await interaction.channel.send(f"📨 Proposition envoyée à {target_user.mention} en message privé !")
+                await interaction.channel.send(f"📨 Proposition envoyée à {target_user.display_name} en message privé !")
             except discord.Forbidden:
                 await interaction.channel.send(f"{target_user.mention}", embed=offer_embed, view=view)
                 await interaction.channel.send("Le joueur ne peut pas être contacté en DM. L’échange est proposé ici.")
