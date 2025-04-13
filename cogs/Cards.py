@@ -611,6 +611,13 @@ class CardsMenuView(discord.ui.View):
         et retourne la liste des cartes tirées sous forme (catégorie, nom).
         à appeler depuis /lancement ou draw_card.
         """
+        # Exception spéciale : si appel via /lancement, tirer 3 cartes peu importe les médailles
+        if interaction.command and interaction.command.name == "lancement":
+            drawn_cards = self.cog.draw_cards(3)
+            for cat, name in drawn_cards:
+                self.cog.add_card_to_user(self.user.id, cat, name)
+            return drawn_cards
+
         inventory_cog = interaction.client.get_cog("Inventory")
         if inventory_cog is None:
             return []
