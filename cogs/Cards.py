@@ -657,6 +657,15 @@ class GalleryActionView(discord.ui.View):
             return
 
         await interaction.response.send_modal(CardNameModal(self.cog, self.user))
+    
+    @discord.ui.button(label="Proposer un échange", style=discord.ButtonStyle.success)
+    async def offer_trade(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Ce bouton ne vous est pas destiné.", ephemeral=True)
+            return
+
+        await interaction.response.send_modal(TradeOfferCardModal(self.cog, self.user))
+
 
 class CardNameModal(discord.ui.Modal, title="Afficher une carte"):
     card_name = discord.ui.TextInput(label="Nom exact de la carte (sans .png)", placeholder="Ex : Dorian (Variante)", required=True)
@@ -688,7 +697,7 @@ class CardNameModal(discord.ui.Modal, title="Afficher une carte"):
             return
 
                 # Cherche l'image correspondante dans toutes les catégories
-        result = self.cog.find_card_by_name(name)
+        result = self.cog.find_card_by_name(input_name)
         if not result:
             await interaction.response.send_message("❌ Image introuvable pour cette carte.", ephemeral=True)
             return
