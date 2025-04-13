@@ -208,8 +208,49 @@ class Cards(commands.Cog):
             return most_medals + bonus_draws
         return 0
 
+    async def _handle_announce_and_wall(self, interaction: discord.Interaction, drawn_cards: list[tuple[str, str]]):
+        announce_channel = self.bot.get_channel(1360512727784882207)
 
-    
+        # Annonce publique
+        for cat, name in drawn_cards:
+            if announce_channel and ("(Variante)" in name or cat in ["Secrète", "Fondateur", "Historique"]):
+                clean_name = name.removesuffix(".png") if name.endswith(".png") else name
+                await announce_channel.send(f"✨ **{interaction.user.display_name}** a obtenu une carte **{cat}** : **{clean_name}** !")
+
+        # Mur public
+        try:
+            all_user_cards = self.sheet_cards.get_all_values()
+            unique_drawn = set((row[1], row[2]) for row in all_user_cards if len(row) >= 3)
+            total_cards = sum(len(lst) for lst in self.cards_by_category.values())
+            discovered = len(unique_drawn)
+            remaining = total_cards - discovered
+
+            if announce_channel:
+                for cat, name in drawn_cards:
+                    file_id = next((f['id'] for f in self.cards_by_category.get(cat, []) if f['name'] == name), None)
+                    if file_id:
+                        file_bytes = self.download_drive_file(file_id)
+                        safe_name = name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+                        image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
+                        embed_card = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
+                        embed_card.set_image(url=f"attachment://{safe_name}.png")
+                        embed_card.set_footer(text=f"Découverte par : {interaction.user.display_name}")
+                        await announce_channel.send(embed=embed_card, file=image_file)
+
+                # Supprimer l’ancien message de résumé
+                async for msg in announce_channel.history(limit=20):
+                    if msg.author == self.bot.user and msg.content.startswith("📝 Cartes découvertes :"):
+                        await msg.delete()
+                        break
+
+                await announce_channel.send(
+                    f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes)"
+                )
+
+        except Exception as e:
+            logging.error("Erreur lors de la mise à jour du mur :", e)
+
+
     @app_commands.command(name="cartes", description="Gérer vos cartes à collectionner")
     async def cartes(self, interaction: discord.Interaction):
         logging.info("[DEBUG] Commande /cartes déclenchée")
@@ -468,17 +509,21 @@ class Cards(commands.Cog):
 
     async def handle_lancement(self, interaction: discord.Interaction):
         user_id_str = str(interaction.user.id)
+
         try:
             all_rows = self.sheet_lancement.get_all_values()
             if any(row and row[0] == user_id_str for row in all_rows):
                 await interaction.response.send_message("🚫 Vous avez déjà utilisé votre tirage de lancement.", ephemeral=True)
                 return
-        except:
-            pass
+        except Exception as e:
+            logging.error(f"[LANCEMENT] Erreur lecture feuille Lancement : {e}")
+            await interaction.response.send_message("Erreur de lecture Google Sheets. Réessayez plus tard.", ephemeral=True)
+            return
 
         try:
             self.sheet_lancement.append_row([user_id_str, interaction.user.display_name])
-        except:
+        except Exception as e:
+            logging.error(f"[LANCEMENT] Erreur ajout feuille Lancement : {e}")
             await interaction.response.send_message("Erreur lors de l'enregistrement. Réessayez plus tard.", ephemeral=True)
             return
 
@@ -487,14 +532,11 @@ class Cards(commands.Cog):
         view = CardsMenuView(self, interaction.user)
         drawn_cards = await view.perform_draw(interaction)
 
-        logging.info(f"[DEBUG] Tirage obtenu : {drawn_cards}")
-        await interaction.followup.send("🔍 Tirage en cours...", ephemeral=True)
-
         if not drawn_cards:
-            await interaction.followup.send("Vous n’avez plus de tirages disponibles.", ephemeral=True)
+            await interaction.edit_original_response(content="Vous n’avez plus de tirages disponibles.")
             return
 
-        embeds_and_files = []
+        embed_msgs = []
         for cat, name in drawn_cards:
             logging.info(f"[DEBUG] Traitement de carte : {cat} | {name}")
             file_id = next((f['id'] for f in self.cards_by_category.get(cat, []) if f['name'] == name), None)
@@ -504,58 +546,19 @@ class Cards(commands.Cog):
                 image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
                 embed = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
                 embed.set_image(url=f"attachment://{safe_name}.png")
-                embeds_and_files.append((embed, image_file))
+                embed_msgs.append((embed, image_file))
 
-        for embed, image_file in embeds_and_files:
-            await interaction.followup.send(embed=embed, file=image_file, ephemeral=True)
+        # Mise à jour du message initial
+        if embed_msgs:
+            first_embed, first_file = embed_msgs[0]
+            await interaction.edit_original_response(content=None, embed=first_embed, attachments=[first_file])
 
-        # Annonce publique si carte rare ou variante
-        announce_channel = self.bot.get_channel(1360512727784882207)
-        for cat, name in drawn_cards:
-            if announce_channel and ("(Variante)" in name or cat in ["Secrète", "Fondateur", "Historique"]):
-                clean_name = name.removesuffix(".png") if name.endswith(".png") else name
-                await announce_channel.send(f"✨ **{interaction.user.display_name}** a obtenu une carte **{cat}** : **{clean_name}** !")
+        # Envoi des autres cartes
+        for embed, file in embed_msgs[1:]:
+            await interaction.followup.send(embed=embed, file=file, ephemeral=True)
 
-
-        # Mur public
-        try:
-            all_user_cards = self.sheet_cards.get_all_values()
-            unique_drawn = set((row[1], row[2]) for row in all_user_cards if len(row) >= 3)
-            total_cards = sum(len(lst) for lst in self.cards_by_category.values())
-            discovered = len(unique_drawn)
-            remaining = total_cards - discovered
-
-            mur_channel = self.bot.get_channel(1360512727784882207)
-            if mur_channel:
-                for cat, name in drawn_cards:
-                    try:
-                        file_id = next((f['id'] for f in self.cards_by_category.get(cat, []) if f['name'] == name), None)
-                        if file_id:
-                            file_bytes = self.download_drive_file(file_id)
-                            safe_name = name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
-                            image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
-                            embed_card = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
-                            embed_card.set_image(url=f"attachment://{safe_name}.png")
-                            embed_card.set_footer(text=f"Découverte par : {interaction.user.display_name}")
-                            await mur_channel.send(embed=embed_card, file=image_file)
-
-                    except Exception as e:
-                        logging.error("Erreur envoi image mur (lancement):", e)
-
-                # Supprimer ancien résumé
-                async for msg in mur_channel.history(limit=20):
-                    if msg.author == self.bot.user and msg.content.startswith("📝 Cartes découvertes :"):
-                        await msg.delete()
-                        break
-
-                await mur_channel.send(
-                    f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes)"
-                )
-
-        except Exception as e:
-            logging.error("Erreur envoi mur tirages (lancement):", e)
-
-
+        # Annonces publiques et mur
+        await self._handle_announce_and_wall(interaction, drawn_cards)
 
 
 class CardsMenuView(discord.ui.View):
@@ -599,51 +602,7 @@ class CardsMenuView(discord.ui.View):
             await interaction.followup.send(embed=embed, file=file, ephemeral=True)
 
         # Annonce publique si carte rare ou variante
-        announce_channel = self.cog.bot.get_channel(1360512727784882207)
-        for cat, name in drawn_cards:
-            if announce_channel and ("(Variante)" in name or cat in ["Fondateur", "Secrète", "Historique"]):
-                clean_name = name[:-4] if name.endswith(".png") else name
-                await announce_channel.send(f"✨ **{self.user.display_name}** a obtenu une carte **{cat}** : **{clean_name}** !")
-
-
-        # Mur public
-        try:
-            all_user_cards = self.cog.sheet_cards.get_all_values()
-            unique_drawn = set((row[1], row[2]) for row in all_user_cards if len(row) >= 3)
-            total_cards = sum(len(lst) for lst in self.cog.cards_by_category.values())
-            discovered = len(unique_drawn)
-            remaining = total_cards - discovered
-
-            mur_channel = self.cog.bot.get_channel(1360512727784882207)
-            if mur_channel:
-                for cat, name in drawn_cards:
-                    try:
-                        file_id = next((f['id'] for f in self.cog.cards_by_category.get(cat, []) if f['name'] == name), None)
-                        if file_id:
-                            file_bytes = self.cog.download_drive_file(file_id)
-                            safe_name = name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
-                            image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
-                            embed_card = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
-                            embed_card.set_image(url=f"attachment://{safe_name}.png")
-                            embed_card.set_footer(text=f"Découverte par : {self.user.display_name}")
-                            await mur_channel.send(embed=embed_card, file=image_file)
-
-                    except Exception as e:
-                        logging.error("Erreur envoi image mur :", e)
-
-                # Supprimer ancien résumé
-                async for msg in mur_channel.history(limit=20):
-                    if msg.author == self.cog.bot.user and msg.content.startswith("📝 Cartes découvertes :"):
-                        await msg.delete()
-                        break
-
-                await mur_channel.send(
-                    f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes)"
-                )
-
-        except Exception as e:
-            logging.error("Erreur envoi mur tirages:", e)
-
+        await self.cog._handle_announce_and_wall(interaction, drawn_cards)
 
     async def perform_draw(self, interaction: discord.Interaction) -> list[tuple[str, str]]:
         """
