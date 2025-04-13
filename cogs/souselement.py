@@ -795,14 +795,13 @@ class SousElements(commands.Cog):
         if message.author.bot:
             return
 
+        sheet_message = None  # ✅ protection anti-erreur
+        sheet_data = None
+
         try:
             async for msg in message.channel.history(limit=50):
                 if msg.author == self.bot.user and msg.embeds:
-                    # Vérifie d'abord si le message a des données dans le Google Sheet
                     data = self.get_message_data(str(msg.id))
-                    
-                    # Ne continue QUE si on a trouvé des données valides
-                    # ET si le message a le bon format de titre
                     if (data and 
                         msg.embeds[0].title and 
                         msg.embeds[0].title.startswith("Sous-éléments de ")):
