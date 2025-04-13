@@ -467,6 +467,7 @@ class Cards(commands.Cog):
         # 🔧 Normalisation des poids
         total = sum(weights)
         weights = [w / total for w in weights]
+        number = int(number)
 
         for _ in range(number):
             # Tirage de la catégorie en fonction de sa rareté globale
@@ -628,7 +629,7 @@ class CardsMenuView(discord.ui.View):
         user_cards = self.cog.get_user_cards(self.user.id)
         drawn_count = len(user_cards)
         remaining_draws = max(draw_limit - drawn_count, 0)
-        draw_count = min(3, remaining_draws)
+        draw_count = int(min(3, remaining_draws))
 
         if draw_count == 0:
             return []
