@@ -616,10 +616,11 @@ class CardsMenuView(discord.ui.View):
                     names_counts[n] = names_counts.get(n, 0) + 1
                 card_lines = []
                 for n, count in names_counts.items():
+                    clean_name = n.removesuffix(".png")
                     if count > 1:
-                        card_lines.append(f"- **{n}** (x{count})")
+                        card_lines.append(f"- **{clean_name}** (x{count})")
                     else:
-                        card_lines.append(f"- **{n}**")
+                        card_lines.append(f"- **{clean_name}**")
                 value = "\n".join(card_lines)
                 embed.add_field(name=f"{cat} – {rarity_pct.get(cat, '')}", value=value, inline=False)
 
@@ -651,10 +652,16 @@ class CardNameModal(discord.ui.Modal, title="Afficher une carte"):
 
     async def on_submit(self, interaction: discord.Interaction):
         input_name = self.card_name.value.strip()
+        if not input_name.endswith(".png"):
+            input_name += ".png"
 
         # Vérifie si l'utilisateur possède bien cette carte
+        normalized_input = self.cog.normalize_name(input_name.removesuffix(".png"))
         owned_cards = self.cog.get_user_cards(self.user.id)
-        match = next(((cat, name) for cat, name in owned_cards if name == input_name), None)
+        match = next(
+    ((cat, name) for cat, name in owned_cards if self.cog.normalize_name(name) == normalized_input),
+    None
+)
 
         if not match:
             await interaction.response.send_message("🚫 Vous ne possédez pas cette carte.", ephemeral=True)
