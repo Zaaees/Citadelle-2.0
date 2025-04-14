@@ -145,6 +145,33 @@ class Cards(commands.Cog):
         # self.category_by_name = {file['name']: cat for cat, files in self.cards_by_category.items() for file in files}
 
 
+    @commands.command(name="compact_sheet")
+    @commands.has_permissions(administrator=True)
+    async def compact_sheet_command(self, ctx: commands.Context):
+        """Nettoie la feuille des cartes en supprimant les colonnes vides inutiles."""
+        await ctx.send("🔧 Nettoyage des lignes en cours (compactage)...")
+
+        try:
+            rows = self.sheet_cards.get_all_values()
+            if not rows:
+                await ctx.send("⚠️ Feuille vide.")
+                return
+
+            header = rows[0]
+            cleaned_rows = [header]
+
+            for i, row in enumerate(rows[1:], start=2):  # start=2 car A2 = ligne 1 réelle
+                cleaned_row = [cell for cell in row if cell.strip() != ""]
+                cleaned_rows.append(cleaned_row)
+                self.sheet_cards.update(f"A{i}", [cleaned_row])
+                await asyncio.sleep(0.1)  # pour éviter rate limit Google API
+
+            await ctx.send(f"✅ {len(cleaned_rows)-1} lignes compactées avec succès.")
+        except Exception as e:
+            logging.error(f"[compact_sheet_command] Erreur : {e}")
+            await ctx.send("❌ Une erreur est survenue pendant le compactage.")
+
+    
     @commands.command(name="convert_sheet")
     @commands.has_permissions(administrator=True)
     async def convert_sheet_command(self, ctx: commands.Context):
@@ -462,10 +489,12 @@ class Cards(commands.Cog):
                         if row[j].startswith(f"{user_id}:"):
                             uid, count = row[j].split(":")
                             row[j] = f"{uid}:{int(count) + 1}"
-                            self.sheet_cards.update(f"A{i+1}", [row])
+                            cleaned_row = [cell for cell in row if cell.strip() != ""]
+                            self.sheet_cards.update(f"A{i+1}", [cleaned_row])
                             return
                     row.append(f"{user_id}:1")
-                    self.sheet_cards.update(f"A{i+1}", [row])
+                    cleaned_row = [cell for cell in row if cell.strip() != ""]
+                    self.sheet_cards.update(f"A{i+1}", [cleaned_row])
                     return
             # Si la carte n'existe pas encore
             new_row = [category, name, f"{user_id}:1"]
@@ -487,15 +516,14 @@ class Cards(commands.Cog):
                             if int(count) > 1:
                                 row[j] = f"{uid}:{int(count) - 1}"
                             else:
-                                row.pop(j)
-                            self.sheet_cards.update(f"A{i+1}", [row])
+                                row[j] = ""
+                            cleaned_row = [cell for cell in row if cell.strip() != ""]
+                            self.sheet_cards.update(f"A{i+1}", [cleaned_row])
                             return True
             return False
         except Exception as e:
             logging.error(f"Erreur lors de la suppression de la carte dans Google Sheets: {e}")
             return False
-
-
 
     def find_card_by_name(self, input_name: str) -> tuple[str, str, str] | None:
         """
@@ -765,10 +793,10 @@ class Cards(commands.Cog):
             unique_cards_ordered = []
             for row in all_user_cards:
                 if len(row) >= 3:
-                    key = (row[1].strip().lower(), row[2].strip().lower())
+                    key = (row[0].strip().lower(), row[1].strip().lower())
                     if key not in seen:
                         seen.add(key)
-                        unique_cards_ordered.append((row[1], row[2]))  # on garde la version originale
+                        unique_cards_ordered.append((row[1], row[2]))
 
             for index, (cat, name) in enumerate(unique_cards_ordered, start=1):
                 cat_clean, name_clean = cat.strip().lower(), name.strip().lower()
