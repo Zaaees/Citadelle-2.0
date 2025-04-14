@@ -191,8 +191,6 @@ class Cards(commands.Cog):
         self.sheet_cards.update("A1", new_rows)
         print(f"✅ Conversion terminée. {len(new_rows) - 1} cartes uniques enregistrées.")
 
-
-
     
     def sanitize_filename(self, name: str) -> str:
         """Nettoie le nom d'une carte pour une utilisation sûre dans les fichiers Discord."""
@@ -216,18 +214,18 @@ class Cards(commands.Cog):
         if not self.cards_cache:
             return []
 
-        rows = self.cards_cache[1:] if self.cards_cache and not self.cards_cache[0][0].isdigit() else self.cards_cache
+        rows = self.cards_cache[1:]  # Skip header
         user_cards = []
         for row in rows:
-            if not row or len(row) < 3:
+            if len(row) < 3:
                 continue
-            uid_str, cat, name = row[0], row[1], row[2]
-            try:
-                uid = int(uid_str)
-            except:
-                continue
-            if uid == user_id:
-                user_cards.append((cat, name))
+            cat, name = row[0], row[1]
+            for cell in row[2:]:
+                if not cell:
+                    continue
+                uid, count = cell.split(":")
+                if int(uid) == user_id:
+                    user_cards.extend([(cat, name)] * int(count))
         return user_cards
 
     
@@ -278,36 +276,25 @@ class Cards(commands.Cog):
         announce_channel = self.bot.get_channel(1360512727784882207)
 
         try:
-            all_user_cards = self.sheet_cards.get_all_values()
+            all_user_cards = self.sheet_cards.get_all_values()[1:]  # Skip header
             seen = set()
-            new_unique_order = []
             for row in all_user_cards:
-                if len(row) >= 3:
-                    key = (row[1], row[2])
-                    if key not in seen:
-                        seen.add(key)
-                        new_unique_order.append(key)
-
-            total_cards = sum(len(lst) for lst in self.cards_by_category.values())
-            discovered = len(new_unique_order)
-            remaining = total_cards - discovered
+                if len(row) >= 2:
+                    cat, name = row[0], row[1]
+                    seen.add((cat, name))
 
             # Filtrer uniquement les cartes jamais vues avant (vraie découverte globale)
-            existing_cards = {(row[1], row[2]) for row in all_user_cards if len(row) >= 3}
-            new_draws = [card for card in drawn_cards if card not in existing_cards]
-
+            new_draws = [card for card in drawn_cards if card not in seen]
 
             if not new_draws:
-                return  # rien de nouveau à annoncer
+                return  # Rien de nouveau à annoncer
 
             for cat, name in new_draws:
                 if announce_channel and ("(Variante)" in name or cat in ["Secrète", "Fondateur", "Historique"]):
                     clean_name = name.removesuffix(".png") if name.endswith(".png") else name
                     await announce_channel.send(f"✨ **{interaction.user.display_name}** a obtenu une carte **{cat}** : **{clean_name}** !")
 
-            # Numérotation des cartes (globale)
-            for cat, name in new_draws:
-                file_id = next((f['id'] for f in self.cards_by_category.get(cat, []) if f['name'] == name), None)
+                file_id = next((f['id'] for f in self.cards_by_category.get(cat, []) if f['name'].removesuffix(".png") == name), None)
                 if file_id:
                     file_bytes = self.download_drive_file(file_id)
                     safe_name = self.sanitize_filename(name)
@@ -315,11 +302,7 @@ class Cards(commands.Cog):
                     message = await announce_channel.send(file=image_file)
 
                     # Trouver la position globale de la carte dans l'ordre des découvertes
-                    try:
-                        index = new_unique_order.index((cat, name)) + 1
-                    except ValueError:
-                        index = "?"
-
+                    index = len(seen) + 1
                     embed_card = discord.Embed(
                         title=name.removesuffix(".png") if name.endswith(".png") else name,
                         description=f"Catégorie : **{cat}**",
@@ -330,8 +313,6 @@ class Cards(commands.Cog):
                         text=f"Découverte par : {interaction.user.display_name}\n→ {index}{'ère' if index == 1 else 'ème'} carte découverte"
                     )
 
-
-
                     await message.edit(embed=embed_card)
 
             # Supprimer ancien message de progression
@@ -340,6 +321,9 @@ class Cards(commands.Cog):
                     await msg.delete()
                     break
 
+            total_cards = sum(len(lst) for lst in self.cards_by_category.values())
+            discovered = len(seen) + len(new_draws)
+            remaining = total_cards - discovered
             await announce_channel.send(
                 f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes)"
             )
@@ -397,32 +381,47 @@ class Cards(commands.Cog):
     def add_card_to_user(self, user_id: int, category: str, name: str):
         """Ajoute une carte pour un utilisateur dans la persistance."""
         try:
-            self.sheet_cards.append_row([str(user_id), category, name])
+            rows = self.sheet_cards.get_all_values()
+            for i, row in enumerate(rows):
+                if len(row) < 2:
+                    continue
+                if row[0] == category and row[1] == name:
+                    for j in range(2, len(row)):
+                        if row[j].startswith(f"{user_id}:"):
+                            uid, count = row[j].split(":")
+                            row[j] = f"{uid}:{int(count) + 1}"
+                            self.sheet_cards.update(f"A{i+1}", [row])
+                            return
+                    row.append(f"{user_id}:1")
+                    self.sheet_cards.update(f"A{i+1}", [row])
+                    return
+            # Si la carte n'existe pas encore
+            new_row = [category, name, f"{user_id}:1"]
+            self.sheet_cards.append_row(new_row)
         except Exception as e:
-            logging.info(f"Erreur lors de l'ajout de la carte dans Google Sheets: {e}")
+            logging.error(f"Erreur lors de l'ajout de la carte dans Google Sheets: {e}")
 
     def remove_card_from_user(self, user_id: int, category: str, name: str) -> bool:
-        if not self.cards_cache or time.time() - self.cards_cache_time > 5:
-            self.refresh_cards_cache()
-        if not self.cards_cache:
+        """Supprime une carte pour un utilisateur dans la persistance."""
+        try:
+            rows = self.sheet_cards.get_all_values()
+            for i, row in enumerate(rows):
+                if len(row) < 2:
+                    continue
+                if row[0] == category and row[1] == name:
+                    for j in range(2, len(row)):
+                        if row[j].startswith(f"{user_id}:"):
+                            uid, count = row[j].split(":")
+                            if int(count) > 1:
+                                row[j] = f"{uid}:{int(count) - 1}"
+                            else:
+                                row.pop(j)
+                            self.sheet_cards.update(f"A{i+1}", [row])
+                            return True
             return False
-
-        for i, row in enumerate(self.cards_cache):
-            if len(row) < 3:
-                continue
-            uid_str, cat, card_name = row[0], row[1], row[2]
-            if (
-                uid_str == str(user_id)
-                and cat == category
-                and self.normalize_name(card_name.removesuffix(".png")) == self.normalize_name(name.removesuffix(".png"))
-            ):
-                try:
-                    self.sheet_cards.delete_row(i + 1)  # +1 car gspread commence à 1
-                    self.cards_cache = None  # Invalide le cache car la structure a changé
-                    return True
-                except Exception as e:
-                    logging.error(f"[REMOVE] Échec suppression ligne {i+1}: {e}")
-                    return False
+        except Exception as e:
+            logging.error(f"Erreur lors de la suppression de la carte dans Google Sheets: {e}")
+            return False
 
 
 
@@ -600,7 +599,9 @@ class Cards(commands.Cog):
             if chosen_card not in options:
                 logging.warning(f"[ANOMALIE] La carte {chosen_card['name']} ne semble pas être dans {cat} !")
 
-            drawn.append((cat, chosen_card["name"]))
+            # Retirer ".png" du nom de la carte
+            card_name = chosen_card["name"].removesuffix(".png")
+            drawn.append((cat, card_name))
 
         return drawn
 
@@ -636,7 +637,7 @@ class Cards(commands.Cog):
         embed_msgs = []
         for cat, name in drawn_cards:
             logging.info(f"[DEBUG] Traitement de carte : {cat} | {name}")
-            file_id = next((f['id'] for f in self.cards_by_category.get(cat, []) if f['name'] == name), None)
+            file_id = next((f['id'] for f in self.cards_by_category.get(cat, []) if f['name'].removesuffix(".png") == name), None)
             if file_id:
                 file_bytes = self.download_drive_file(file_id)
                 safe_name = self.sanitize_filename(name)
@@ -779,7 +780,7 @@ class CardsMenuView(discord.ui.View):
         embeds_and_files = []
         for cat, name in drawn_cards:
             logging.info(f"[DEBUG] Traitement de carte : {cat} | {name}")
-            file_id = next((f['id'] for f in self.cog.cards_by_category.get(cat, []) if f['name'] == name), None)
+            file_id = next((f['id'] for f in self.cog.cards_by_category.get(cat, []) if f['name'].removesuffix(".png") == name), None)
             if file_id:
                 file_bytes = self.cog.download_drive_file(file_id)
                 safe_name = self.sanitize_filename(name)
