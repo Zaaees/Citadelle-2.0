@@ -1,3 +1,5 @@
+## À implémenter : Système de tirage journalier
+
 from discord import app_commands
 from discord.ext import commands
 import discord
@@ -8,6 +10,7 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 import gspread
 import unicodedata
+import re
 import time
 import logging
 logging.basicConfig(
@@ -135,6 +138,66 @@ class Cards(commands.Cog):
         # self.category_by_name = {file['name']: cat for cat, files in self.cards_by_category.items() for file in files}
 
 
+    @commands.command(name="convert_sheet")
+    @commands.has_permissions(administrator=True)
+    async def convert_sheet_command(self, ctx: commands.Context):
+        """Convertit l’ancien Google Sheet en format hybride avec doublons comptabilisés."""
+        await ctx.send("🔄 Conversion en cours du Google Sheet vers le format hybride...")
+        try:
+            self.convert_sheet_to_hybrid()
+            await ctx.send("✅ Conversion terminée avec succès !")
+        except Exception as e:
+            logging.error(f"[convert_sheet_command] Erreur pendant la conversion : {e}")
+            await ctx.send("❌ Une erreur est survenue lors de la conversion.")
+
+    
+    def convert_sheet_to_hybrid(self):
+        """Convertit un Google Sheet en format hybride avec doublons (user_id:compteur par carte)."""
+        print("📦 Conversion du Google Sheet en format hybride avec compte des doublons...")
+
+        old_rows = self.sheet_cards.get_all_values()[1:]  # skip header
+        hybrid_data = {}
+
+        for row in old_rows:
+            if len(row) < 3:
+                continue
+            user_id = row[0].strip()
+            cat = row[1].strip()
+            name = row[2].strip()
+            key = (cat, name)
+
+            if key not in hybrid_data:
+                hybrid_data[key] = {}
+
+            if user_id in hybrid_data[key]:
+                hybrid_data[key][user_id] += 1
+            else:
+                hybrid_data[key][user_id] = 1
+
+        # Écrase la feuille actuelle
+        self.sheet_cards.clear()
+
+        # Construction du header
+        max_ids = max(len(user_counts) for user_counts in hybrid_data.values())
+        header = ["Catégorie", "Nom"] + [f"Possesseur {i+1}" for i in range(max_ids)]
+        new_rows = [header]
+
+        for (cat, name), user_counts in hybrid_data.items():
+            line = [cat, name]
+            for uid, count in user_counts.items():
+                line.append(f"{uid}:{count}")
+            new_rows.append(line)
+
+        self.sheet_cards.update("A1", new_rows)
+        print(f"✅ Conversion terminée. {len(new_rows) - 1} cartes uniques enregistrées.")
+
+
+
+    
+    def sanitize_filename(self, name: str) -> str:
+        """Nettoie le nom d'une carte pour une utilisation sûre dans les fichiers Discord."""
+        return re.sub(r'[^a-zA-Z0-9_-]', '_', name)
+    
     def refresh_cards_cache(self):
         """Recharge le cache depuis Google Sheets (limité par minute)."""
         try:
@@ -191,6 +254,9 @@ class Cards(commands.Cog):
 
         self.add_card_to_user(user1_id, card2[0], card2[1])
         self.add_card_to_user(user2_id, card1[0], card1[1])
+
+        self.refresh_cards_cache()
+
         return True
 
 
@@ -211,45 +277,75 @@ class Cards(commands.Cog):
     async def _handle_announce_and_wall(self, interaction: discord.Interaction, drawn_cards: list[tuple[str, str]]):
         announce_channel = self.bot.get_channel(1360512727784882207)
 
-        # Annonce publique
-        for cat, name in drawn_cards:
-            if announce_channel and ("(Variante)" in name or cat in ["Secrète", "Fondateur", "Historique"]):
-                clean_name = name.removesuffix(".png") if name.endswith(".png") else name
-                await announce_channel.send(f"✨ **{interaction.user.display_name}** a obtenu une carte **{cat}** : **{clean_name}** !")
-
-        # Mur public
         try:
             all_user_cards = self.sheet_cards.get_all_values()
-            unique_drawn = set((row[1], row[2]) for row in all_user_cards if len(row) >= 3)
+            seen = set()
+            new_unique_order = []
+            for row in all_user_cards:
+                if len(row) >= 3:
+                    key = (row[1], row[2])
+                    if key not in seen:
+                        seen.add(key)
+                        new_unique_order.append(key)
+
             total_cards = sum(len(lst) for lst in self.cards_by_category.values())
-            discovered = len(unique_drawn)
+            discovered = len(new_unique_order)
             remaining = total_cards - discovered
 
-            if announce_channel:
-                for cat, name in drawn_cards:
-                    file_id = next((f['id'] for f in self.cards_by_category.get(cat, []) if f['name'] == name), None)
-                    if file_id:
-                        file_bytes = self.download_drive_file(file_id)
-                        safe_name = name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
-                        image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
-                        embed_card = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
-                        embed_card.set_image(url=f"attachment://{safe_name}.png")
-                        embed_card.set_footer(text=f"Découverte par : {interaction.user.display_name}")
-                        await announce_channel.send(embed=embed_card, file=image_file)
+            # Filtrer uniquement les cartes jamais vues avant (vraie découverte globale)
+            existing_cards = {(row[1], row[2]) for row in all_user_cards if len(row) >= 3}
+            new_draws = [card for card in drawn_cards if card not in existing_cards]
 
-                # Supprimer l’ancien message de résumé
-                async for msg in announce_channel.history(limit=20):
-                    if msg.author == self.bot.user and msg.content.startswith("📝 Cartes découvertes :"):
-                        await msg.delete()
-                        break
 
-                await announce_channel.send(
-                    f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes)"
-                )
+            if not new_draws:
+                return  # rien de nouveau à annoncer
+
+            for cat, name in new_draws:
+                if announce_channel and ("(Variante)" in name or cat in ["Secrète", "Fondateur", "Historique"]):
+                    clean_name = name.removesuffix(".png") if name.endswith(".png") else name
+                    await announce_channel.send(f"✨ **{interaction.user.display_name}** a obtenu une carte **{cat}** : **{clean_name}** !")
+
+            # Numérotation des cartes (globale)
+            for cat, name in new_draws:
+                file_id = next((f['id'] for f in self.cards_by_category.get(cat, []) if f['name'] == name), None)
+                if file_id:
+                    file_bytes = self.download_drive_file(file_id)
+                    safe_name = self.sanitize_filename(name)
+                    image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
+                    message = await announce_channel.send(file=image_file)
+
+                    # Trouver la position globale de la carte dans l'ordre des découvertes
+                    try:
+                        index = new_unique_order.index((cat, name)) + 1
+                    except ValueError:
+                        index = "?"
+
+                    embed_card = discord.Embed(
+                        title=name.removesuffix(".png") if name.endswith(".png") else name,
+                        description=f"Catégorie : **{cat}**",
+                        color=0x4E5D94
+                    )
+                    embed_card.set_image(url=f"attachment://{safe_name}.png")
+                    embed_card.set_footer(
+                        text=f"Découverte par : {interaction.user.display_name}\n→ {index}{'ère' if index == 1 else 'ème'} carte découverte"
+                    )
+
+
+
+                    await message.edit(embed=embed_card)
+
+            # Supprimer ancien message de progression
+            async for msg in announce_channel.history(limit=20):
+                if msg.author == self.bot.user and msg.content.startswith("📝 Cartes découvertes :"):
+                    await msg.delete()
+                    break
+
+            await announce_channel.send(
+                f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes)"
+            )
 
         except Exception as e:
             logging.error("Erreur lors de la mise à jour du mur :", e)
-
 
     @app_commands.command(name="cartes", description="Gérer vos cartes à collectionner")
     async def cartes(self, interaction: discord.Interaction):
@@ -528,7 +624,7 @@ class Cards(commands.Cog):
             await interaction.response.send_message("Erreur lors de l'enregistrement. Réessayez plus tard.", ephemeral=True)
             return
 
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
 
         view = CardsMenuView(self, interaction.user)
         drawn_cards = await view.perform_draw(interaction)
@@ -543,7 +639,7 @@ class Cards(commands.Cog):
             file_id = next((f['id'] for f in self.cards_by_category.get(cat, []) if f['name'] == name), None)
             if file_id:
                 file_bytes = self.download_drive_file(file_id)
-                safe_name = name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+                safe_name = self.sanitize_filename(name)
                 image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
                 embed = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
                 embed.set_image(url=f"attachment://{safe_name}.png")
@@ -556,11 +652,104 @@ class Cards(commands.Cog):
 
         # Envoi des autres cartes
         for embed, file in embed_msgs[1:]:
-            await interaction.followup.send(embed=embed, file=file, ephemeral=True)
+            await interaction.followup.send(embed=embed, file=file, ephemeral=False)
 
         # Annonces publiques et mur
         await self._handle_announce_and_wall(interaction, drawn_cards)
+    
+    @commands.command(name="refresh_mur")
+    @commands.has_permissions(administrator=True)
+    async def refresh_wall(self, ctx: commands.Context):
+        """Nettoie et réaffiche toutes les cartes découvertes dans le salon du mur."""
+        announce_channel = self.bot.get_channel(1360512727784882207)
 
+        if not announce_channel:
+            await ctx.send("Salon d’annonce introuvable.")
+            return
+
+        try:
+            await ctx.send("🧼 Suppression du mur en cours...")
+
+            def is_bot_message(m):
+                return m.author == self.bot.user
+
+            # 1. Purge rapide des messages récents
+            deleted = await announce_channel.purge(limit=200, check=is_bot_message, bulk=True)
+            await asyncio.sleep(1)
+
+            # 2. Suppression manuelle des anciens messages (>14 jours)
+            async for msg in announce_channel.history(limit=None, oldest_first=True):
+                if msg.author == self.bot.user:
+                    try:
+                        await msg.delete()
+                        await asyncio.sleep(0.5)
+                    except Exception as e:
+                        logging.warning(f"Erreur suppression message {msg.id}: {e}")
+
+            # 3. Reconstruction du mur
+            all_user_cards = self.sheet_cards.get_all_values()
+            seen = set()
+            unique_cards_ordered = []
+            for row in all_user_cards:
+                if len(row) >= 3:
+                    key = (row[1].strip().lower(), row[2].strip().lower())
+                    if key not in seen:
+                        seen.add(key)
+                        unique_cards_ordered.append((row[1], row[2]))  # on garde la version originale
+
+            for index, (cat, name) in enumerate(unique_cards_ordered, start=1):
+                cat_clean, name_clean = cat.strip().lower(), name.strip().lower()
+                file_id = next(
+                    (f['id'] for f in self.cards_by_category.get(cat, []) if f['name'].strip().lower() == name_clean),
+                    None
+                )
+                if file_id:
+                    file_bytes = self.download_drive_file(file_id)
+                    safe_name = self.sanitize_filename(name)
+                    image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
+
+                    # 🎯 Récupérer le découvreur
+                    discoverer_id = next(
+                        (row[0] for row in all_user_cards if len(row) >= 3 and row[1].strip().lower() == cat_clean and row[2].strip().lower() == name_clean),
+                        None
+                    )
+                    try:
+                        discoverer_member = ctx.guild.get_member(int(discoverer_id)) if discoverer_id else None
+                        if discoverer_member:
+                            discoverer_name = discoverer_member.nick or discoverer_member.name
+                        else:
+                            discoverer_name = "?"
+                    except:
+                        discoverer_name = "?"
+
+                    message = await announce_channel.send(file=image_file)
+
+                    embed_card = discord.Embed(
+                        title=name.removesuffix(".png") if name.endswith(".png") else name,
+                        description=f"Catégorie : **{cat}**",
+                        color=0x4E5D94
+                    )
+                    embed_card.set_image(url=f"attachment://{safe_name}.png")
+                    embed_card.set_footer(
+                        text=f"Découverte par : {discoverer_name}\n→ {index}{'ère' if index == 1 else 'ème'} carte découverte"
+                    )
+
+                    await message.edit(embed=embed_card)
+                    await asyncio.sleep(0.5)
+
+            # 4. Message de progression
+            total_cards = sum(len(lst) for lst in self.cards_by_category.values())
+            discovered = len(unique_cards_ordered)
+            remaining = total_cards - discovered
+            await announce_channel.send(
+                f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes)"
+            )
+
+            await ctx.send("✅ Mur reconstruit avec succès.")
+
+        except Exception as e:
+            logging.error("Erreur lors de la reconstruction du mur :", e)
+            await ctx.send("❌ Une erreur est survenue.")
 
 class CardsMenuView(discord.ui.View):
     def __init__(self, cog: Cards, user: discord.User):
@@ -593,14 +782,14 @@ class CardsMenuView(discord.ui.View):
             file_id = next((f['id'] for f in self.cog.cards_by_category.get(cat, []) if f['name'] == name), None)
             if file_id:
                 file_bytes = self.cog.download_drive_file(file_id)
-                safe_name = name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+                safe_name = self.sanitize_filename(name)
                 image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
                 embed = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
                 embed.set_image(url=f"attachment://{safe_name}.png")
                 embeds_and_files.append((embed, image_file))
 
         for embed, file in embeds_and_files:
-            await interaction.followup.send(embed=embed, file=file, ephemeral=True)
+            await interaction.followup.send(embed=embed, file=file, ephemeral=False)
 
         # Annonce publique si carte rare ou variante
         await self.cog._handle_announce_and_wall(interaction, drawn_cards)
@@ -773,7 +962,7 @@ class CardNameModal(discord.ui.Modal, title="Afficher une carte"):
 
         cat, name, file_id = result
         file_bytes = self.cog.download_drive_file(file_id)
-        safe_name = name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        safe_name = self.sanitize_filename(name)
         image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
 
         embed = discord.Embed(

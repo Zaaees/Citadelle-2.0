@@ -86,14 +86,14 @@ class CustomBot(commands.Bot):
         try:
             await self.load_extension('cogs.inventaire')
             await self.load_extension('cogs.Cards')
-            await self.load_extension('cogs.RPTracker')
-            await self.load_extension('cogs.bump')
-            await self.load_extension('cogs.vocabulaire')
-            await self.load_extension('cogs.souselement')
-            await self.load_extension('cogs.ticket')
-            await self.load_extension('cogs.validation')
-            await self.load_extension('cogs.Espace')
-            await self.load_extension('cogs.InactiveUserTracker')
+            #await self.load_extension('cogs.RPTracker')
+            #await self.load_extension('cogs.bump')
+            #await self.load_extension('cogs.vocabulaire')
+            #await self.load_extension('cogs.souselement')
+            #await self.load_extension('cogs.ticket')
+           # await self.load_extension('cogs.validation')
+            #await self.load_extension('cogs.Espace')
+           #await self.load_extension('cogs.InactiveUserTracker')
 
             # Synchroniser les commandes
             await self.tree.sync()
