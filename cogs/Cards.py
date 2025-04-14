@@ -109,6 +109,11 @@ class Cards(commands.Cog):
         except gspread.exceptions.WorksheetNotFound:
             self.sheet_lancement = spreadsheet.add_worksheet(title="Lancement", rows="1000", cols="2")
 
+        try:
+            self.sheet_daily_draw = spreadsheet.worksheet("Tirages Journaliers")
+        except gspread.exceptions.WorksheetNotFound:
+            self.sheet_daily_draw = spreadsheet.add_worksheet(title="Tirages Journaliers", rows="1000", cols="2")
+
         # Service Google Drive pour accéder aux images des cartes
         self.drive_service = build('drive', 'v3', credentials=creds)
         # Dictionnaire des dossiers par rareté (IDs des dossiers Google Drive depuis .env)
@@ -376,6 +381,70 @@ class Cards(commands.Cog):
             ephemeral=True
         )
 
+
+    async def handle_daily_draw(self, interaction: discord.Interaction):
+        user_id_str = str(interaction.user.id)
+        today = time.strftime("%Y-%m-%d")
+
+        try:
+            all_rows = self.sheet_daily_draw.get_all_values()
+            user_row = next((row for row in all_rows if row and row[0] == user_id_str), None)
+
+            if user_row:
+                row_index = all_rows.index(user_row) + 1
+                last_draw_date = user_row[1] if len(user_row) > 1 else ""
+                if last_draw_date == today:
+                    await interaction.response.send_message("🚫 Vous avez déjà effectué votre tirage journalier aujourd'hui.", ephemeral=True)
+                    return
+                else:
+                    # Met à jour la date dans la colonne B, même si elle était vide
+                    self.sheet_daily_draw.update(f"B{row_index}", [[today]])
+            else:
+                # Ajoute une nouvelle ligne pour l'utilisateur
+                self.sheet_daily_draw.append_row([user_id_str, today])
+
+        except Exception as e:
+            logging.error(f"[DAILY_DRAW] Erreur lecture/écriture feuille Tirages Journaliers : {e}")
+            await interaction.response.send_message("Erreur de lecture Google Sheets. Réessayez plus tard.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=False)
+
+        view = CardsMenuView(self, interaction.user)
+        drawn_cards = await view.perform_draw(interaction)
+
+        if not drawn_cards:
+            await interaction.edit_original_response(content="Vous n’avez plus de tirages disponibles.")
+            return
+
+        embed_msgs = []
+        for cat, name in drawn_cards:
+            logging.info(f"[DEBUG] Traitement de carte : {cat} | {name}")
+            file_id = next((f['id'] for f in self.cards_by_category.get(cat, []) if f['name'].removesuffix(".png") == name), None)
+            if file_id:
+                file_bytes = self.download_drive_file(file_id)
+                safe_name = self.sanitize_filename(name)
+                image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
+                embed = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
+                embed.set_image(url=f"attachment://{safe_name}.png")
+                embed_msgs.append((embed, image_file))
+
+        # Mise à jour du message initial
+        if embed_msgs:
+            first_embed, first_file = embed_msgs[0]
+            await interaction.edit_original_response(content=None, embed=first_embed, attachments=[first_file])
+
+        # Envoi des autres cartes
+        for embed, file in embed_msgs[1:]:
+            await interaction.followup.send(embed=embed, file=file, ephemeral=False)
+
+        # Annonces publiques et mur
+        await self._handle_announce_and_wall(interaction, drawn_cards)
+
+    @app_commands.command(name="tirage_journalier", description="Effectuez votre tirage journalier (une fois par jour)")
+    async def daily_draw(self, interaction: discord.Interaction):
+        logging.info("[DEBUG] Commande /tirage_journalier déclenchée")
+        await self.handle_daily_draw(interaction)
 
     
     def add_card_to_user(self, user_id: int, category: str, name: str):
@@ -801,8 +870,8 @@ class CardsMenuView(discord.ui.View):
         et retourne la liste des cartes tirées sous forme (catégorie, nom).
         à appeler depuis /lancement ou draw_card.
         """
-        # Exception spéciale : si appel via /lancement, tirer 3 cartes peu importe les médailles
-        if interaction.command and interaction.command.name == "lancement":
+        # ✅ Exception : /tirage_journalier donne 3 cartes même sans personnage
+        if interaction.command and interaction.command.name == "tirage_journalier":
             drawn_cards = self.cog.draw_cards(3)
             for cat, name in drawn_cards:
                 self.cog.add_card_to_user(self.user.id, cat, name)
