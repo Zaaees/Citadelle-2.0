@@ -12,6 +12,8 @@ import gspread
 import unicodedata
 import re
 import time
+from datetime import datetime
+import pytz
 import logging
 logging.basicConfig(
     level=logging.INFO,
@@ -384,7 +386,8 @@ class Cards(commands.Cog):
 
     async def handle_daily_draw(self, interaction: discord.Interaction):
         user_id_str = str(interaction.user.id)
-        today = time.strftime("%Y-%m-%d")
+        paris_tz = pytz.timezone("Europe/Paris")
+        today = datetime.now(paris_tz).strftime("%Y-%m-%d")
 
         try:
             all_rows = self.sheet_daily_draw.get_all_values()
