@@ -1059,16 +1059,6 @@ class TradeOfferCardModal(discord.ui.Modal, title="Proposer un échange"):
             await interaction.channel.send("⏱ Temps écoulé. Aucun joueur mentionné, échange annulé.")
 
 
-@app_commands.command(name="lancement", description="Tirage gratuit de bienvenue (une seule fois)")
-async def lancement(interaction: discord.Interaction):
-    cog: Cards = interaction.client.get_cog("Cards")
-    if cog is None:
-        await interaction.response.send_message("Erreur : cog introuvable.", ephemeral=True)
-        return
-    await cog.handle_lancement(interaction)
-
-
-
 class TradeConfirmView(discord.ui.View):
     def __init__(self, cog: Cards, offerer: discord.User, target: discord.User, card_category: str, card_name: str):
         super().__init__(timeout=120)
@@ -1268,7 +1258,6 @@ class TradeResponseModal(discord.ui.Modal, title="Réponse à l’échange"):
 async def setup(bot):
     cards = Cards(bot)
     await bot.add_cog(cards)
-    bot.tree.add_command(lancement)  # 👈 commande slash individuelle
     await bot.tree.sync()
     await cards.update_all_character_owners()
 
