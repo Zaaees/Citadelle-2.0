@@ -851,7 +851,6 @@ class Cards(commands.Cog):
         # 0. Purge de tout le salon
         await ctx.send("🧼 Suppression de tous les messages du mur en cours…")
         try:
-            # supprime jusqu'à 1000 messages (limit=None par défaut = 100)
             await announce_channel.purge(limit=None)
         except Exception as e:
             logging.warning(f"[RECONSTRUIRE_MUR] Impossible de tout purger : {e}")
@@ -860,12 +859,24 @@ class Cards(commands.Cog):
         try:
             rows = self.sheet_cards.get_all_values()[1:]
             index = 1
+
             for row in rows:
                 if len(row) < 3 or not row[2].strip():
                     continue  # pas de découvreur enregistré
 
                 cat, name = row[0], row[1]
-                discoverer_id = row[2].split(":", 1)[0]
+                discoverer_id = int(row[2].split(":", 1)[0])
+
+                # Résolution du nom dans le guild
+                member = ctx.guild.get_member(discoverer_id)
+                if member:
+                    discoverer_name = member.nick or member.name
+                else:
+                    try:
+                        user = await self.bot.fetch_user(discoverer_id)
+                        discoverer_name = user.name
+                    except:
+                        discoverer_name = f"<@{discoverer_id}>"
 
                 # Télécharger l'image
                 file_id = next(
@@ -889,7 +900,7 @@ class Cards(commands.Cog):
                 embed.set_image(url=f"attachment://{safe_name}.png")
                 embed.set_footer(
                     text=(
-                        f"Découverte par : <@{discoverer_id}>\n"
+                        f"Découverte par : {discoverer_name}\n"
                         f"→ {index}{'ère' if index == 1 else 'ème'} carte découverte"
                     )
                 )
