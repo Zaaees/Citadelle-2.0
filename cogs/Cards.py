@@ -387,10 +387,8 @@ class Cards(commands.Cog):
                     await interaction.response.send_message("🚫 Vous avez déjà effectué votre tirage journalier aujourd'hui.", ephemeral=True)
                     return
                 else:
-                    # Met à jour la date dans la colonne B, même si elle était vide
                     self.sheet_daily_draw.update(f"B{row_index}", [[today]])
             else:
-                # Ajoute une nouvelle ligne pour l'utilisateur
                 self.sheet_daily_draw.append_row([user_id_str, today])
 
         except Exception as e:
@@ -401,18 +399,26 @@ class Cards(commands.Cog):
         await interaction.response.defer(ephemeral=False)
 
         view = CardsMenuView(self, interaction.user)
-        drawn_cards = await view.perform_draw(interaction)
-        # Vérifier les doublons post‑tirage journalier
+        drawn_cards = self.draw_cards(3)  # Directement depuis cog, sans ajout immédiat
+
+        # Ici, identifie les nouvelles cartes avant d'ajouter
+        existing_cards = {(row[0], row[1]) for row in self.sheet_cards.get_all_values()[1:]}
+        new_cards = [card for card in drawn_cards if card not in existing_cards]
+
+        # Maintenant tu peux appeler la fonction d'affichage avant d’ajouter à Sheets
+        if new_cards:
+            await self._handle_announce_and_wall(interaction, new_cards)
+
+        # Maintenant seulement, ajoute-les à Sheets
+        for cat, name in drawn_cards:
+            self.add_card_to_user(interaction.user.id, cat, name)
+
+        # Vérifie les doublons post‑tirage journalier
         await self.check_for_upgrades(interaction, interaction.user.id, drawn_cards)
 
-
-        if not drawn_cards:
-            await interaction.edit_original_response(content="Vous n’avez plus de tirages disponibles.")
-            return
-
+        # Gestion d'affichage des cartes tirées (inchangée, ta logique d'embeds/images reste valide)
         embed_msgs = []
         for cat, name in drawn_cards:
-            logging.info(f"[DEBUG] Traitement de carte : {cat} | {name}")
             file_id = next((f['id'] for f in self.cards_by_category.get(cat, []) if f['name'].removesuffix(".png") == name), None)
             if file_id:
                 file_bytes = self.download_drive_file(file_id)
@@ -422,17 +428,12 @@ class Cards(commands.Cog):
                 embed.set_image(url=f"attachment://{safe_name}.png")
                 embed_msgs.append((embed, image_file))
 
-        # Mise à jour du message initial
         if embed_msgs:
             first_embed, first_file = embed_msgs[0]
             await interaction.edit_original_response(content=None, embed=first_embed, attachments=[first_file])
 
-        # Envoi des autres cartes
         for embed, file in embed_msgs[1:]:
             await interaction.followup.send(embed=embed, file=file, ephemeral=False)
-
-        # Annonces publiques et mur
-        await self._handle_announce_and_wall(interaction, drawn_cards)
 
     @app_commands.command(name="tirage_journalier", description="Effectuez votre tirage journalier (une fois par jour)")
     async def daily_draw(self, interaction: discord.Interaction):
@@ -970,6 +971,88 @@ class Cards(commands.Cog):
         await ctx.send(
             f"✅ {count} bonus ajouté{'s' if count > 1 else ''} pour {member.display_name} (raison : {source})."
         )
+
+    @commands.command(name="verifier_mur", help="Vérifie et met à jour le mur des cartes")
+    @commands.has_permissions(administrator=True)
+    async def verifier_mur(self, ctx: commands.Context):
+        announce_channel = self.bot.get_channel(1360512727784882207)  # Remplace par ton ID si nécessaire
+        if not announce_channel:
+            await ctx.send("Salon d'annonce introuvable.")
+            return
+
+        await ctx.send("🔍 Vérification du mur des cartes en cours...")
+
+        # Récupérer les cartes déjà présentes
+        rows = self.sheet_cards.get_all_values()[1:]  # skip header
+        seen_cards = {(row[0], row[1]) for row in rows if len(row) >= 2}
+
+        # Fusionner cartes normales et Full
+        all_files = {}
+        for cat, files in self.cards_by_category.items():
+            all_files.setdefault(cat, []).extend(files)
+        for cat, files in self.upgrade_cards_by_category.items():
+            all_files.setdefault(cat, []).extend(files)
+
+        # Détecter les cartes manquantes sur le mur
+        missing_cards = []
+        for card in seen_cards:
+            cat, name = card
+            message_exists = False
+            async for msg in announce_channel.history(limit=None):
+                if msg.embeds and msg.embeds[0].title == name:
+                    message_exists = True
+                    break
+            if not message_exists:
+                missing_cards.append((cat, name))
+
+        # Poster les cartes manquantes
+        index = len(seen_cards) - len(missing_cards) + 1
+        for cat, name in missing_cards:
+            discoverer_row = next((row for row in rows if row[0] == cat and row[1] == name), None)
+            discoverer_id = int(discoverer_row[2].split(":")[0]) if discoverer_row and len(discoverer_row) > 2 else None
+            member = ctx.guild.get_member(discoverer_id) if discoverer_id else None
+            discoverer_name = member.display_name if member else "Inconnu"
+
+            file_id = next((f['id'] for f in all_files.get(cat, []) if f['name'].removesuffix(".png") == name), None)
+            if not file_id:
+                continue
+
+            file_bytes = self.download_drive_file(file_id)
+            safe_name = self.sanitize_filename(name)
+            image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
+
+            embed = discord.Embed(
+                title=name,
+                description=f"Catégorie : **{cat}**",
+                color=0x4E5D94
+            )
+            embed.set_image(url=f"attachment://{safe_name}.png")
+            embed.set_footer(
+                text=(
+                    f"Découverte par : {discoverer_name}\n"
+                    f"→ {index}{'ère' if index == 1 else 'ème'} carte découverte"
+                )
+            )
+            await announce_channel.send(embed=embed, file=image_file)
+            await asyncio.sleep(1)
+            index += 1
+
+        # Mise à jour du message de progression
+        async for msg in announce_channel.history(limit=50):
+            if msg.author == self.bot.user and msg.content.startswith("📝 Cartes découvertes"):
+                await msg.delete()
+                break
+
+        total_cards = sum(len(lst) for lst in all_files.values())
+        discovered = len(seen_cards)
+        remaining = total_cards - discovered
+
+        await announce_channel.send(
+            f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes)"
+        )
+
+        await ctx.send(f"✅ Mur vérifié : {len(missing_cards)} cartes ajoutées, progression mise à jour.")
+
 
 class CardsMenuView(discord.ui.View):
     def __init__(self, cog: Cards, user: discord.User):
