@@ -88,11 +88,8 @@ class Exces(commands.Cog):
 
         # Mise à jour du nombre d'excès dans le sheet
         if exces_record:
-            # Trouver précisément la ligne pour mise à jour
-            for idx, record in enumerate(exces_records, start=2):  # start=2 car la première ligne est celle des titres
-                if record.get('Nom', '').strip().lower() == personnage.strip().lower():
-                    self.exces_sheet.update_cell(idx, 2, n_exces + 1)
-                    break
+            cell = self.exces_sheet.find(exces_record['Nom'])
+            self.exces_sheet.update_cell(cell.row, cell.col + 1, n_exces + 1)
         else:
             self.exces_sheet.append_row([personnage, 1])
 
@@ -112,10 +109,7 @@ class Exces(commands.Cog):
         else:
             embed = discord.Embed(
                 title="✅ Pas d'excès permanent",
-                description=(
-                    f"Ton personnage **{personnage}** n'a pas subi d'excès permanent.\n"
-                    f"Chance : {chance*100:.1f}% pour **{n_exces}** excès précédents."
-                ),
+                description=f"Ton personnage **{personnage}** n'a pas subi d'excès permanent.",
                 color=discord.Color.green()
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
