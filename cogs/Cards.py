@@ -840,6 +840,74 @@ class Cards(commands.Cog):
             logging.error("Erreur lors de la reconstruction du mur :", e)
             await ctx.send("❌ Une erreur est survenue.")
 
+    @commands.command(name="upgrade_all_full", help="(Temporaire) Transforme tous les doublons en cartes Full pour tous les joueurs")
+    @commands.has_permissions(administrator=True)
+    async def upgrade_all_full(self, ctx: commands.Context):
+        announce_channel = self.bot.get_channel(1362815692260245787)
+        if not announce_channel:
+            await ctx.send("Salon d'annonce introuvable.")
+            return
+
+        # 1. Collecte de tous les user_ids présents dans la feuille
+        rows = self.sheet_cards.get_all_values()[1:]  # on saute l'en‑tête
+        user_ids = set()
+        for row in rows:
+            for cell in row[2:]:
+                if cell:
+                    uid_str, _ = cell.split(":", 1)
+                    user_ids.add(int(uid_str))
+
+        # 2. Pour chaque utilisateur, on vérifie les seuils de Full
+        for user_id in user_ids:
+            user_cards = self.get_user_cards(user_id)
+            for cat, seuil in self.upgrade_thresholds.items():
+                # on ne traite que la catégorie concernée
+                names = [name for c, name in user_cards if c == cat]
+                for name in set(names):
+                    count = names.count(name)
+                    if count >= seuil:
+                        # on retire les cartes normales
+                        for _ in range(seuil):
+                            self.remove_card_from_user(user_id, cat, name)
+                        # on ajoute la Full
+                        full_name = f"{name} (Full)"
+                        self.add_card_to_user(user_id, cat, full_name)
+
+                        # on récupère l'utilisateur pour mention
+                        try:
+                            member = await self.bot.fetch_user(user_id)
+                            mention = member.mention
+                        except:
+                            mention = f"<@{user_id}>"
+
+                        # on construit l'embed
+                        embed = discord.Embed(
+                            title="🎉 Carte Full obtenue",
+                            description=(
+                                f"{mention} a échangé **{seuil}× {name}**\n"
+                                f"→ **{full_name}**"
+                            ),
+                            color=discord.Color.gold()
+                        )
+
+                        # on récupère et envoie l'image Full si présente
+                        file_id = next(
+                            (f['id'] for f in self.upgrade_cards_by_category.get(cat, [])
+                             if self.normalize_name(f['name'].removesuffix(".png"))
+                                == self.normalize_name(full_name)),
+                            None
+                        )
+                        if file_id:
+                            file_bytes = self.download_drive_file(file_id)
+                            safe = self.sanitize_filename(full_name)
+                            file = discord.File(io.BytesIO(file_bytes), filename=f"{safe}.png")
+                            embed.set_image(url=f"attachment://{safe}.png")
+                            await announce_channel.send(embed=embed, file=file)
+                        else:
+                            await announce_channel.send(embed=embed)
+
+        await ctx.send("✅ Mise à jour de tous les doublons Full terminée.")
+
 class CardsMenuView(discord.ui.View):
     def __init__(self, cog: Cards, user: discord.User):
         super().__init__(timeout=None)
