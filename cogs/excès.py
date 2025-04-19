@@ -1,4 +1,5 @@
 import os
+import json
 import random
 import discord
 from discord import app_commands
@@ -23,12 +24,16 @@ def calc_permanent_exces_chance(n_exces: int) -> float:
 class Exces(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # Initialisation du client Google Sheets
+        # Initialisation du client Google Sheets via JSON stocké en ENV
         scope = ['https://www.googleapis.com/auth/spreadsheets.readonly']
-        creds_path = os.getenv('SERVICE_ACCOUNT_JSON')
-        if not creds_path:
-            raise RuntimeError("Le SERVICE_ACCOUNT_JSON n'est pas défini.")
-        creds = Credentials.from_service_account_file(creds_path, scopes=scope)
+        sa_json = os.getenv('SERVICE_ACCOUNT_JSON')
+        if not sa_json:
+            raise RuntimeError("L'ENV SERVICE_ACCOUNT_JSON n'est pas défini ou vide.")
+        try:
+            info = json.loads(sa_json)
+        except json.JSONDecodeError as e:
+            raise RuntimeError("SERVICE_ACCOUNT_JSON contient un JSON invalide.") from e
+        creds = Credentials.from_service_account_info(info, scopes=scope)
         gc = gspread.authorize(creds)
 
         # Sheet inventaire : lecture des personnages/utilisateurs
