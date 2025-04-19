@@ -873,21 +873,51 @@ class Cards(commands.Cog):
             await ctx.send("❌ Une erreur est survenue lors de la reconstruction.")
 
     @app_commands.command(
-        name="forcer_full",
-        description="(Admin) Force l'upgrade Full pour un utilisateur donné"
+        name="annoncer_full",
+        description="(Admin) Poste la Full d’un joueur sur le mur sans reconstruire tout"
     )
     @app_commands.checks.has_permissions(administrator=True)
-    async def force_full(
+    async def annoncer_full(
         self,
         interaction: discord.Interaction,
-        member: discord.Member
+        member: discord.Member,
+        carte: str,  # ex : "NomDeLaCarte"
     ):
-        """Force la conversion des doublons en Full pour `member`."""
-        await interaction.response.defer(ephemeral=True)  # on defer pour avoir un followup
-        # On passe drawn_cards=[] car on veut vérifier TOUTES ses cartes
-        await self.check_for_upgrades(interaction, member.id, drawn_cards=[])
+        """Envoie l'embed de la Full de `carte` de `member` dans le channel d'annonce."""
+        await interaction.response.defer(ephemeral=True)
+
+        # 1) Préparez le nom complet de la Full et trouvez son file_id
+        full_name = f"{carte} (Full)"
+        # on suppose que c'est une carte Élèves
+        cat = "Élèves"
+        file_id = next(
+            f['id'] for f in self.upgrade_cards_by_category[cat]
+            if self.normalize_name(f['name'].removesuffix(".png"))
+               == self.normalize_name(full_name)
+        )
+
+        # 2) Téléchargez l'image et construisez l'embed
+        file_bytes = self.download_drive_file(file_id)
+        safe = self.sanitize_filename(full_name)
+        image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe}.png")
+        embed = discord.Embed(
+            title=full_name,
+            description=f"Catégorie : **{cat}**",
+            color=discord.Color.gold()
+        )
+        embed.set_image(url=f"attachment://{safe}.png")
+        embed.set_footer(
+            text=f"Découverte par : {member.display_name}"
+        )
+
+        # 3) Envoyez-le dans le salon de votre mur
+        announce = self.bot.get_channel(1360512727784882207)
+        if not announce:
+            return await interaction.followup.send("❌ Salon d’annonce introuvable.", ephemeral=True)
+        await announce.send(embed=embed, file=image_file)
+
         await interaction.followup.send(
-            f"✅ Upgrades Full forcées pour {member.mention}", 
+            f"✅ Full **{full_name}** postée sur le mur pour {member.mention}.",
             ephemeral=True
         )
 
