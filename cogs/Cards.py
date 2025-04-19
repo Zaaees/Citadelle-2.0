@@ -116,6 +116,15 @@ class Cards(commands.Cog):
         except gspread.exceptions.WorksheetNotFound:
             self.sheet_daily_draw = spreadsheet.add_worksheet(title="Tirages Journaliers", rows="1000", cols="2")
 
+        # ————— Bonus tirages —————
+        try:
+            self.sheet_bonus = spreadsheet.worksheet("Bonus")
+        except gspread.exceptions.WorksheetNotFound:
+            self.sheet_bonus = spreadsheet.add_worksheet(title="Bonus", rows="1000", cols="4")
+            # initialiser l’en‑tête
+            self.sheet_bonus.append_row(["user_id", "source", "date", "claimed"])
+
+       
         # Service Google Drive pour accéder aux images des cartes
         self.drive_service = build('drive', 'v3', credentials=creds)
         # Dictionnaire des dossiers par rareté (IDs des dossiers Google Drive depuis .env)
@@ -727,6 +736,14 @@ class Cards(commands.Cog):
                 # 4) Annoncer la découverte sur le mur des cartes
                 await self._handle_announce_and_wall(interaction, [(cat, full_name)])
 
+    def log_bonus(self, user_id: int, source: str):
+        """Enregistre un bonus de tirage pour un utilisateur (non réclamé)."""
+        paris_tz = pytz.timezone("Europe/Paris")
+        today = datetime.now(paris_tz).strftime("%Y-%m-%d")
+        # user_id, raison, date, colonne 'claimed' vide
+        self.sheet_bonus.append_row([str(user_id), source, today, ""])
+
+    
     async def handle_lancement(self, interaction: discord.Interaction):
         user_id_str = str(interaction.user.id)
 
@@ -873,53 +890,78 @@ class Cards(commands.Cog):
             await ctx.send("❌ Une erreur est survenue lors de la reconstruction.")
 
     @app_commands.command(
-        name="annoncer_full",
-        description="(Admin) Poste la Full d’un joueur sur le mur sans reconstruire tout"
+        name="reclamer_bonus",
+        description="Récupérez vos tirages bonus non réclamés"
     )
-    @app_commands.checks.has_permissions(administrator=True)
-    async def annoncer_full(
-        self,
-        interaction: discord.Interaction,
-        member: discord.Member,
-        carte: str,  # ex : "NomDeLaCarte"
-    ):
-        """Envoie l'embed de la Full de `carte` de `member` dans le channel d'annonce."""
-        await interaction.response.defer(ephemeral=True)
+    async def reclamer_bonus(self, interaction: discord.Interaction):
+        user_id_str = str(interaction.user.id)
+        # Lecture des bonus
+        try:
+            all_rows = self.sheet_bonus.get_all_values()[1:]  # skip header
+        except Exception:
+            return await interaction.response.send_message(
+                "Erreur de lecture des bonus. Réessayez plus tard.", ephemeral=True
+            )
 
-        # 1) Préparez le nom complet de la Full et trouvez son file_id
-        full_name = f"{carte} (Full)"
-        # on suppose que c'est une carte Élèves
-        cat = "Élèves"
-        file_id = next(
-            f['id'] for f in self.upgrade_cards_by_category[cat]
-            if self.normalize_name(f['name'].removesuffix(".png"))
-               == self.normalize_name(full_name)
-        )
+        # Filtrer ceux non réclamés
+        unclaimed = [
+            (idx + 2, row)  # +2 car header + index base 0 → numéro ligne Sheets
+            for idx, row in enumerate(all_rows)
+            if len(row) >= 4 and row[0] == user_id_str and row[3] == ""
+        ]
+        if not unclaimed:
+            return await interaction.response.send_message(
+                "Vous n'avez aucun bonus non réclamé.", ephemeral=True
+            )
 
-        # 2) Téléchargez l'image et construisez l'embed
-        file_bytes = self.download_drive_file(file_id)
-        safe = self.sanitize_filename(full_name)
-        image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe}.png")
-        embed = discord.Embed(
-            title=full_name,
-            description=f"Catégorie : **{cat}**",
-            color=discord.Color.gold()
-        )
-        embed.set_image(url=f"attachment://{safe}.png")
-        embed.set_footer(
-            text=f"Découverte par : {member.display_name}"
-        )
+        await interaction.response.defer(thinking=True, ephemeral=False)
+        view = CardsMenuView(self, interaction.user)
+        total_drawn = []
 
-        # 3) Envoyez-le dans le salon de votre mur
-        announce = self.bot.get_channel(1360512727784882207)
-        if not announce:
-            return await interaction.followup.send("❌ Salon d’annonce introuvable.", ephemeral=True)
-        await announce.send(embed=embed, file=image_file)
+        for row_index, _ in unclaimed:
+            # marquer comme réclamé
+            self.sheet_bonus.update(f"D{row_index}", [["X"]])
+            # effectuer 1 tirage (=> jusqu'à 3 cartes)
+            drawn = await view.perform_draw(interaction)
+            total_drawn.extend(drawn)
 
-        await interaction.followup.send(
-            f"✅ Full **{full_name}** postée sur le mur pour {member.mention}.",
-            ephemeral=True
-        )
+        # envoyer les cartes comme dans daily_draw
+        embed_msgs = []
+        for cat, name in total_drawn:
+            file_id = next(
+                (f["id"] for f in self.cards_by_category.get(cat, [])
+                 if f["name"].removesuffix(".png") == name),
+                None
+            )
+            if not file_id:
+                continue
+            file_bytes = self.download_drive_file(file_id)
+            safe = self.sanitize_filename(name)
+            image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe}.png")
+            embed = discord.Embed(
+                title=name,
+                description=f"Catégorie : **{cat}**",
+                color=0x4E5D94
+            )
+            embed.set_image(url=f"attachment://{safe}.png")
+            embed_msgs.append((embed, image_file))
+
+        if embed_msgs:
+            first_embed, first_file = embed_msgs[0]
+            await interaction.edit_original_response(content=None, embed=first_embed, attachments=[first_file])
+            for embed, file in embed_msgs[1:]:
+                await interaction.followup.send(embed=embed, file=file)
+
+        # Annonces publiques pour les cartes rares/variantes
+        await self._handle_announce_and_wall(interaction, total_drawn)
+
+    @commands.command(name="donner_bonus")
+    @commands.has_permissions(administrator=True)
+    async def give_bonus(self, ctx: commands.Context, member: discord.Member, *, source: str):
+        """Donne un bonus de tirage à un joueur."""
+        self.log_bonus(member.id, source)
+        await ctx.send(f"Bonus ajouté pour {member.display_name} (raison : {source}).")
+
 
 class CardsMenuView(discord.ui.View):
     def __init__(self, cog: Cards, user: discord.User):
