@@ -674,51 +674,59 @@ class Cards(commands.Cog):
         drawn_cards: list[tuple[str,str]]
     ):
         """
-        Vérifie, pour chaque carte normale tirée, si l'utilisateur atteint le seuil
-        de doublons. Si oui, remplace N cartes par la version Full et notifie.
+        Pour chaque carte normale où l'utilisateur a atteint le seuil de
+        doublons, on échange les N doublons contre la version Full,
+        on notifie l'utilisateur et on met à jour le mur.
         """
-        for cat, name in set(drawn_cards):
-            if cat in self.upgrade_thresholds:
-                # compte combien il en possède
-                normalized = self.normalize_name(name)
-                user_cards = self.get_user_cards(user_id)
-                count = sum(
-                    1 for c,n in user_cards
-                    if c == cat and self.normalize_name(n) == normalized
-                )
-                seuil = self.upgrade_thresholds[cat]
-                if count >= seuil:
-                    # 1) retirer les doublons
-                    for _ in range(seuil):
-                        self.remove_card_from_user(user_id, cat, name)
-                    # 2) ajouter la Full
-                    full_name = f"{name} (Full)"
-                    self.add_card_to_user(user_id, cat, full_name)
-                    # 3) récupérer le fichier Full
-                    file_id = next(
-                        f['id'] for f in self.upgrade_cards_by_category[cat]
-                        if self.normalize_name(f['name'].removesuffix(".png"))
-                           == self.normalize_name(full_name)
-                    )
-                    file_bytes = self.download_drive_file(file_id)
-                    safe_name = self.sanitize_filename(full_name)
-                    image_file = discord.File(
-                        io.BytesIO(file_bytes),
-                        filename=f"{safe_name}.png"
-                    )
-                    # 4) notifier l'utilisateur
-                    embed = discord.Embed(
-                        title=f"🎉 Carte Full obtenue : {full_name}",
-                        description=(
-                            f"Vous avez échangé **{seuil}× {name}** "
-                            f"contre **{full_name}** !"
-                        ),
-                        color=discord.Color.gold()
-                    )
-                    embed.set_image(url=f"attachment://{safe_name}.png")
-                    await interaction.followup.send(embed=embed, file=image_file)
+        # 1) Récupérer tous les doublons de l'utilisateur
+        user_cards = self.get_user_cards(user_id)
+        # Compter les occurrences par (catégorie, nom)
+        counts: dict[tuple[str,str], int] = {}
+        for cat, name in user_cards:
+            counts[(cat, name)] = counts.get((cat, name), 0) + 1
 
-    
+        # 2) Pour chaque carte où count >= seuil, effectuer l'upgrade
+        for (cat, name), count in counts.items():
+            if cat not in self.upgrade_thresholds:
+                continue
+            seuil = self.upgrade_thresholds[cat]
+            # Si on a au moins N doublons
+            if count >= seuil:
+                # Retirer N cartes normales
+                for _ in range(seuil):
+                    self.remove_card_from_user(user_id, cat, name)
+                # Préparer la Full
+                full_name = f"{name} (Full)"
+                self.add_card_to_user(user_id, cat, full_name)
+
+                # 3) Récupérer le fichier Full et envoyer l'embed à l'utilisateur
+                file_id = next(
+                    f['id'] for f in self.upgrade_cards_by_category[cat]
+                    if self.normalize_name(f['name'].removesuffix(".png"))
+                       == self.normalize_name(full_name)
+                )
+                file_bytes = self.download_drive_file(file_id)
+                safe_name = self.sanitize_filename(full_name)
+                image_file = discord.File(
+                    io.BytesIO(file_bytes),
+                    filename=f"{safe_name}.png"
+                )
+                embed = discord.Embed(
+                    title=f"🎉 Carte Full obtenue : {full_name}",
+                    description=(
+                        f"Vous avez échangé **{seuil}× {name}** "
+                        f"contre **{full_name}** !"
+                    ),
+                    color=discord.Color.gold()
+                )
+                embed.set_image(url=f"attachment://{safe_name}.png")
+
+                # Envoi à l'utilisateur
+                await interaction.followup.send(embed=embed, file=image_file)
+
+                # 4) Annoncer la découverte sur le mur des cartes
+                await self._handle_announce_and_wall(interaction, [(cat, full_name)])
+
     async def handle_lancement(self, interaction: discord.Interaction):
         user_id_str = str(interaction.user.id)
 
@@ -863,6 +871,25 @@ class Cards(commands.Cog):
         except Exception as e:
             logging.error(f"[RECONSTRUIRE_MUR] Erreur : {e}")
             await ctx.send("❌ Une erreur est survenue lors de la reconstruction.")
+
+    @app_commands.command(
+        name="forcer_full",
+        description="(Admin) Force l'upgrade Full pour un utilisateur donné"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def force_full(
+        self,
+        interaction: discord.Interaction,
+        member: discord.Member
+    ):
+        """Force la conversion des doublons en Full pour `member`."""
+        await interaction.response.defer(ephemeral=True)  # on defer pour avoir un followup
+        # On passe drawn_cards=[] car on veut vérifier TOUTES ses cartes
+        await self.check_for_upgrades(interaction, member.id, drawn_cards=[])
+        await interaction.followup.send(
+            f"✅ Upgrades Full forcées pour {member.mention}", 
+            ephemeral=True
+        )
 
 class CardsMenuView(discord.ui.View):
     def __init__(self, cog: Cards, user: discord.User):
