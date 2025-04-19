@@ -249,8 +249,8 @@ class Cards(commands.Cog):
 
                 file_id = next((f['id'] for f in self.cards_by_category.get(cat, []) if f['name'].removesuffix(".png") == name), None)
                 if file_id:
-                    file_bytes = self.download_drive_file(file_id)
-                    safe_name = self.sanitize_filename(name)
+                    file_bytes = self.cog.download_drive_file(file_id)
+                    safe_name = self.cog.sanitize_filename(name)
                     image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
                     message = await announce_channel.send(file=image_file)
 
@@ -802,7 +802,7 @@ class CardsMenuView(discord.ui.View):
             file_id = next((f['id'] for f in self.cog.cards_by_category.get(cat, []) if f['name'].removesuffix(".png") == name), None)
             if file_id:
                 file_bytes = self.cog.download_drive_file(file_id)
-                safe_name = self.sanitize_filename(name)
+                safe_name  = self.cog.sanitize_filename(name)
                 image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
                 embed = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
                 embed.set_image(url=f"attachment://{safe_name}.png")
@@ -982,7 +982,7 @@ class CardNameModal(discord.ui.Modal, title="Afficher une carte"):
 
         cat, name, file_id = result
         file_bytes = self.cog.download_drive_file(file_id)
-        safe_name = self.sanitize_filename(name)
+        safe_name = self.cog.sanitize_filename(name)
         image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
 
         embed = discord.Embed(
