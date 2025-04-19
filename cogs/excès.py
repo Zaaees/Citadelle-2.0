@@ -88,8 +88,11 @@ class Exces(commands.Cog):
 
         # Mise à jour du nombre d'excès dans le sheet
         if exces_record:
-            cell = self.exces_sheet.find(exces_record['Nom'])
-            self.exces_sheet.update_cell(cell.row, cell.col + 1, n_exces + 1)
+            # Trouver précisément la ligne pour mise à jour
+            for idx, record in enumerate(exces_records, start=2):  # start=2 car la première ligne est celle des titres
+                if record.get('Nom', '').strip().lower() == personnage.strip().lower():
+                    self.exces_sheet.update_cell(idx, 2, n_exces + 1)
+                    break
         else:
             self.exces_sheet.append_row([personnage, 1])
 
