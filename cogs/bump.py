@@ -17,6 +17,7 @@ class Bump(commands.Cog):
         self.disboard_bot_id = 302050872383242240
         
         # Configuration Google Sheets
+        self.setup_logging()
         self.SERVICE_ACCOUNT_JSON = json.loads(os.getenv('SERVICE_ACCOUNT_JSON'))
         self.GOOGLE_SHEET_ID = os.getenv('GOOGLE_SHEET_ID_BUMP')
         self.sheet = self.setup_google_sheets()
@@ -25,7 +26,6 @@ class Bump(commands.Cog):
         self.last_bump = self.load_last_bump()
         self.last_reminder = self.load_last_reminder()
         self.check_bump.start()
-        self.setup_logging()
 
     def setup_google_sheets(self):
         credentials = service_account.Credentials.from_service_account_info(
