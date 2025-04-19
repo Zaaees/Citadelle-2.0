@@ -463,19 +463,27 @@ class Cards(commands.Cog):
 
     def find_card_by_name(self, input_name: str) -> tuple[str, str, str] | None:
         """
-        Recherche une carte par nom (tolérance accents, majuscules, .png) dans toutes les catégories.
-        Retourne (catégorie, nom exact, file_id) ou None.
+        Recherche une carte par nom (tolérance accents, majuscules, .png) dans toutes les catégories,
+        y compris les cartes Full.
+        Retourne (catégorie, nom exact (avec extension si besoin), file_id) ou None.
         """
         normalized_input = self.normalize_name(input_name.removesuffix(".png"))
 
+        # On cherche à la fois dans les dossiers 'normaux' et 'Full'
+        # (on combine les deux dicts en un seul mapping catégorie → liste de fichiers)
+        all_files = {}
         for cat, files in self.cards_by_category.items():
-            for file in files:
-                file_name = file["name"]
-                normalized_file = self.normalize_name(file_name.removesuffix(".png"))
-                if normalized_file == normalized_input:
-                    return (cat, file_name, file["id"])
-        return None
+            all_files.setdefault(cat, []).extend(files)
+        for cat, files in self.upgrade_cards_by_category.items():
+            all_files.setdefault(cat, []).extend(files)
 
+        for cat, files in all_files.items():
+            for f in files:
+                name = f["name"]               # p.ex. "Alex (Full).png" ou "Alex.png"
+                normalized_file = self.normalize_name(name.removesuffix(".png"))
+                if normalized_file == normalized_input:
+                    return (cat, name, f["id"])
+        return None
     
     def download_drive_file(self, file_id: str) -> bytes:
         """Télécharge un fichier depuis Google Drive par son ID et renvoie son contenu binaire."""
