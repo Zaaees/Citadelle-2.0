@@ -955,13 +955,21 @@ class Cards(commands.Cog):
         # Annonces publiques pour les cartes rares/variantes
         await self._handle_announce_and_wall(interaction, total_drawn)
 
-    @commands.command(name="donner_bonus")
+    @commands.command(name="give_bonus")
     @commands.has_permissions(administrator=True)
-    async def give_bonus(self, ctx: commands.Context, member: discord.Member, *, source: str):
-        """Donne un bonus de tirage à un joueur."""
-        self.log_bonus(member.id, source)
-        await ctx.send(f"Bonus ajouté pour {member.display_name} (raison : {source}).")
+    async def give_bonus(self, ctx: commands.Context, member: discord.Member, count: int = 1, *, source: str):
+        """
+        Donne un nombre de bonus de tirage à un joueur.
+        Usage : !give_bonus @joueur [nombre] raison du bonus
+        Exemple : !give_bonus @Alice 3 quête_RP
+        """
+        # Boucle pour ajouter 'count' bonus
+        for _ in range(count):
+            self.log_bonus(member.id, source)
 
+        await ctx.send(
+            f"✅ {count} bonus ajouté{'s' if count > 1 else ''} pour {member.display_name} (raison : {source})."
+        )
 
 class CardsMenuView(discord.ui.View):
     def __init__(self, cog: Cards, user: discord.User):
