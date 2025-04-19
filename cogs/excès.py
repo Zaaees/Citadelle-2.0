@@ -25,7 +25,7 @@ class Exces(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         # Initialisation du client Google Sheets via JSON stocké en ENV
-        scope = ['https://www.googleapis.com/auth/spreadsheets.readonly']
+        scope = ['https://www.googleapis.com/auth/spreadsheets']
         sa_json = os.getenv('SERVICE_ACCOUNT_JSON')
         if not sa_json:
             raise RuntimeError("L'ENV SERVICE_ACCOUNT_JSON n'est pas défini ou vide.")
@@ -42,25 +42,32 @@ class Exces(commands.Cog):
             raise RuntimeError("L'ENV GOOGLE_SHEET_ID_INVENTAIRE n'est pas défini.")
         self.inv_sheet = gc.open_by_key(inv_sheet_id).sheet1
 
-        # Sheet excès : lecture du nombre d'excès par personnage
+        # Sheet excès : lecture/écriture du nombre d'excès par personnage
         exces_sheet_id = os.getenv('GOOGLE_SHEET_ID_EXCES')
         if not exces_sheet_id:
             raise RuntimeError("L'ENV GOOGLE_SHEET_ID_EXCES n'est pas défini.")
         self.exces_sheet = gc.open_by_key(exces_sheet_id).sheet1
 
-    @app_commands.command(name='excès', description="Vérifier si ton personnage subit un excès permanent")
-    async def exces(self, interaction: discord.Interaction):
+    @app_commands.command(name='excès', description="Vérifier si un personnage subit un excès permanent")
+    async def exces(self, interaction: discord.Interaction, nom_du_personnage: str):
         user_id = str(interaction.user.id)
 
-        # Trouver le personnage lié à l'utilisateur dans le sheet inventaire
+        # Vérification du personnage dans le sheet inventaire
         inv_records = self.inv_sheet.get_all_records()
         inv_record = next(
-            (r for r in inv_records if str(r.get('DiscordID') or r.get('ID', '')) == user_id),
+            (r for r in inv_records if r.get('Nom', '').lower() == nom_du_personnage.lower()),
             None
         )
         if not inv_record:
             await interaction.response.send_message(
-                "❌ Aucun personnage trouvé pour ton compte.", ephemeral=True
+                "❌ Personnage non trouvé.", ephemeral=True
+            )
+            return
+
+        # Vérification du propriétaire du personnage
+        if str(inv_record.get('DiscordID', '')) != user_id:
+            await interaction.response.send_message(
+                "❌ Ce personnage ne t'appartient pas.", ephemeral=True
             )
             return
 
@@ -69,15 +76,24 @@ class Exces(commands.Cog):
         # Récupérer le nombre d'excès dans le sheet excès
         exces_records = self.exces_sheet.get_all_records()
         exces_record = next(
-            (r for r in exces_records if r.get('Nom') == personnage),
+            (r for r in exces_records if r.get('Nom').lower() == personnage.lower()),
             None
         )
-        n_exces = int(exces_record.get('Excès', 0)) if exces_record else 0
 
+        n_exces = int(exces_record.get('Excès', 0)) if exces_record else 0
         chance = calc_permanent_exces_chance(n_exces)
 
         # Tirage aléatoire
-        if random.random() < chance:
+        permanent = random.random() < chance
+
+        # Mise à jour du nombre d'excès dans le sheet
+        if exces_record:
+            cell = self.exces_sheet.find(personnage)
+            self.exces_sheet.update_cell(cell.row, cell.col + 1, n_exces + 1)
+        else:
+            self.exces_sheet.append_row([personnage, 1])
+
+        if permanent:
             # Annonce publique dans le salon dédié
             embed = discord.Embed(
                 title="💥 EXCÈS PERMANENT 💥",
@@ -87,7 +103,6 @@ class Exces(commands.Cog):
             channel = self.bot.get_channel(PERM_EXCES_CHANNEL_ID)
             if channel:
                 await channel.send(embed=embed)
-            # Confirmation à l'utilisateur
             await interaction.response.send_message(
                 "Ton personnage vient de subir un excès permanent !", ephemeral=True
             )
