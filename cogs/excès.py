@@ -76,7 +76,7 @@ class Exces(commands.Cog):
         # Récupérer le nombre d'excès dans le sheet excès
         exces_records = self.exces_sheet.get_all_records()
         exces_record = next(
-            (r for r in exces_records if r.get('Nom').lower() == personnage.lower()),
+            (r for r in exces_records if r.get('Nom', '').lower() == personnage.lower()),
             None
         )
 
@@ -88,7 +88,7 @@ class Exces(commands.Cog):
 
         # Mise à jour du nombre d'excès dans le sheet
         if exces_record:
-            cell = self.exces_sheet.find(personnage)
+            cell = self.exces_sheet.find(exces_record['Nom'])
             self.exces_sheet.update_cell(cell.row, cell.col + 1, n_exces + 1)
         else:
             self.exces_sheet.append_row([personnage, 1])
