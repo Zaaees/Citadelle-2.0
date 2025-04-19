@@ -141,8 +141,22 @@ class Cards(commands.Cog):
                 files = results.get('files', [])
                 self.cards_by_category[category] = files
 
-        # Map inverse pour retrouver catégorie par nom si besoin (en supposant noms uniques)
-        # self.category_by_name = {file['name']: cat for cat, files in self.cards_by_category.items() for file in files}
+         # ————— Doublons “Full” pour Élèves —————
+         # ID du dossier “doublons” à déclarer dans .env : FOLDER_ELEVES_DOUBLONS_ID
+        self.upgrade_folder_ids = {
+             "Élèves": os.getenv("FOLDER_ELEVES_DOUBLONS_ID")
+         }
+         # Nombre de cartes normales à échanger pour obtenir la Full
+        self.upgrade_thresholds = {"Élèves": 5}
+         # Précharge les fichiers “Full” dans self.upgrade_cards_by_category
+        self.upgrade_cards_by_category = {}
+        for cat, folder_id in self.upgrade_folder_ids.items():
+             if folder_id:
+                 results = self.drive_service.files().list(
+                     q=f"'{folder_id}' in parents",
+                     fields="files(id, name)"
+                 ).execute()
+                 self.upgrade_cards_by_category[cat] = results.get('files', [])
 
     
     def sanitize_filename(self, name: str) -> str:
@@ -361,6 +375,9 @@ class Cards(commands.Cog):
 
         view = CardsMenuView(self, interaction.user)
         drawn_cards = await view.perform_draw(interaction)
+        # Vérifier les doublons post‑tirage journalier
+        await self.check_for_upgrades(interaction, interaction.user.id, drawn_cards)
+
 
         if not drawn_cards:
             await interaction.edit_original_response(content="Vous n’avez plus de tirages disponibles.")
@@ -624,6 +641,58 @@ class Cards(commands.Cog):
 
         return drawn
 
+    async def check_for_upgrades(
+        self,
+        interaction: discord.Interaction,
+        user_id: int,
+        drawn_cards: list[tuple[str,str]]
+    ):
+        """
+        Vérifie, pour chaque carte normale tirée, si l'utilisateur atteint le seuil
+        de doublons. Si oui, remplace N cartes par la version Full et notifie.
+        """
+        for cat, name in set(drawn_cards):
+            if cat in self.upgrade_thresholds:
+                # compte combien il en possède
+                normalized = self.normalize_name(name)
+                user_cards = self.get_user_cards(user_id)
+                count = sum(
+                    1 for c,n in user_cards
+                    if c == cat and self.normalize_name(n) == normalized
+                )
+                seuil = self.upgrade_thresholds[cat]
+                if count >= seuil:
+                    # 1) retirer les doublons
+                    for _ in range(seuil):
+                        self.remove_card_from_user(user_id, cat, name)
+                    # 2) ajouter la Full
+                    full_name = f"{name} (Full)"
+                    self.add_card_to_user(user_id, cat, full_name)
+                    # 3) récupérer le fichier Full
+                    file_id = next(
+                        f['id'] for f in self.upgrade_cards_by_category[cat]
+                        if self.normalize_name(f['name'].removesuffix(".png"))
+                           == self.normalize_name(full_name)
+                    )
+                    file_bytes = self.download_drive_file(file_id)
+                    safe_name = self.sanitize_filename(full_name)
+                    image_file = discord.File(
+                        io.BytesIO(file_bytes),
+                        filename=f"{safe_name}.png"
+                    )
+                    # 4) notifier l'utilisateur
+                    embed = discord.Embed(
+                        title=f"🎉 Carte Full obtenue : {full_name}",
+                        description=(
+                            f"Vous avez échangé **{seuil}× {name}** "
+                            f"contre **{full_name}** !"
+                        ),
+                        color=discord.Color.gold()
+                    )
+                    embed.set_image(url=f"attachment://{safe_name}.png")
+                    await interaction.followup.send(embed=embed, file=image_file)
+
+    
     async def handle_lancement(self, interaction: discord.Interaction):
         user_id_str = str(interaction.user.id)
 
@@ -790,6 +859,9 @@ class CardsMenuView(discord.ui.View):
         await self.cog.update_character_ownership(interaction.user)
 
         drawn_cards = await self.perform_draw(interaction)
+        # Vérifier et transformer les doublons en Full si besoin
+        await self.cog.check_for_upgrades(interaction, self.user.id, drawn_cards)
+
 
         if not drawn_cards:
             await interaction.followup.send("🎖️ Vous n'avez plus assez de tirages disponibles (1 tirage requis, soit 3 cartes).", ephemeral=True)
@@ -863,14 +935,15 @@ class CardsMenuView(discord.ui.View):
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
 
-        await interaction.response.defer(ephemeral=True)  # ✅ Correction ici
+        await interaction.response.defer(ephemeral=True)
 
+        # Récupération des cartes de l'utilisateur
         user_cards = self.cog.get_user_cards(self.user.id)
         if not user_cards:
             await interaction.followup.send("Vous n'avez aucune carte pour le moment.", ephemeral=True)
             return
 
-        # Trier les cartes par rareté selon l'ordre défini des catégories
+        # Ordre des catégories
         rarity_order = {
             "Secrète": 0,
             "Fondateur": 1,
@@ -882,44 +955,59 @@ class CardsMenuView(discord.ui.View):
             "Autre": 7,
             "Élèves": 8,
         }
-
         user_cards.sort(key=lambda c: rarity_order.get(c[0], 9))
 
-        # Construire un embed listant les cartes par catégorie
-        embed = discord.Embed(title=f"Galerie de {interaction.user.display_name}", color=0x4E5D94)
-        cards_by_cat = {}
+        # Constitution d'un dict {cat: [noms]}
+        cards_by_cat: dict[str, list[str]] = {}
         for cat, name in user_cards:
             cards_by_cat.setdefault(cat, []).append(name)
 
-        for cat in rarity_order:
-            if cat in cards_by_cat:
-                rarity_pct = {
-                    "Secrète": "???",
-                    "Fondateur": "1%",
-                    "Historique": "2%",
-                    "Maître": "4%",
-                    "Black Hole": "6%",
-                    "Architectes": "10%",
-                    "Professeurs": "15%",
-                    "Autre": "25%",
-                    "Élèves": "37%",
-                }
-                card_list = cards_by_cat[cat]
-                names_counts = {}
-                for n in card_list:
-                    names_counts[n] = names_counts.get(n, 0) + 1
-                card_lines = []
-                for n, count in names_counts.items():
-                    clean_name = n.removesuffix(".png")
-                    if count > 1:
-                        card_lines.append(f"- **{clean_name}** (x{count})")
-                    else:
-                        card_lines.append(f"- **{clean_name}**")
-                value = "\n".join(card_lines)
-                embed.add_field(name=f"{cat} – {rarity_pct.get(cat, '')}", value=value, inline=False)
+        # Création des deux embeds
+        embed_normales = discord.Embed(
+            title=f"Galerie de {interaction.user.display_name}",
+            color=discord.Color.blue()
+        )
+        embed_full = discord.Embed(
+            title=f"Cartes Full de {interaction.user.display_name}",
+            color=discord.Color.gold()
+        )
 
+        # Remplissage des embeds
+        for cat in rarity_order:
+            noms = cards_by_cat.get(cat, [])
+
+            # 1) Cartes normales
+            normales = [n for n in noms if not n.endswith(" (Full)")]
+            if normales:
+                counts: dict[str,int] = {}
+                for n in normales:
+                    counts[n] = counts.get(n, 0) + 1
+                lines = [
+                    f"- **{n.removesuffix('.png')}**{' (x'+str(c)+')' if c>1 else ''}"
+                    for n, c in counts.items()
+                ]
+                embed_normales.add_field(name=cat, value="\n".join(lines), inline=False)
+
+            # 2) Cartes Full
+            fulls = [n for n in noms if n.endswith(" (Full)")]
+            if fulls:
+                counts: dict[str,int] = {}
+                for n in fulls:
+                    counts[n] = counts.get(n, 0) + 1
+                lines = [
+                    f"- **{n.removesuffix('.png')}**{' (x'+str(c)+')' if c>1 else ''}"
+                    for n, c in counts.items()
+                ]
+                embed_full.add_field(name=f"{cat} (Full)", value="\n".join(lines), inline=False)
+
+        # Envoi des deux embeds
         view = GalleryActionView(self.cog, self.user)
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        await interaction.followup.send(
+            embeds=[embed_normales, embed_full],
+            view=view,
+            ephemeral=True
+        )
+
 
 
 class GalleryActionView(discord.ui.View):
