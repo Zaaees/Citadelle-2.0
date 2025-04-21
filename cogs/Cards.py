@@ -1254,7 +1254,11 @@ class GalleryActionView(discord.ui.View):
 
 
 class CardNameModal(discord.ui.Modal, title="Afficher une carte"):
-    card_name = discord.ui.TextInput(label="Nom exact de la carte (sans .png)", placeholder="Ex : Dorian (Variante)", required=True)
+    card_name = discord.ui.TextInput(
+        label="Nom exact de la carte (sans .png)",
+        placeholder="Ex : Dorian (Variante)",
+        required=True
+    )
 
     def __init__(self, cog: Cards, user: discord.User):
         super().__init__()
@@ -1262,45 +1266,42 @@ class CardNameModal(discord.ui.Modal, title="Afficher une carte"):
         self.user = user
 
     async def on_submit(self, interaction: discord.Interaction):
+        # 1) Préparer le nom de fichier
         input_name = self.card_name.value.strip()
-        if not input_name.endswith(".png"):
+        if not input_name.lower().endswith(".png"):
             input_name += ".png"
 
-        # Vérifie si l'utilisateur possède bien cette carte
+        # 2) Vérifier qu’il appartient à l’utilisateur
         normalized_input = self.cog.normalize_name(input_name.removesuffix(".png"))
+        owned = self.cog.get_user_cards(self.user.id)
+        if not any(self.cog.normalize_name(n.removesuffix(".png")) == normalized_input for _, n in owned):
+            return await interaction.response.send_message(
+                "🚫 Vous ne possédez pas cette carte.", ephemeral=True
+            )
 
-        owned_cards = self.cog.get_user_cards(self.user.id)
-
-        match = next(
-            ((cat, name) for cat, name in owned_cards
-            if self.cog.normalize_name(name.removesuffix(".png")) == normalized_input),
-            None
-        )
-
-
-        if not match:
-            await interaction.response.send_message("🚫 Vous ne possédez pas cette carte.", ephemeral=True)
-            return
-
-                # Cherche l'image correspondante dans toutes les catégories
+        # 3) Récupérer l’ID et les données
         result = self.cog.find_card_by_name(input_name)
         if not result:
-            await interaction.response.send_message("❌ Image introuvable pour cette carte.", ephemeral=True)
-            return
-
+            return await interaction.response.send_message(
+                "❌ Image introuvable pour cette carte.", ephemeral=True
+            )
         cat, name, file_id = result
+
+        # 4) Télécharger et préparer l’embed + le fichier
         file_bytes = self.cog.download_drive_file(file_id)
         safe_name = self.cog.sanitize_filename(name)
         image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
 
         embed = discord.Embed(
-            title=name,
+            title=name.removesuffix(".png"),
             description=f"Catégorie : **{cat}**",
             color=0x4E5D94
         )
         embed.set_image(url=f"attachment://{safe_name}.png")
 
-        await interaction.response.send_message(embed=embed, file=image_file, ephemeral=True)
+        # 5) Envoyer dans un seul message via defer + followup
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send(embed=embed, file=image_file, ephemeral=True)
 
 class TradeOfferCardModal(discord.ui.Modal, title="Proposer un échange"):
     card_name = discord.ui.TextInput(label="Nom exact de la carte à échanger", placeholder="Ex : Alex (Variante)", required=True)
