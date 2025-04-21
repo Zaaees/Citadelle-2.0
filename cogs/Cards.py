@@ -270,13 +270,8 @@ class Cards(commands.Cog):
             if not new_draws:
                 return
 
-            # 4) Pour chaque nouvelle carte, annoncer et poster l’image
-            for cat, name in new_draws:
-                # Annonce textuelle pour rares/variantes
-                if "(Variante)" in name or cat in ["Secrète", "Fondateur", "Historique"]:
-                    clean_name = name.removesuffix(".png")
-                    await announce_channel.send(f"✨ **{interaction.user.display_name}** a obtenu une carte **{cat}** : **{clean_name}** !")
-
+            # 4) Pour chaque nouvelle carte, envoyer embed avec l’image
+            for index_offset, (cat, name) in enumerate(new_draws, start=len(seen) + 1):
                 # Récupérer l’ID du fichier parmi all_files
                 file_id = next(
                     (f['id'] for f in all_files.get(cat, [])
@@ -286,25 +281,25 @@ class Cards(commands.Cog):
                 if not file_id:
                     continue
 
-                # Envoyer l’image
+                # Télécharger l’image
                 file_bytes = self.download_drive_file(file_id)
                 safe_name = self.sanitize_filename(name)
                 image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
-                message = await announce_channel.send(file=image_file)
 
-                # Construire et éditer l’embed pour ajouter titre/catégorie/footer
-                index = len(seen) + 1
+                # Construire l’embed
                 embed = discord.Embed(
-                    title=name.removesuffix(".png"),
-                    description=f"Catégorie : **{cat}**",
+                    title=name,
+                    description=f"Catégorie : **{cat}**",
                     color=0x4E5D94
                 )
                 embed.set_image(url=f"attachment://{safe_name}.png")
                 embed.set_footer(text=(
-                    f"Découverte par : {interaction.user.display_name}\n"
-                    f"→ {index}{'ère' if index == 1 else 'ème'} carte découverte"
+                    f"Découverte par : {interaction.user.display_name}\n"
+                    f"→ {index_offset}{'ère' if index_offset == 1 else 'ème'} carte découverte"
                 ))
-                await message.edit(embed=embed)
+
+                # Envoyer embed + image en un seul message
+                await announce_channel.send(embed=embed, file=image_file)
 
             # 5) Supprimer l’ancien message de progression
             async for msg in announce_channel.history(limit=20):
@@ -319,11 +314,12 @@ class Cards(commands.Cog):
             discovered = len(seen) + len(new_draws)
             remaining = total_cards - discovered
             await announce_channel.send(
-                f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes)"
+                f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes)"
             )
 
         except Exception as e:
             logging.error("Erreur lors de la mise à jour du mur :", e)
+
 
     @app_commands.command(name="cartes", description="Gérer vos cartes à collectionner")
     async def cartes(self, interaction: discord.Interaction):
@@ -916,15 +912,26 @@ class Cards(commands.Cog):
             )
 
         await interaction.response.defer(thinking=True, ephemeral=False)
-        view = CardsMenuView(self, interaction.user)
         total_drawn = []
+        new_cards_for_wall = []
 
         for row_index, _ in unclaimed:
             # marquer comme réclamé
             self.sheet_bonus.update(f"D{row_index}", [["X"]])
-            # effectuer 1 tirage (=> jusqu'à 3 cartes)
-            drawn = await view.perform_draw(interaction)
+            # Tirage pur : 3 cartes, sans vérification de médailles
+            drawn = self.draw_cards(3)
+            # On garde la liste pour l’affichage public sur le mur
+            new_cards_for_wall.extend(drawn)
+            # On ajoute immédiatement ces cartes à l’inventaire de l’utilisateur
+            for cat, name in drawn:
+                self.add_card_to_user(interaction.user.id, cat, name)
+            # On accumule pour l’embed privé
             total_drawn.extend(drawn)
+
+        # Si on a de nouvelles cartes, on les annonce
+        if new_cards_for_wall:
+            await self._handle_announce_and_wall(interaction, new_cards_for_wall)
+
 
         # envoyer les cartes comme dans daily_draw
         embed_msgs = []
@@ -1059,8 +1066,7 @@ class CardsMenuView(discord.ui.View):
         super().__init__(timeout=None)
         self.cog = cog
         self.user = user
-        self.user_id = user.id  # 👈 nécessaire pour les boutons comme Galerie
-
+        self.user_id = user.id 
 
     @discord.ui.button(label="Tirer une carte", style=discord.ButtonStyle.primary)
     async def draw_card(self, interaction: discord.Interaction, button: discord.ui.Button):
