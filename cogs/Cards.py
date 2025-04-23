@@ -361,76 +361,75 @@ class Cards(commands.Cog):
 
 
     async def handle_daily_draw(self, interaction: discord.Interaction):
-        # 1) defer direct pour éviter le timeout
+        # 1) defer une seule fois pour éviter le timeout
         await interaction.response.defer(ephemeral=False)
 
         user_id_str = str(interaction.user.id)
-        paris_tz = pytz.timezone("Europe/Paris")
-        today = datetime.now(paris_tz).strftime("%Y-%m-%d")
+        paris_tz    = pytz.timezone("Europe/Paris")
+        today       = datetime.now(paris_tz).strftime("%Y-%m-%d")
 
-        try:
-            all_rows = self.sheet_daily_draw.get_all_values()
-            user_row = next((row for row in all_rows if row and row[0] == user_id_str), None)
-
-            if user_row:
-                last_draw_date = user_row[1] if len(user_row) > 1 else ""
-                if last_draw_date == today:
-                    # on a déjà deferred, on envoie en followup
-                    return await interaction.followup.send(
-                        "🚫 Vous avez déjà effectué votre tirage journalier aujourd'hui.",
-                        ephemeral=True
-                    )
-                else:
-                    row_index = all_rows.index(user_row) + 1
-                    self.sheet_daily_draw.update(f"B{row_index}", [[today]])
-            else:
-                self.sheet_daily_draw.append_row([user_id_str, today])
-
-        except Exception as e:
-            logging.error(f"[DAILY_DRAW] Erreur feuille Tirages Journaliers : {e}")
+        # 2) Vérification sans écrire dans Sheets
+        all_rows = self.sheet_daily_draw.get_all_values()
+        row_idx  = next((i for i, r in enumerate(all_rows) if r and r[0] == user_id_str), None)
+        if row_idx is not None and len(all_rows[row_idx]) > 1 and all_rows[row_idx][1] == today:
             return await interaction.followup.send(
-                "Erreur de lecture/écriture Google Sheets. Réessayez plus tard.",
+                "🚫 Vous avez déjà effectué votre tirage journalier aujourd’hui.",
                 ephemeral=True
             )
 
-        await interaction.response.defer(ephemeral=False)
+        try:
+            # 3) Exécute le tirage et l’envoi avant de toucher à la feuille
+            view        = CardsMenuView(self, interaction.user)
+            drawn_cards = self.draw_cards(3)
 
-        view = CardsMenuView(self, interaction.user)
-        drawn_cards = self.draw_cards(3)  # Directement depuis cog, sans ajout immédiat
+            # (a) annonce publique si nouvelles cartes
+            seen = {(r[0], r[1]) for r in self.sheet_cards.get_all_values()[1:]}
+            new_ = [c for c in drawn_cards if c not in seen]
+            if new_:
+                await self._handle_announce_and_wall(interaction, new_)
 
-        # Ici, identifie les nouvelles cartes avant d'ajouter
-        existing_cards = {(row[0], row[1]) for row in self.sheet_cards.get_all_values()[1:]}
-        new_cards = [card for card in drawn_cards if card not in existing_cards]
+            # (b) ajout en base
+            for cat, name in drawn_cards:
+                self.add_card_to_user(interaction.user.id, cat, name)
 
-        # Maintenant tu peux appeler la fonction d'affichage avant d’ajouter à Sheets
-        if new_cards:
-            await self._handle_announce_and_wall(interaction, new_cards)
+            # (c) gestion des upgrades
+            await self.check_for_upgrades(interaction, interaction.user.id, drawn_cards)
 
-        # Maintenant seulement, ajoute-les à Sheets
-        for cat, name in drawn_cards:
-            self.add_card_to_user(interaction.user.id, cat, name)
+            # (d) affichage embeds/images
+            embed_msgs = []
+            for cat, name in drawn_cards:
+                file_id = next(
+                    (f["id"] for f in self.cards_by_category.get(cat, [])
+                     if f["name"].removesuffix(".png") == name),
+                    None
+                )
+                if file_id:
+                    file_bytes = self.download_drive_file(file_id)
+                    safe      = self.sanitize_filename(name)
+                    image_file= discord.File(io.BytesIO(file_bytes), filename=f"{safe}.png")
+                    embed     = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
+                    embed.set_image(url=f"attachment://{safe}.png")
+                    embed_msgs.append((embed, image_file))
 
-        # Vérifie les doublons post‑tirage journalier
-        await self.check_for_upgrades(interaction, interaction.user.id, drawn_cards)
+            if embed_msgs:
+                first_embed, first_file = embed_msgs[0]
+                await interaction.edit_original_response(content=None, embed=first_embed, attachments=[first_file])
+                for em, f in embed_msgs[1:]:
+                    await interaction.followup.send(embed=em, file=f, ephemeral=False)
 
-        # Gestion d'affichage des cartes tirées (inchangée, ta logique d'embeds/images reste valide)
-        embed_msgs = []
-        for cat, name in drawn_cards:
-            file_id = next((f['id'] for f in self.cards_by_category.get(cat, []) if f['name'].removesuffix(".png") == name), None)
-            if file_id:
-                file_bytes = self.download_drive_file(file_id)
-                safe_name = self.sanitize_filename(name)
-                image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
-                embed = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
-                embed.set_image(url=f"attachment://{safe_name}.png")
-                embed_msgs.append((embed, image_file))
+        except Exception as e:
+            logging.error(f"[DAILY_DRAW] Échec du tirage : {e}")
+            return await interaction.followup.send(
+                "Une erreur est survenue, réessayez plus tard.",
+                ephemeral=True
+            )
 
-        if embed_msgs:
-            first_embed, first_file = embed_msgs[0]
-            await interaction.edit_original_response(content=None, embed=first_embed, attachments=[first_file])
-
-        for embed, file in embed_msgs[1:]:
-            await interaction.followup.send(embed=embed, file=file, ephemeral=False)
+        # 4) **Only now**: on marque le tirage dans Sheets
+        if row_idx is None:
+            self.sheet_daily_draw.append_row([user_id_str, today])
+        else:
+            # 1 car enumerate rows commence à 0 => ligne réelle = idx1
+            self.sheet_daily_draw.update(f"B{row_idx+1}", [[today]])
 
     @app_commands.command(name="tirage_journalier", description="…")
     async def daily_draw(self, interaction: discord.Interaction):
