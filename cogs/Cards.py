@@ -1,5 +1,3 @@
-## À implémenter : Système de tirage journalier
-
 from discord import app_commands
 from discord.ext import commands
 import discord
@@ -363,6 +361,9 @@ class Cards(commands.Cog):
 
 
     async def handle_daily_draw(self, interaction: discord.Interaction):
+        # 1) defer direct pour éviter le timeout
+        await interaction.response.defer(ephemeral=False)
+
         user_id_str = str(interaction.user.id)
         paris_tz = pytz.timezone("Europe/Paris")
         today = datetime.now(paris_tz).strftime("%Y-%m-%d")
@@ -372,20 +373,25 @@ class Cards(commands.Cog):
             user_row = next((row for row in all_rows if row and row[0] == user_id_str), None)
 
             if user_row:
-                row_index = all_rows.index(user_row) + 1
                 last_draw_date = user_row[1] if len(user_row) > 1 else ""
                 if last_draw_date == today:
-                    await interaction.response.send_message("🚫 Vous avez déjà effectué votre tirage journalier aujourd'hui.", ephemeral=True)
-                    return
+                    # on a déjà deferred, on envoie en followup
+                    return await interaction.followup.send(
+                        "🚫 Vous avez déjà effectué votre tirage journalier aujourd'hui.",
+                        ephemeral=True
+                    )
                 else:
+                    row_index = all_rows.index(user_row) + 1
                     self.sheet_daily_draw.update(f"B{row_index}", [[today]])
             else:
                 self.sheet_daily_draw.append_row([user_id_str, today])
 
         except Exception as e:
-            logging.error(f"[DAILY_DRAW] Erreur lecture/écriture feuille Tirages Journaliers : {e}")
-            await interaction.response.send_message("Erreur de lecture Google Sheets. Réessayez plus tard.", ephemeral=True)
-            return
+            logging.error(f"[DAILY_DRAW] Erreur feuille Tirages Journaliers : {e}")
+            return await interaction.followup.send(
+                "Erreur de lecture/écriture Google Sheets. Réessayez plus tard.",
+                ephemeral=True
+            )
 
         await interaction.response.defer(ephemeral=False)
 
@@ -426,12 +432,11 @@ class Cards(commands.Cog):
         for embed, file in embed_msgs[1:]:
             await interaction.followup.send(embed=embed, file=file, ephemeral=False)
 
-    @app_commands.command(name="tirage_journalier", description="Effectuez votre tirage journalier (une fois par jour)")
+    @app_commands.command(name="tirage_journalier", description="…")
     async def daily_draw(self, interaction: discord.Interaction):
         logging.info("[DEBUG] Commande /tirage_journalier déclenchée")
         await self.handle_daily_draw(interaction)
 
-    
     def add_card_to_user(self, user_id: int, category: str, name: str):
         """Ajoute une carte pour un utilisateur dans la persistance."""
         try:
@@ -687,46 +692,46 @@ class Cards(commands.Cog):
             counts[(cat, name)] = counts.get((cat, name), 0) + 1
 
         # 2) Pour chaque carte où count >= seuil, effectuer l'upgrade
+
         for (cat, name), count in counts.items():
             if cat not in self.upgrade_thresholds:
                 continue
             seuil = self.upgrade_thresholds[cat]
-            # Si on a au moins N doublons
             if count >= seuil:
-                # Retirer N cartes normales
+                # 1) Retirer les doublons
                 for _ in range(seuil):
                     self.remove_card_from_user(user_id, cat, name)
-                # Préparer la Full
-                full_name = f"{name} (Full)"
-                self.add_card_to_user(user_id, cat, full_name)
 
-                # 3) Récupérer le fichier Full et envoyer l'embed à l'utilisateur
+                full_name = f"{name} (Full)"
+
+                # 2) Envoi de l'embed Full privé à l'utilisateur
                 file_id = next(
                     f['id'] for f in self.upgrade_cards_by_category[cat]
                     if self.normalize_name(f['name'].removesuffix(".png"))
-                       == self.normalize_name(full_name)
+                    == self.normalize_name(full_name)
                 )
                 file_bytes = self.download_drive_file(file_id)
                 safe_name = self.sanitize_filename(full_name)
-                image_file = discord.File(
-                    io.BytesIO(file_bytes),
-                    filename=f"{safe_name}.png"
-                )
+                image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
+
                 embed = discord.Embed(
-                    title=f"🎉 Carte Full obtenue : {full_name}",
+                    title=f"🎉 Carte Full obtenue : {full_name}",
                     description=(
                         f"Vous avez échangé **{seuil}× {name}** "
-                        f"contre **{full_name}** !"
+                        f"contre **{full_name}** !"
                     ),
                     color=discord.Color.gold()
                 )
                 embed.set_image(url=f"attachment://{safe_name}.png")
 
-                # Envoi à l'utilisateur
                 await interaction.followup.send(embed=embed, file=image_file)
 
-                # 4) Annoncer la découverte sur le mur des cartes
+                # 3) Annonce sur le mur AVANT d’ajouter en base
                 await self._handle_announce_and_wall(interaction, [(cat, full_name)])
+
+                # 4) Enfin, on ajoute la Full à Google Sheets
+                self.add_card_to_user(user_id, cat, full_name)
+
 
     def log_bonus(self, user_id: int, source: str):
         """Enregistre un bonus de tirage pour un utilisateur (non réclamé)."""
@@ -1452,37 +1457,33 @@ class TradeFinalConfirmView(discord.ui.View):
         if self.confirmed_by_target:
             await self.finalize_exchange(interaction)
 
-    async def finalize_exchange(self, interaction: discord.Interaction):
-        success = self.cog.safe_exchange(
-            self.offerer.id, (self.offer_cat, self.offer_name),
-            self.target.id, (self.return_cat, self.return_name)
+    async def finalize_exchange(state: TradeExchangeState, interaction: discord.Interaction):
+        state.completed = True
+        success = state.cog.safe_exchange(
+            state.offerer.id, (state.offer_cat, state.offer_name),
+            state.target.id,  (state.return_cat,  state.return_name)
         )
 
-        if not success:
-            await interaction.followup.send("❌ L’échange a échoué : une des cartes n’est plus disponible.", ephemeral=True)
-            return
-
-        await interaction.followup.send(f"✅ Échange effectué : **{self.offer_name}** ↔ **{self.return_name}**", ephemeral=True)
-
-        try:
-            await self.offerer.send(
-                f"📦 Échange réussi avec {self.target.display_name} : "
-                f"tu as donné **{self.offer_name}** et reçu **{self.return_name}**."
+        if success:
+            # DM aux deux joueurs
+            await state.offerer.send(
+                f"📦 Échange confirmé ! Tu as donné **{state.offer_name}** et reçu **{state.return_name}**."
             )
-        except:
-            pass
-
-        try:
-            await self.target.send(
-                f"📦 Échange réussi avec {self.offerer.display_name} : "
-                f"tu as donné **{self.return_name}** et reçu **{self.offer_name}**."
+            await state.target.send(
+                f"📦 Échange confirmé ! Tu as donné **{state.return_name}** et reçu **{state.offer_name}**."
             )
-        except:
-            pass
 
-        for child in self.children:
-            child.disabled = True
-        await interaction.message.edit(view=self)
+            # → Annonce la carte reçue sur le mur public
+            await state.cog._handle_announce_and_wall(
+                interaction,
+                [(state.return_cat, state.return_name)]
+            )
+
+        else:
+            await state.offerer.send("❌ L’échange a échoué : une des cartes n’était plus disponible.")
+            await state.target.send("❌ L’échange a échoué : une des cartes n’était plus disponible.")
+
+
 
 
 class TradeResponseModal(discord.ui.Modal, title="Réponse à l’échange"):
