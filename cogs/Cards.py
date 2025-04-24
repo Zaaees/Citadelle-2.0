@@ -398,16 +398,17 @@ class Cards(commands.Cog):
             # (d) affichage embeds/images
             embed_msgs = []
             for cat, name in drawn_cards:
+                # Recherche du fichier image (inclut cartes Full)
                 file_id = next(
-                    (f["id"] for f in self.cards_by_category.get(cat, [])
-                     if f["name"].removesuffix(".png") == name),
+                    (f["id"] for f in (self.cards_by_category.get(cat, []) + self.upgrade_cards_by_category.get(cat, []))
+                    if f["name"].removesuffix(".png") == name),
                     None
                 )
                 if file_id:
                     file_bytes = self.download_drive_file(file_id)
-                    safe      = self.sanitize_filename(name)
-                    image_file= discord.File(io.BytesIO(file_bytes), filename=f"{safe}.png")
-                    embed     = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
+                    safe = self.sanitize_filename(name)
+                    image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe}.png")
+                    embed = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
                     embed.set_image(url=f"attachment://{safe}.png")
                     embed_msgs.append((embed, image_file))
 
@@ -921,9 +922,10 @@ class Cards(commands.Cog):
         # envoyer les cartes comme dans daily_draw
         embed_msgs = []
         for cat, name in total_drawn:
+            # Recherche du fichier image (inclut cartes Full)
             file_id = next(
-                (f["id"] for f in self.cards_by_category.get(cat, [])
-                 if f["name"].removesuffix(".png") == name),
+                (f["id"] for f in (self.cards_by_category.get(cat, []) + self.upgrade_cards_by_category.get(cat, []))
+                if f["name"].removesuffix(".png") == name),
                 None
             )
             if not file_id:
@@ -931,11 +933,7 @@ class Cards(commands.Cog):
             file_bytes = self.download_drive_file(file_id)
             safe = self.sanitize_filename(name)
             image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe}.png")
-            embed = discord.Embed(
-                title=name,
-                description=f"Catégorie : **{cat}**",
-                color=0x4E5D94
-            )
+            embed = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
             embed.set_image(url=f"attachment://{safe}.png")
             embed_msgs.append((embed, image_file))
 
@@ -1076,17 +1074,19 @@ class CardsMenuView(discord.ui.View):
         embeds_and_files = []
         for cat, name in drawn_cards:
             logging.info(f"[DEBUG] Traitement de carte : {cat} | {name}")
-            file_id = next((f['id'] for f in self.cog.cards_by_category.get(cat, []) if f['name'].removesuffix(".png") == name), None)
+            # Recherche du fichier image (inclut cartes Full)
+            file_id = next(
+                (f['id'] for f in (self.cog.cards_by_category.get(cat, []) + self.cog.upgrade_cards_by_category.get(cat, []))
+                if f['name'].removesuffix(".png") == name),
+                None
+            )
             if file_id:
                 file_bytes = self.cog.download_drive_file(file_id)
-                safe_name  = self.cog.sanitize_filename(name)
+                safe_name = self.cog.sanitize_filename(name)
                 image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
                 embed = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
                 embed.set_image(url=f"attachment://{safe_name}.png")
                 embeds_and_files.append((embed, image_file))
-
-        for embed, file in embeds_and_files:
-            await interaction.followup.send(embed=embed, file=file, ephemeral=False)
 
         # Annonce publique si carte rare ou variante
         await self.cog._handle_announce_and_wall(interaction, drawn_cards)
@@ -1471,18 +1471,19 @@ class TradeFinalConfirmView(discord.ui.View):
             await state.target.send(
                 f"📦 Échange confirmé ! Tu as donné **{state.return_name}** et reçu **{state.offer_name}**."
             )
-
             # → Annonce la carte reçue sur le mur public
             await state.cog._handle_announce_and_wall(
                 interaction,
                 [(state.return_cat, state.return_name)]
             )
-
+            # Annonce également la carte reçue par l’autre joueur sur le mur public
+            await state.cog._handle_announce_and_wall(
+                interaction,
+                [(state.offer_cat, state.offer_name)]
+            )
         else:
             await state.offerer.send("❌ L’échange a échoué : une des cartes n’était plus disponible.")
             await state.target.send("❌ L’échange a échoué : une des cartes n’était plus disponible.")
-
-
 
 
 class TradeResponseModal(discord.ui.Modal, title="Réponse à l’échange"):
