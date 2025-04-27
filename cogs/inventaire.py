@@ -31,6 +31,14 @@ class Inventory(commands.Cog):
         self.history_sheet = None
         self.setup_google_sheets()
 
+    async def check_role(self, interaction: discord.Interaction) -> bool:
+        """Vérifie si l'utilisateur possède un rôle autorisé pour utiliser les commandes du cog."""
+        authorized_role_ids = [123456789012345678, 987654321098765432]  # Remplace par tes IDs de rôles
+        user_roles = [role.id for role in interaction.user.roles]
+
+        return any(role_id in user_roles for role_id in authorized_role_ids)
+
+    
     def setup_google_sheets(self, max_retries=3, retry_delay=5):
         """Initialize Google Sheets connection with retry mechanism"""
         for attempt in range(max_retries):
@@ -189,7 +197,7 @@ class Inventory(commands.Cog):
     @app_commands.command(name="medaille", description="Ajouter des médailles à un ou plusieurs élèves")
     async def add_medal(self, interaction: discord.Interaction, noms: str, montant: float):
         # Vérification des permissions en premier
-        if not self.bot.check_role(interaction):
+        if not self.check_role(interaction):
             await interaction.response.send_message("Vous n'avez pas la permission d'utiliser cette commande.", ephemeral=True)
             return
 
@@ -238,7 +246,7 @@ class Inventory(commands.Cog):
     @app_commands.command(name="unmedaille", description="Retirer des médailles à un ou plusieurs élèves")
     async def remove_medal(self, interaction: discord.Interaction, noms: str, montant: float):
         # Vérification des permissions
-        if not self.bot.check_role(interaction):
+        if not self.check_role(interaction):
             await interaction.response.send_message("Vous n'avez pas la permission d'utiliser cette commande.", ephemeral=True)
             return
             
@@ -307,7 +315,7 @@ class Inventory(commands.Cog):
 
     @app_commands.command(name="lier", description="Associer un personnage à un utilisateur Discord")
     async def link_character(self, interaction: discord.Interaction, nom: str, utilisateur: discord.Member):
-        if not self.bot.check_role(interaction):
+        if not self.check_role(interaction):
             await interaction.response.send_message("Vous n'avez pas la permission d'utiliser cette commande.", ephemeral=True)
             return
 
