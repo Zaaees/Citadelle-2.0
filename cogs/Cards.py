@@ -87,6 +87,15 @@ class TradeConfirmOffererView(discord.ui.View):
         if self.state.confirmed_by_offer and self.state.confirmed_by_target and not self.state.completed:
             await finalize_exchange(self.state, interaction)
 
+# SOLUTION A : fonction « globale » hors de la classe
+def _merge_cells(row):
+    merged = {}
+    for cell in row[2:]:
+        if not cell.strip():
+            continue
+        uid, cnt = cell.strip().split(":")
+        merged[uid] = merged.get(uid, 0) + int(cnt)
+    return row[:2] + [f"{uid}:{cnt}" for uid, cnt in merged.items()]
 
 class Cards(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -178,8 +187,6 @@ class Cards(commands.Cog):
                     and f['name'].lower().endswith('.png')
                 ]
                 self.upgrade_cards_by_category[cat] = files
-
-
     
     def sanitize_filename(self, name: str) -> str:
         """Nettoie le nom d'une carte pour une utilisation sûre dans les fichiers Discord."""
@@ -447,10 +454,13 @@ class Cards(commands.Cog):
                 ephemeral=True
             )
 
+
+
     @app_commands.command(name="tirage_journalier", description="…")
     async def daily_draw(self, interaction: discord.Interaction):
         logging.info("[DEBUG] Commande /tirage_journalier déclenchée")
         await self.handle_daily_draw(interaction)
+
 
     def add_card_to_user(self, user_id: int, category: str, name: str):
         """Ajoute une carte pour un utilisateur dans la persistance."""
@@ -461,14 +471,15 @@ class Cards(commands.Cog):
                     continue
                 if row[0] == category and row[1] == name:
                     for j in range(2, len(row)):
-                        if row[j].startswith(f"{user_id}:"):
-                            uid, count = row[j].split(":")
+                        cell = row[j].strip()                         # ← NOUVEAU
+                        if cell.startswith(f"{user_id}:"):            # test sur la version nettoyée
+                            uid, count = cell.split(":")              # split sur la version nettoyée
                             row[j] = f"{uid}:{int(count) + 1}"
-                            cleaned_row = [cell for cell in row if cell.strip() != ""]
+                            cleaned_row = [c for c in row if c.strip()]
                             self.sheet_cards.update(f"A{i+1}", [cleaned_row])
                             return
                     row.append(f"{user_id}:1")
-                    cleaned_row = [cell for cell in row if cell.strip() != ""]
+                    cleaned_row = _merge_cells(row)
                     self.sheet_cards.update(f"A{i+1}", [cleaned_row])
                     return
             # Si la carte n'existe pas encore
@@ -488,11 +499,13 @@ class Cards(commands.Cog):
                     for j in range(2, len(row)):
                         if row[j].startswith(f"{user_id}:"):
                             uid, count = row[j].split(":")
+                            uid = uid.strip()          # retire les espaces/retours-chariot parasites
+
                             if int(count) > 1:
                                 row[j] = f"{uid}:{int(count) - 1}"
                             else:
                                 row[j] = ""
-                            cleaned_row = [cell for cell in row if cell.strip() != ""]
+                            cleaned_row = _merge_cells(row)
                             self.sheet_cards.update(f"A{i+1}", [cleaned_row])
                             return True
             return False
