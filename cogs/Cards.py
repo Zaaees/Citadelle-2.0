@@ -388,13 +388,6 @@ class Cards(commands.Cog):
             if new_:
                 await self._handle_announce_and_wall(interaction, new_)
 
-            # (b) ajout en base
-            for cat, name in drawn_cards:
-                self.add_card_to_user(interaction.user.id, cat, name)
-
-            # (c) gestion des upgrades
-            await self.check_for_upgrades(interaction, interaction.user.id, drawn_cards)
-
             # (d) affichage embeds/images
             embed_msgs = []
             for cat, name in drawn_cards:
@@ -418,19 +411,26 @@ class Cards(commands.Cog):
                 for em, f in embed_msgs[1:]:
                     await interaction.followup.send(embed=em, file=f, ephemeral=False)
 
+            # ——————————— COMMIT ———————————
+            # 1) on écrit les cartes dans l’inventaire
+            for cat, name in drawn_cards:
+                self.add_card_to_user(interaction.user.id, cat, name)
+
+            # 2) maintenant que l’inventaire est à jour, on gère les upgrades
+            await self.check_for_upgrades(interaction, interaction.user.id, drawn_cards)
+
+            # 3) enfin, on inscrit la date du tirage dans la feuille
+            if row_idx is None:
+                self.sheet_daily_draw.append_row([user_id_str, today])
+            else:
+                self.sheet_daily_draw.update(f"B{row_idx+1}", [[today]])
+
         except Exception as e:
             logging.error(f"[DAILY_DRAW] Échec du tirage : {e}")
             return await interaction.followup.send(
                 "Une erreur est survenue, réessayez plus tard.",
                 ephemeral=True
             )
-
-        # 4) **Only now**: on marque le tirage dans Sheets
-        if row_idx is None:
-            self.sheet_daily_draw.append_row([user_id_str, today])
-        else:
-            # 1 car enumerate rows commence à 0 => ligne réelle = idx1
-            self.sheet_daily_draw.update(f"B{row_idx+1}", [[today]])
 
     @app_commands.command(name="tirage_journalier", description="…")
     async def daily_draw(self, interaction: discord.Interaction):
