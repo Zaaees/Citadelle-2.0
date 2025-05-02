@@ -141,11 +141,18 @@ class Cards(commands.Cog):
         self.cards_by_category = {}  # ex: {"Fondateur": [{"name": ..., "id": ...}, ...], ...}
         for category, folder_id in self.FOLDER_IDS.items():
             if folder_id:
+                # ❶ Cartes « normales »
                 results = self.drive_service.files().list(
                     q=f"'{folder_id}' in parents",
-                    fields="files(id, name)"
+                    fields="files(id, name, mimeType)"      # <-- ajoute mimeType
                 ).execute()
-                files = results.get('files', [])
+
+                # Ajoute ce filtre juste après
+                files = [
+                    f for f in results.get('files', [])
+                    if f.get('mimeType', '').startswith('image/')
+                    and f['name'].lower().endswith('.png')
+                ]
                 self.cards_by_category[category] = files
 
          # ————— Doublons “Full” pour Élèves —————
@@ -159,11 +166,19 @@ class Cards(commands.Cog):
         self.upgrade_cards_by_category = {}
         for cat, folder_id in self.upgrade_folder_ids.items():
              if folder_id:
-                 results = self.drive_service.files().list(
-                     q=f"'{folder_id}' in parents",
-                     fields="files(id, name)"
-                 ).execute()
-                 self.upgrade_cards_by_category[cat] = results.get('files', [])
+                # ❷ Cartes « Full »
+                results = self.drive_service.files().list(
+                    q=f"'{folder_id}' in parents",
+                    fields="files(id, name, mimeType)"
+                ).execute()
+
+                files = [
+                    f for f in results.get('files', [])
+                    if f.get('mimeType', '').startswith('image/')
+                    and f['name'].lower().endswith('.png')
+                ]
+                self.upgrade_cards_by_category[cat] = files
+
 
     
     def sanitize_filename(self, name: str) -> str:
