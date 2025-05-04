@@ -1071,6 +1071,30 @@ class Cards(commands.Cog):
 
         await ctx.send(f"✅ Mur vérifié : {len(missing_cards)} cartes ajoutées, progression mise à jour.")
 
+    @commands.command(
+        name="forcer_full",
+        help="Force la conversion des doublons en Full pour un joueur"
+    )
+    @commands.has_permissions(administrator=True)  # ← ou le rôle que tu veux
+    async def forcer_full(self, ctx: commands.Context, member: discord.Member):
+        """
+        Exécute check_for_upgrades sur le joueur indiqué, 
+        même s’il n’est pas en train de tirer des cartes.
+        Usage :  !forcer_full @Joueur
+        """
+        # --- petit “faux” Interaction : on lui donne juste .followup.send ---
+        class DummyInteraction:
+            def __init__(self, ctx):
+                self.followup = ctx       # ctx.send existe → OK
+                self.guild = ctx.guild    # utile pour _handle_announce_and_wall
+                self.channel = ctx.channel
+
+        fake_inter = DummyInteraction(ctx)
+
+        # on lance la vérification (drawn_cards=[] pour ne rien annoncer de plus)
+        await self.check_for_upgrades(fake_inter, member.id, [])
+
+        await ctx.send(f"✅ Conversion forcée terminée pour {member.mention}.")
 
 class CardsMenuView(discord.ui.View):
     def __init__(self, cog: Cards, user: discord.User):
