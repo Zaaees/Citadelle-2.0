@@ -1509,6 +1509,8 @@ class TradeFinalConfirmView(discord.ui.View):
                 interaction,
                 [(state.offer_cat, state.offer_name)]
             )
+            await state.cog.check_for_upgrades(interaction, state.offerer.id, [])
+            await state.cog.check_for_upgrades(interaction, state.target.id, [])
         else:
             await state.offerer.send("❌ L’échange a échoué : une des cartes n’était plus disponible.")
             await state.target.send("❌ L’échange a échoué : une des cartes n’était plus disponible.")
