@@ -13,7 +13,6 @@ import time
 from datetime import datetime
 import pytz
 import logging
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -94,47 +93,9 @@ def _merge_cells(row):
     for cell in row[2:]:
         if not cell.strip():
             continue
-        try:
-            uid, cnt = cell.strip().split(":")
-            merged[uid] = merged.get(uid, 0) + int(cnt)
-        except Exception:
-            continue  # Ignore malformed cells
-    # On ne garde que les entrées avec un count > 0
-    return row[:2] + [f"{uid}:{cnt}" for uid, cnt in merged.items() if cnt > 0]
-
-def add_card_to_user(self, user_id: int, category: str, name: str):
-    """Ajoute une carte pour un utilisateur dans la persistance, sans jamais dupliquer l'entrée user_id sur la même carte."""
-    try:
-        rows = self.sheet_cards.get_all_values()
-        for i, row in enumerate(rows):
-            if len(row) < 2:
-                continue
-            if row[0] == category and row[1] == name:
-                # Nettoyage strict : fusionne toutes les cellules user_id
-                user_cells = {}
-                for j in range(2, len(row)):
-                    cell = row[j].strip()
-                    if not cell:
-                        continue
-                    try:
-                        uid, count = cell.split(":")
-                        uid = uid.strip()
-                        count = int(count)
-                        user_cells[uid] = user_cells.get(uid, 0) + count
-                    except Exception:
-                        continue
-                # Ajoute ou incrémente la carte pour user_id
-                user_id_str = str(user_id)
-                user_cells[user_id_str] = user_cells.get(user_id_str, 0) + 1
-                # Reconstruit la ligne proprement
-                new_row = [category, name] + [f"{uid}:{cnt}" for uid, cnt in user_cells.items() if cnt > 0]
-                self.sheet_cards.update(f"A{i+1}", [new_row])
-                return
-        # Si la carte n'existe pas encore
-        new_row = [category, name, f"{user_id}:1"]
-        self.sheet_cards.append_row(new_row)
-    except Exception as e:
-        logging.error(f"Erreur lors de l'ajout de la carte dans Google Sheets: {e}")
+        uid, cnt = cell.strip().split(":")
+        merged[uid] = merged.get(uid, 0) + int(cnt)
+    return row[:2] + [f"{uid}:{cnt}" for uid, cnt in merged.items()]
 
 class Cards(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -475,38 +436,21 @@ class Cards(commands.Cog):
             # ——————————— COMMIT ———————————
             # 1) on écrit les cartes dans l’inventaire
             for cat, name in drawn_cards:
-                try:
-                    self.add_card_to_user(interaction.user.id, cat, name)
-                except Exception as e:
-                    logging.error(f"[DAILY_DRAW] Erreur lors de l'ajout de la carte {cat} | {name} : {e}")
-                    await interaction.followup.send(f"❌ Erreur lors de l'ajout de la carte {cat} | {name} : {e}", ephemeral=True)
-                    return
+                self.add_card_to_user(interaction.user.id, cat, name)
 
             # 2) maintenant que l’inventaire est à jour, on gère les upgrades
-            try:
-                await self.check_for_upgrades(interaction, interaction.user.id, drawn_cards)
-            except Exception as e:
-                logging.error(f"[DAILY_DRAW] Erreur lors du check_for_upgrades : {e}")
-                await interaction.followup.send(f"❌ Erreur lors de la gestion des upgrades : {e}", ephemeral=True)
-                return
+            await self.check_for_upgrades(interaction, interaction.user.id, drawn_cards)
 
             # 3) enfin, on inscrit la date du tirage dans la feuille
-            try:
-                if row_idx is None:
-                    self.sheet_daily_draw.append_row([user_id_str, today])
-                else:
-                    self.sheet_daily_draw.update(f"B{row_idx+1}", [[today]])
-            except Exception as e:
-                logging.error(f"[DAILY_DRAW] Erreur lors de l'écriture de la date du tirage : {e}")
-                await interaction.followup.send(f"❌ Erreur lors de l'enregistrement de la date du tirage : {e}", ephemeral=True)
-                return
+            if row_idx is None:
+                self.sheet_daily_draw.append_row([user_id_str, today])
+            else:
+                self.sheet_daily_draw.update(f"B{row_idx+1}", [[today]])
 
         except Exception as e:
-            import traceback
-            tb = traceback.format_exc()
-            logging.error(f"[DAILY_DRAW] Échec du tirage : {e}\nTraceback:\n{tb}")
+            logging.error(f"[DAILY_DRAW] Échec du tirage : {e}")
             return await interaction.followup.send(
-                f"Une erreur est survenue, réessayez plus tard.\nDétail : {e}",
+                "Une erreur est survenue, réessayez plus tard.",
                 ephemeral=True
             )
 
@@ -517,6 +461,32 @@ class Cards(commands.Cog):
         logging.info("[DEBUG] Commande /tirage_journalier déclenchée")
         await self.handle_daily_draw(interaction)
 
+
+    def add_card_to_user(self, user_id: int, category: str, name: str):
+        """Ajoute une carte pour un utilisateur dans la persistance."""
+        try:
+            rows = self.sheet_cards.get_all_values()
+            for i, row in enumerate(rows):
+                if len(row) < 2:
+                    continue
+                if row[0] == category and row[1] == name:
+                    for j in range(2, len(row)):
+                        cell = row[j].strip()                         # ← NOUVEAU
+                        if cell.startswith(f"{user_id}:"):            # test sur la version nettoyée
+                            uid, count = cell.split(":")              # split sur la version nettoyée
+                            row[j] = f"{uid}:{int(count) + 1}"
+                            cleaned_row = [c for c in row if c.strip()]
+                            self.sheet_cards.update(f"A{i+1}", [cleaned_row])
+                            return
+                    row.append(f"{user_id}:1")
+                    cleaned_row = _merge_cells(row)
+                    self.sheet_cards.update(f"A{i+1}", [cleaned_row])
+                    return
+            # Si la carte n'existe pas encore
+            new_row = [category, name, f"{user_id}:1"]
+            self.sheet_cards.append_row(new_row)
+        except Exception as e:
+            logging.error(f"Erreur lors de l'ajout de la carte dans Google Sheets: {e}")
 
     def remove_card_from_user(self, user_id: int, category: str, name: str) -> bool:
         """Supprime une carte pour un utilisateur dans la persistance."""
@@ -831,11 +801,7 @@ class Cards(commands.Cog):
         embed_msgs = []
         for cat, name in drawn_cards:
             logging.info(f"[DEBUG] Traitement de carte : {cat} | {name}")
-            # Recherche du fichier image (inclut cartes Full)
-            file_id = next(
-                (f['id'] for f in self.cards_by_category.get(cat, []) if f['name'].removesuffix(".png") == name),
-                None
-            )
+            file_id = next((f['id'] for f in self.cards_by_category.get(cat, []) if f['name'].removesuffix(".png") == name), None)
             if file_id:
                 file_bytes = self.download_drive_file(file_id)
                 safe_name = self.sanitize_filename(name)
@@ -917,7 +883,7 @@ class Cards(commands.Cog):
                 embed.set_footer(text=(
                     f"Découverte par : {discoverer_name}\n"
                     f"→ {index}{'ère' if index == 1 else 'ème'} carte découverte"
-                ));
+                ))
 
                 await announce_channel.send(embed=embed, file=image_file)
                 await asyncio.sleep(0.5)
