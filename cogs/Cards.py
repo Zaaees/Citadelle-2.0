@@ -475,21 +475,38 @@ class Cards(commands.Cog):
             # ——————————— COMMIT ———————————
             # 1) on écrit les cartes dans l’inventaire
             for cat, name in drawn_cards:
-                self.add_card_to_user(interaction.user.id, cat, name)
+                try:
+                    self.add_card_to_user(interaction.user.id, cat, name)
+                except Exception as e:
+                    logging.error(f"[DAILY_DRAW] Erreur lors de l'ajout de la carte {cat} | {name} : {e}")
+                    await interaction.followup.send(f"❌ Erreur lors de l'ajout de la carte {cat} | {name} : {e}", ephemeral=True)
+                    return
 
             # 2) maintenant que l’inventaire est à jour, on gère les upgrades
-            await self.check_for_upgrades(interaction, interaction.user.id, drawn_cards)
+            try:
+                await self.check_for_upgrades(interaction, interaction.user.id, drawn_cards)
+            except Exception as e:
+                logging.error(f"[DAILY_DRAW] Erreur lors du check_for_upgrades : {e}")
+                await interaction.followup.send(f"❌ Erreur lors de la gestion des upgrades : {e}", ephemeral=True)
+                return
 
             # 3) enfin, on inscrit la date du tirage dans la feuille
-            if row_idx is None:
-                self.sheet_daily_draw.append_row([user_id_str, today])
-            else:
-                self.sheet_daily_draw.update(f"B{row_idx+1}", [[today]])
+            try:
+                if row_idx is None:
+                    self.sheet_daily_draw.append_row([user_id_str, today])
+                else:
+                    self.sheet_daily_draw.update(f"B{row_idx+1}", [[today]])
+            except Exception as e:
+                logging.error(f"[DAILY_DRAW] Erreur lors de l'écriture de la date du tirage : {e}")
+                await interaction.followup.send(f"❌ Erreur lors de l'enregistrement de la date du tirage : {e}", ephemeral=True)
+                return
 
         except Exception as e:
-            logging.error(f"[DAILY_DRAW] Échec du tirage : {e}")
+            import traceback
+            tb = traceback.format_exc()
+            logging.error(f"[DAILY_DRAW] Échec du tirage : {e}\nTraceback:\n{tb}")
             return await interaction.followup.send(
-                "Une erreur est survenue, réessayez plus tard.",
+                f"Une erreur est survenue, réessayez plus tard.\nDétail : {e}",
                 ephemeral=True
             )
 
