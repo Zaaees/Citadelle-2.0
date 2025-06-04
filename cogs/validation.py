@@ -10,6 +10,7 @@ import re
 import time
 import logging
 
+logger = logging.getLogger(__name__)
 class ValidationView(discord.ui.View):
     def __init__(self, cog=None):  # Modifier pour accepter le cog au lieu du sheet
         super().__init__(timeout=None)
@@ -82,7 +83,7 @@ class ValidationView(discord.ui.View):
         except gspread.exceptions.CellNotFound:
             await interaction.response.send_message("Erreur: Données non trouvées pour ce salon.", ephemeral=True)
         except Exception as e:
-            print(f"Erreur dans correct_button: {e}")
+            logger.error(f"Erreur dans correct_button: {e}")
             await interaction.response.send_message("Une erreur est survenue.", ephemeral=True)
 
     def convert_channel_mentions(self, guild: discord.Guild, text: str) -> str:
@@ -171,7 +172,7 @@ class ValidationView(discord.ui.View):
                 self.sheet.update_cell(cell.row, 4, str(message.id))
 
         except Exception as e:
-            print(f"Erreur lors de la mise à jour du message : {e}")
+            logger.error(f"Erreur lors de la mise à jour du message : {e}")
             try:
                 await interaction.followup.send("Une erreur est survenue lors de la mise à jour.", ephemeral=True)
             except discord.NotFound:
@@ -221,11 +222,11 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
             try:
                 await view.update_validation_message(interaction)
             except Exception as e:
-                print(f"Erreur lors de la mise à jour : {e}")
+                logger.error(f"Erreur lors de la mise à jour : {e}")
                 await interaction.channel.send("Les modifications ont été enregistrées mais une erreur est survenue lors de la mise à jour de l'affichage.")
             
         except Exception as e:
-            print(f"Erreur dans on_submit : {e}")
+            logger.error(f"Erreur dans on_submit : {e}")
             await interaction.followup.send("Une erreur est survenue lors de l'enregistrement.", ephemeral=True)
 
 class Validation(commands.Cog):
@@ -275,7 +276,7 @@ class Validation(commands.Cog):
                 user_id = int(matches[0])
                 return await self.bot.fetch_user(user_id)
         except Exception as e:
-            print(f"Erreur lors de la recherche du propriétaire: {e}")
+            logger.error(f"Erreur lors de la recherche du propriétaire: {e}")
         return None
 
     async def notify_owner_if_needed(self, channel):
@@ -311,11 +312,11 @@ class Validation(commands.Cog):
             self.last_ping[channel.id] = current_time
             
         except Exception as e:
-            print(f"Erreur lors de la notification : {e}")
+            logger.error(f"Erreur lors de la notification : {e}")
 
     @commands.Cog.listener()
     async def on_ready(self):
-        print("Validation Cog is ready!")
+        logger.info("Validation Cog is ready!")
 
     @app_commands.command(name="validation", description="Envoie le message de validation dans ce salon")
     @app_commands.default_permissions(administrator=True)
@@ -359,9 +360,9 @@ class Validation(commands.Cog):
             try:
                 await message.pin()
             except discord.Forbidden:
-                print(f"Impossible d'épingler le message dans {message.channel.name}: Permission manquante")
+                logger.warning(f"Impossible d'épingler le message dans {message.channel.name}: Permission manquante")
             except discord.HTTPException as e:
-                print(f"Erreur lors de l'épinglage du message: {e}")
+                logger.error(f"Erreur lors de l'épinglage du message: {e}")
 
     @commands.Cog.listener()
     async def on_guild_channel_update(self, before, after):

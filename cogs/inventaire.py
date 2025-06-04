@@ -12,6 +12,7 @@ import time
 import traceback
 import logging
 
+logger = logging.getLogger(__name__)
 load_dotenv()
 
 class Inventory(commands.Cog):
@@ -63,18 +64,18 @@ class Inventory(commands.Cog):
                     # Ajouter les en-têtes
                     self.history_sheet.update('A1:E1', [['Date', 'Nom', 'Modification', 'Total', 'Modifié par']])
                 
-                print("Successfully connected to Google Sheets")
+                logger.info("Successfully connected to Google Sheets")
                 return
             except gspread.exceptions.APIError as e:
                 if attempt < max_retries - 1:
-                    print(f"Failed to connect to Google Sheets (attempt {attempt + 1}/{max_retries}). Retrying in {retry_delay} seconds...")
+                    logger.warning(f"Failed to connect to Google Sheets (attempt {attempt + 1}/{max_retries}). Retrying in {retry_delay} seconds...")
                     time.sleep(retry_delay)
                 else:
-                    print(f"Failed to connect to Google Sheets after {max_retries} attempts")
-                    # Instead of raising the error, we'll just print it and continue
-                    print(f"Error: {str(e)}")
+                    logger.error(f"Failed to connect to Google Sheets after {max_retries} attempts")
+                    # Instead of raising the error, we'll just log it and continue
+                    logger.error(f"Error: {str(e)}")
             except Exception as e:
-                print(f"Unexpected error during Google Sheets setup: {str(e)}")
+                logger.error(f"Unexpected error during Google Sheets setup: {str(e)}")
                 traceback.print_exc()
                 break
 
@@ -99,10 +100,10 @@ class Inventory(commands.Cog):
                         user_id = int(row[2].replace("'", "")) if len(row) > 2 and row[2].strip() else None
                         students[row[0].strip()] = {'medals': medals, 'user_id': user_id}
                     except ValueError:
-                        print(f"Impossible de convertir les données pour {row[0]}")
+                        logger.warning(f"Impossible de convertir les données pour {row[0]}")
             return students
         except Exception as e:
-            print(f"Erreur lors du chargement des étudiants : {e}")
+            logger.error(f"Erreur lors du chargement des étudiants : {e}")
             return {}
 
     def save_students(self, students):
@@ -126,7 +127,7 @@ class Inventory(commands.Cog):
             self.sheet.update('A1', new_data)  # Mettre à jour avec les nouvelles données
             
         except Exception as e:
-            print(f"Erreur lors de la sauvegarde des étudiants : {e}")
+            logger.error(f"Erreur lors de la sauvegarde des étudiants : {e}")
             raise  # Propager l'erreur pour la gestion d'erreur
 
     def format_student_list(self, students):
@@ -194,7 +195,7 @@ class Inventory(commands.Cog):
             # Insérer la nouvelle ligne après les en-têtes
             self.history_sheet.insert_row(new_row, 2)  # 2 pour insérer après les en-têtes
         except Exception as e:
-            print(f"Erreur lors de l'enregistrement dans l'historique : {e}")
+            logger.error(f"Erreur lors de l'enregistrement dans l'historique : {e}")
 
     @app_commands.command(name="medaille", description="Ajouter des médailles à un ou plusieurs élèves")
     async def add_medal(self, interaction: discord.Interaction, noms: str, montant: float):
@@ -242,7 +243,7 @@ class Inventory(commands.Cog):
             
             await interaction.followup.send(embeds=embeds)
         except Exception as e:
-            print(f"Erreur dans add_medal : {e}")
+            logger.error(f"Erreur dans add_medal : {e}")
             await interaction.followup.send("Une erreur s'est produite lors de l'ajout des médailles.", ephemeral=True)
 
     @app_commands.command(name="unmedaille", description="Retirer des médailles à un ou plusieurs élèves")
@@ -343,7 +344,7 @@ class Inventory(commands.Cog):
         try:
             channel = self.bot.get_channel(self.CHANNEL_ID)
             if not channel:
-                print(f"Impossible de trouver le canal {self.CHANNEL_ID}")
+                logger.warning(f"Impossible de trouver le canal {self.CHANNEL_ID}")
                 return
 
             students = self.load_students()
@@ -356,15 +357,15 @@ class Inventory(commands.Cog):
                 # Si le message n'existe pas, en créer un nouveau
                 new_message = await channel.send(message_content)
                 self.MESSAGE_ID = new_message.id
-                print(f"Nouveau message d'inventaire créé avec l'ID: {self.MESSAGE_ID}")
+                logger.info(f"Nouveau message d'inventaire créé avec l'ID: {self.MESSAGE_ID}")
             except Exception as e:
-                print(f"Erreur lors de la mise à jour du message : {e}")
+                logger.error(f"Erreur lors de la mise à jour du message : {e}")
                 # Tenter de créer un nouveau message
                 new_message = await channel.send(message_content)
                 self.MESSAGE_ID = new_message.id
 
         except Exception as e:
-            print(f"Erreur critique dans update_medal_inventory : {e}")
+            logger.error(f"Erreur critique dans update_medal_inventory : {e}")
 
     async def check_and_send_year_change_alert(self, guild, old_medals, new_medals, character_name):
         old_year = self.get_year(old_medals)
@@ -392,8 +393,8 @@ class Inventory(commands.Cog):
 async def setup(bot):
     try:
         await bot.add_cog(Inventory(bot))
-        print("Cog Inventory loaded successfully")
+        logger.info("Cog Inventory loaded successfully")
     except Exception as e:
-        print(f"Error loading Inventory cog: {str(e)}")
+        logger.error(f"Error loading Inventory cog: {str(e)}")
         # Don't raise the error - this allows the bot to continue loading other cogs
         # even if this one fails

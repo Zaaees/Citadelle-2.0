@@ -4,6 +4,7 @@ import re
 import asyncio
 import logging
 
+logger = logging.getLogger(__name__)
 class Ticket(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -38,7 +39,7 @@ class Ticket(commands.Cog):
                             return True
             return False
         except Exception as e:
-            print(f"Erreur lors de la vérification du ticket {channel.name}: {str(e)}")
+            logger.error(f"Erreur lors de la vérification du ticket {channel.name}: {str(e)}")
             return False
 
     async def find_tickettool_answer(self, channel, question_text):
@@ -53,7 +54,7 @@ class Ticket(commands.Cog):
                                     return lines[i + 1].strip()
             return None
         except Exception as e:
-            print(f"Erreur lors de la recherche de réponse: {str(e)}")
+            logger.error(f"Erreur lors de la recherche de réponse: {str(e)}")
             return None
 
     async def get_first_letter(self, text):
@@ -73,7 +74,7 @@ class Ticket(commands.Cog):
                     await channel.edit(category=target_category)
                     await asyncio.sleep(self.CHANNEL_EDIT_DELAY)
                 except Exception as e:
-                    print(f"Erreur lors du déplacement: {str(e)}")
+                    logger.error(f"Erreur lors du déplacement: {str(e)}")
 
             name_answer = await self.find_tickettool_answer(channel, "Quel est le nom de votre personnage ?")
             if name_answer:
@@ -111,7 +112,7 @@ class Ticket(commands.Cog):
             return False
 
         except Exception as e:
-            print(f"Erreur lors du traitement du ticket {channel.name}: {str(e)}")
+            logger.error(f"Erreur lors du traitement du ticket {channel.name}: {str(e)}")
             return False
 
     @commands.Cog.listener()
@@ -141,7 +142,7 @@ class Ticket(commands.Cog):
                         total_processed += 1
                         await asyncio.sleep(self.CHANNEL_EDIT_DELAY)
                     except Exception as e:
-                        print(f"Erreur lors du traitement du ticket {channel.name}: {e}")
+                        logger.error(f"Erreur lors du traitement du ticket {channel.name}: {e}")
 
                 await interaction.followup.send(
                     f"Traitement terminé. {processed} tickets ont été traités sur {total_processed} salons vérifiés.",
