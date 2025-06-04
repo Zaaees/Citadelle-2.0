@@ -1465,54 +1465,66 @@ class TradeRespondView(discord.ui.View):
 
     async def choose_card(self, interaction: discord.Interaction):
         if interaction.user.id != self.target.id:
-            await interaction.response.send_message("Vous n'êtes pas autorisé à répondre à cet échangse.", ephemeral=True)
+            await interaction.response.send_message("Vous n'êtes pas autorisé à répondre à cet échange.", ephemeral=True)
             return
 
         await interaction.response.send_modal(TradeResponseModal(self.cog, self.offerer, self.target, self.offer_cat, self.offer_name))
 
 
 class TradeFinalConfirmView(discord.ui.View):
-    def __init__(self, cog: Cards, offerer: discord.User, target: discord.User, offer_cat: str, offer_name: str, return_cat: str, return_name: str):
+    def __init__(
+        self,
+        cog: Cards,
+        offerer: discord.User,
+        target: discord.User,
+        offer_cat: str,
+        offer_name: str,
+        return_cat: str,
+        return_name: str,
+    ):
         super().__init__(timeout=60)
-        self.cog = cog
-        self.offerer = offerer
-        self.target = target
-        self.offer_cat = offer_cat
-        self.offer_name = offer_name
-        self.return_cat = return_cat
-        self.return_name = return_name
-        self.confirmed_by_offer = False
-        self.confirmed_by_target = False
+        self.state = TradeExchangeState(
+            cog=cog,
+            offerer=offerer,
+            target=target,
+            offer_cat=offer_cat,
+            offer_name=offer_name,
+            return_cat=return_cat,
+            return_name=return_name,
+        )
 
     @discord.ui.button(label="Confirmer (destinataire)", style=discord.ButtonStyle.success)
     async def confirm_target(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.target.id:
+        if interaction.user.id != self.state.target.id:
             await interaction.response.send_message("Vous n'êtes pas le destinataire de l’échange.", ephemeral=True)
             return
 
-        self.confirmed_by_target = True
+        self.state.confirmed_by_target = True
         await interaction.response.send_message("✅ Vous avez confirmé l’échange. En attente de confirmation du proposeur.", ephemeral=True)
 
-        if self.confirmed_by_offer:
+        if self.state.confirmed_by_offer:
             await self.finalize_exchange(interaction)
 
     @discord.ui.button(label="Confirmer (proposeur)", style=discord.ButtonStyle.success)
     async def confirm_offer(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.offerer.id:
+        if interaction.user.id != self.state.offerer.id:
             await interaction.response.send_message("Vous n'êtes pas le proposeur de l’échange.", ephemeral=True)
             return
 
-        self.confirmed_by_offer = True
+        self.state.confirmed_by_offer = True
         await interaction.response.send_message("✅ Vous avez confirmé l’échange. En attente de confirmation du destinataire.", ephemeral=True)
 
-        if self.confirmed_by_target:
+        if self.state.confirmed_by_target:
             await self.finalize_exchange(interaction)
 
-    async def finalize_exchange(state: TradeExchangeState, interaction: discord.Interaction):
+    async def finalize_exchange(self, interaction: discord.Interaction):
+        state = self.state
         state.completed = True
         success = state.cog.safe_exchange(
-            state.offerer.id, (state.offer_cat, state.offer_name),
-            state.target.id,  (state.return_cat,  state.return_name)
+            state.offerer.id,
+            (state.offer_cat, state.offer_name),
+            state.target.id,
+            (state.return_cat, state.return_name),
         )
 
         if success:
