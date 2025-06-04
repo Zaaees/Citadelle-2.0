@@ -197,7 +197,7 @@ class Inventory(commands.Cog):
     @app_commands.command(name="medaille", description="Ajouter des médailles à un ou plusieurs élèves")
     async def add_medal(self, interaction: discord.Interaction, noms: str, montant: float):
         # Vérification des permissions en premier
-        if not self.check_role(interaction):
+        if not await self.check_role(interaction):
             await interaction.response.send_message("Vous n'avez pas la permission d'utiliser cette commande.", ephemeral=True)
             return
 
@@ -246,7 +246,7 @@ class Inventory(commands.Cog):
     @app_commands.command(name="unmedaille", description="Retirer des médailles à un ou plusieurs élèves")
     async def remove_medal(self, interaction: discord.Interaction, noms: str, montant: float):
         # Vérification des permissions
-        if not self.check_role(interaction):
+        if not await self.check_role(interaction):
             await interaction.response.send_message("Vous n'avez pas la permission d'utiliser cette commande.", ephemeral=True)
             return
             
@@ -315,7 +315,7 @@ class Inventory(commands.Cog):
 
     @app_commands.command(name="lier", description="Associer un personnage à un utilisateur Discord")
     async def link_character(self, interaction: discord.Interaction, nom: str, utilisateur: discord.Member):
-        if not self.check_role(interaction):
+        if not await self.check_role(interaction):
             await interaction.response.send_message("Vous n'avez pas la permission d'utiliser cette commande.", ephemeral=True)
             return
 
