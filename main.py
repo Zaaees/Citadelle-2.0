@@ -44,19 +44,35 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             logger.debug(f"{self.client_address[0]} - - [{time.strftime('%d/%b/%Y %H:%M:%S')}] {args[0]}")
         return
 
-def start_http_server():
-    try:
-        port = int(os.environ.get("PORT", 10000))
-        logger.info(f"Port utilisé: {port}")
-        server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-        logger.info(f"Serveur HTTP démarré avec succès sur le port {port}")
-        server.serve_forever()
-    except Exception as e:
-        logger.error(f"Erreur lors du démarrage du serveur : {e}")
-        traceback.print_exc()
-        time.sleep(5)
-        logger.info("Tentative de redémarrage du serveur HTTP...")
-        start_http_server()
+def start_http_server(max_retries=5):
+    """Start a simple HTTP server with retry logic.
+
+    Parameters
+    ----------
+    max_retries : int, optional
+        Number of times to retry starting the server before giving up.
+        ``None`` means infinite retries. Defaults to 5.
+    """
+
+    port = int(os.environ.get("PORT", 10000))
+    logger.info(f"Port utilisé: {port}")
+
+    attempts = 0
+    while True:
+        try:
+            server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+            logger.info(f"Serveur HTTP démarré avec succès sur le port {port}")
+            server.serve_forever()
+            break
+        except Exception as e:
+            attempts += 1
+            logger.error(f"Erreur lors du démarrage du serveur : {e}")
+            traceback.print_exc()
+            if max_retries is not None and attempts >= max_retries:
+                logger.critical("Nombre maximum de tentatives atteint. Abandon.")
+                raise
+            time.sleep(5)
+            logger.info("Tentative de redémarrage du serveur HTTP...")
 
 def check_bot_health(bot):
     while True:
