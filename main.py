@@ -137,6 +137,13 @@ class CustomBot(commands.Bot):
             self.health_check_thread.join(timeout=5)
         logger.info("Threads arrêtés")
 
+    async def close(self):
+        """Arrête le bot et signale aux threads de se terminer."""
+        self.stop_event.set()
+        await super().close()
+        if self.health_check_thread and self.health_check_thread.is_alive():
+            self.health_check_thread.join(timeout=5)
+
     async def on_error(self, event_method, *args, **kwargs):
         logger.error(f"Erreur non gérée dans l'événement {event_method}")
         logger.error(traceback.format_exc())
