@@ -48,6 +48,7 @@ class RPTracker(commands.Cog):
 
     async def initial_setup(self):
         logger.info("Début du setup initial")
+        await self.bot.wait_until_ready()
         await self.check_and_update()
         logger.info("Setup initial terminé")
 
