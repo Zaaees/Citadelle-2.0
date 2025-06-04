@@ -3,6 +3,7 @@ from discord.ext import commands
 import datetime
 import asyncio
 from typing import Dict, List, Optional
+import logging
 
 class InactiveUserTracker(commands.Cog):
     def __init__(self, bot):
@@ -157,8 +158,8 @@ class InactiveUserTracker(commands.Cog):
                     try:
                         if hasattr(channel, "permissions_for") and not channel.permissions_for(ctx.guild.me).read_message_history:
                             permissions_check = False
-                    except:
-                        pass
+                    except Exception as e:
+                        logging.warning(f"[INACTIVE] Permission check failed for channel {getattr(channel, 'id', 'unknown')}: {e}")
                         
                     if not permissions_check:
                         continue
@@ -167,7 +168,8 @@ class InactiveUserTracker(commands.Cog):
                     try:
                         channel_name = getattr(channel, "name", f"Canal ID {channel.id}")
                         channel_type = "fil" if isinstance(channel, discord.Thread) else "salon"
-                    except:
+                    except Exception as e:
+                        logging.warning(f"[INACTIVE] Unable to determine channel info for {getattr(channel, 'id', 'unknown')}: {e}")
                         channel_name = f"Canal ID {channel.id}"
                         channel_type = "inconnu"
                     

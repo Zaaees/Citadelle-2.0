@@ -10,6 +10,7 @@ from gspread.exceptions import CellNotFound
 import datetime
 import time
 import traceback
+import logging
 
 load_dotenv()
 
@@ -55,7 +56,8 @@ class Inventory(commands.Cog):
                 # Initialisation de la feuille d'historique
                 try:
                     self.history_sheet = self.spreadsheet.worksheet("Historique")
-                except:
+                except Exception as e:
+                    logging.info(f"[INVENTORY] Creating history sheet because of error: {e}")
                     # Créer la feuille si elle n'existe pas
                     self.history_sheet = self.spreadsheet.add_worksheet("Historique", 1000, 5)
                     # Ajouter les en-têtes

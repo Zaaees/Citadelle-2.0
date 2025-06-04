@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 import re
 import asyncio
+import logging
 
 class Ticket(commands.Cog):
     def __init__(self, bot):
@@ -148,10 +149,10 @@ class Ticket(commands.Cog):
                 )
 
             except Exception as e:
-                print(f"Erreur lors de l'exécution de la commande: {str(e)}")
+                logging.error(f"Erreur lors de l'exécution de la commande: {e}")
                 try:
                     await interaction.followup.send("Une erreur est survenue lors du traitement.", ephemeral=True)
-                except:
+                except Exception:
                     pass
 
 async def setup(bot):

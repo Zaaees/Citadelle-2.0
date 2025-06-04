@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import os
 import re
 import time
+import logging
 
 class ValidationView(discord.ui.View):
     def __init__(self, cog=None):  # Modifier pour accepter le cog au lieu du sheet
@@ -163,7 +164,8 @@ class ValidationView(discord.ui.View):
             # Mise à jour du message
             try:
                 await interaction.message.edit(content=None, embed=main_embed, view=self)
-            except:
+            except Exception as e:
+                logging.warning(f"[VALIDATION] Failed to edit message: {e}")
                 message = await interaction.channel.send(embed=main_embed, view=self)
                 await message.pin()
                 self.sheet.update_cell(cell.row, 4, str(message.id))

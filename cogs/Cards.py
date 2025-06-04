@@ -860,7 +860,8 @@ class Cards(commands.Cog):
                     try:
                         user = await self.bot.fetch_user(discoverer_id)
                         discoverer_name = user.name
-                    except:
+                    except Exception as e:
+                        logging.warning(f"[CARDS] Failed to fetch user {discoverer_id}: {e}")
                         discoverer_name = f"<@{discoverer_id}>"
 
                 file_id = next(
@@ -1443,9 +1444,11 @@ class TradeConfirmView(discord.ui.View):
             return
         await interaction.response.send_message("❌ Échange refusé.")
         try:
-            await self.offerer.send(f"**{self.target.display_name}** a refusé votre proposition d'échange pour la carte {self.card_name}.")
-        except:
-            pass
+            await self.offerer.send(
+                f"**{self.target.display_name}** a refusé votre proposition d'échange pour la carte {self.card_name}."
+            )
+        except Exception as e:
+            logging.warning(f"[TRADE] Could not notify offerer about refusal: {e}")
         for child in self.children:
             child.disabled = True
 
@@ -1610,8 +1613,8 @@ class TradeResponseModal(discord.ui.Modal, title="Réponse à l’échange"):
                 f"Confirmez pour finaliser l’échange.",
                 view=TradeConfirmOffererView(state)
             )
-        except:
-            logging.warning("[TRADE] Impossible d’envoyer un DM au proposeur.")
+        except Exception as e:
+            logging.warning(f"[TRADE] Impossible d’envoyer un DM au proposeur: {e}")
 
 
 
