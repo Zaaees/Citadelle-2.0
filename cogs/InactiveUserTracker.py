@@ -52,12 +52,20 @@ class InactiveUserTracker(commands.Cog):
             if not role:
                 await self._update_status(status_message, "Erreur", f"Le rôle avec l'ID {self.target_role_id} n'a pas été trouvé.", discord.Color.red())
                 update_task.cancel()
+                try:
+                    await update_task
+                except asyncio.CancelledError:
+                    pass
                 return
             
             members_with_role = [member for member in ctx.guild.members if role in member.roles]
             if not members_with_role:
                 await self._update_status(status_message, "Terminé", f"Aucun membre n'a le rôle {role.name}.", discord.Color.green())
                 update_task.cancel()
+                try:
+                    await update_task
+                except asyncio.CancelledError:
+                    pass
                 return
             
             await self._update_status(status_message, "En cours", 
@@ -302,9 +310,13 @@ class InactiveUserTracker(commands.Cog):
             await self._update_status(status_message, "Erreur", f"Une erreur s'est produite: {str(e)}", discord.Color.red())
             raise e
         finally:
-            # S'assurer que la tâche d'update est annulée
+            # S'assurer que la tâche d'update est annulée correctement
             if not update_task.done():
                 update_task.cancel()
+            try:
+                await update_task
+            except asyncio.CancelledError:
+                pass
     
     async def _update_status(self, message, title, description, color):
         """Met à jour le message de statut avec un nouvel embed."""
@@ -333,7 +345,7 @@ class InactiveUserTracker(commands.Cog):
                 await asyncio.sleep(2)
         except asyncio.CancelledError:
             # Tâche annulée normalement
-            pass
+            return
         except Exception as e:
             print(f"Erreur dans la mise à jour périodique: {e}")
 
