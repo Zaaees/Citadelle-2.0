@@ -3,6 +3,7 @@ import sys
 import threading
 import traceback
 import logging
+import asyncio
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import discord
 from discord.ext import commands
@@ -44,7 +45,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             logger.debug(f"{self.client_address[0]} - - [{time.strftime('%d/%b/%Y %H:%M:%S')}] {args[0]}")
         return
 
-def start_http_server(max_retries=5):
+def start_http_server(stop_event, max_retries=5):
     """Start a simple HTTP server with retry logic.
 
     Parameters
@@ -58,11 +59,14 @@ def start_http_server(max_retries=5):
     logger.info(f"Port utilisé: {port}")
 
     attempts = 0
-    while True:
+    server = None
+    while not stop_event.is_set():
         try:
             server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+            server.timeout = 1
             logger.info(f"Serveur HTTP démarré avec succès sur le port {port}")
-            server.serve_forever()
+            while not stop_event.is_set():
+                server.handle_request()
             break
         except Exception as e:
             attempts += 1
@@ -73,16 +77,21 @@ def start_http_server(max_retries=5):
                 raise
             time.sleep(5)
             logger.info("Tentative de redémarrage du serveur HTTP...")
+    if server is not None:
+        server.server_close()
 
-def check_bot_health(bot):
-    while True:
-        time.sleep(300)
+def check_bot_health(bot, stop_event):
+    while not stop_event.is_set():
+        if stop_event.wait(300):
+            break
         if not bot.ready_called:
-            logger.critical("on_ready n'a jamais été appelé. Redémarrage du bot...")
-            os._exit(1)
+            logger.critical("on_ready n'a jamais été appelé. Fermeture du bot...")
+            asyncio.run_coroutine_threadsafe(bot.close(), bot.loop)
+            stop_event.set()
         elif bot.latency == float('inf'):
             logger.critical("Latence infinie détectée. Perte probable de connexion WebSocket.")
-            os._exit(1)
+            asyncio.run_coroutine_threadsafe(bot.close(), bot.loop)
+            stop_event.set()
 
 class CustomBot(commands.Bot):
     def __init__(self, *args, **kwargs):
@@ -90,6 +99,7 @@ class CustomBot(commands.Bot):
         self.http_server_thread = None
         self.health_check_thread = None
         self.ready_called = False
+        self.stop_event = threading.Event()
 
     async def setup_hook(self):
         try:
@@ -110,14 +120,22 @@ class CustomBot(commands.Bot):
             traceback.print_exc()
 
     def start_http_server_thread(self):
-        self.http_server_thread = threading.Thread(target=start_http_server, daemon=True)
+        self.http_server_thread = threading.Thread(target=start_http_server, args=(self.stop_event,), daemon=True)
         self.http_server_thread.start()
         logger.info("Thread du serveur HTTP démarré")
 
     def start_health_check_thread(self):
-        self.health_check_thread = threading.Thread(target=check_bot_health, args=(self,), daemon=True)
+        self.health_check_thread = threading.Thread(target=check_bot_health, args=(self, self.stop_event), daemon=True)
         self.health_check_thread.start()
         logger.info("Thread de surveillance de santé démarré")
+
+    def stop_threads(self):
+        self.stop_event.set()
+        if self.http_server_thread and self.http_server_thread.is_alive():
+            self.http_server_thread.join(timeout=5)
+        if self.health_check_thread and self.health_check_thread.is_alive():
+            self.health_check_thread.join(timeout=5)
+        logger.info("Threads arrêtés")
 
     async def on_error(self, event_method, *args, **kwargs):
         logger.error(f"Erreur non gérée dans l'événement {event_method}")
@@ -167,6 +185,8 @@ def main():
         else:
             logger.info("Le bot s'est arrêté normalement.")
             break
+
+    bot.stop_threads()
 
 if __name__ == '__main__':
     main()
