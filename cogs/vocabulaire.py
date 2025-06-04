@@ -10,6 +10,9 @@ from discord.ext import commands
 from discord.ui import View, Button
 import json
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 class VocabulaireView(View):
     def __init__(self, cog):
@@ -442,4 +445,4 @@ class Vocabulaire(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Vocabulaire(bot))
-    print("Cog Vocabulaire chargé avec succès") 
+    logger.info("Cog Vocabulaire chargé avec succès")

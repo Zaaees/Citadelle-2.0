@@ -7,6 +7,9 @@ import gspread
 from google.oauth2.service_account import Credentials
 from dotenv import load_dotenv
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 FORUM_ID = 1137670941820846150
 THREAD_CHANNELS = {
@@ -35,7 +38,7 @@ class SubElementSelectPersistentView(discord.ui.View):
         self.user_id = user_id
 
     async def add_all_selects(self):
-        print("[DEBUG] add_all_selects appelé")
+        logger.debug("[DEBUG] add_all_selects appelé")
         elements_rows = {
             'Eau': 0, 'Feu': 1, 'Vent': 2, 'Terre': 3, 'Espace': 4
         }
@@ -72,9 +75,9 @@ class SubElementSelectPersistentView(discord.ui.View):
             self.add_item(select)
 
             # DEBUG
-            print(f"[DEBUG] Select pour {element} : custom_id = {select.custom_id} — nb options = {len(options)}")
+            logger.debug(f"[DEBUG] Select pour {element} : custom_id = {select.custom_id} — nb options = {len(options)}")
 
-        print(f"[DEBUG] Vue construite avec {len(self.children)} éléments")
+        logger.debug(f"[DEBUG] Vue construite avec {len(self.children)} éléments")
 
 class SubElementModal(discord.ui.Modal):
     def __init__(self, cog, element):
@@ -245,7 +248,7 @@ class SousElements(commands.Cog):
     async def ensure_thread_unarchived(self, thread):
         """Ensure thread is unarchived and ready for interaction with retries."""
         if not thread:
-            print(f"Thread fourni est None")
+            logger.warning("Thread fourni est None")
             return False, (False, False)
 
         was_archived = thread.archived
@@ -253,13 +256,13 @@ class SousElements(commands.Cog):
 
         # Si le thread n'est ni archivé ni verrouillé, pas besoin de le modifier
         if not was_archived and not was_locked:
-            print(f"Thread {thread.id} ({thread.name}) est déjà ouvert.")
+            logger.debug(f"Thread {thread.id} ({thread.name}) est déjà ouvert.")
             return True, (was_archived, was_locked)
 
         # Tenter plusieurs fois de désarchiver ou déverrouiller si nécessaire
         for attempt in range(3):  # Essayer 3 fois
             try:
-                print(f"Tentative #{attempt+1} de désarchivage du thread {thread.id} ({thread.name})")
+                logger.debug(f"Tentative #{attempt+1} de désarchivage du thread {thread.id} ({thread.name})")
 
                 # Désarchiver et/ou déverrouiller
                 await thread.edit(archived=False, locked=False)
@@ -270,22 +273,22 @@ class SousElements(commands.Cog):
                     # Utiliser fetch_channel au lieu de get_channel pour forcer une actualisation
                     reloaded_thread = await thread.guild.fetch_channel(thread.id)
                     if not reloaded_thread.archived and not reloaded_thread.locked:
-                        print(f"Thread {thread.id} désarchivé et déverrouillé avec succès")
+                        logger.debug(f"Thread {thread.id} désarchivé et déverrouillé avec succès")
                         return True, (was_archived, was_locked)
                     else:
-                        print(f"Le thread {thread.id} est toujours archivé ou verrouillé après édition")
+                        logger.debug(f"Le thread {thread.id} est toujours archivé ou verrouillé après édition")
                 except Exception as e:
-                    print(f"Erreur lors du rechargement du thread: {e}")
+                    logger.error(f"Erreur lors du rechargement du thread: {e}")
 
             except discord.HTTPException as e:
-                print(f"Erreur HTTP: {e}")
+                logger.error(f"Erreur HTTP: {e}")
             except Exception as e:
-                print(f"Erreur générale: {type(e).__name__}: {e}")
+                logger.error(f"Erreur générale: {type(e).__name__}: {e}")
 
-            print(f"Tentative #{attempt+1} échouée, attente avant réessai...")
+            logger.debug(f"Tentative #{attempt+1} échouée, attente avant réessai...")
             await asyncio.sleep(2 * (attempt + 1))  # Backoff exponentiel
 
-        print(f"Toutes les tentatives de désarchivage ont échoué")
+        logger.error("Toutes les tentatives de désarchivage ont échoué")
         return False, (was_archived, was_locked)
     
     def setup_google_sheets(self):
@@ -309,7 +312,7 @@ class SousElements(commands.Cog):
             message_id = str(message_id)
             cells = self.sheet.findall(message_id, in_column=1)
             if not cells:
-                print(f"Aucune donnée trouvée pour le message ID: {message_id}")
+                logger.debug(f"Aucune donnée trouvée pour le message ID: {message_id}")
                 # Initialiser des données par défaut si rien n'est trouvé
                 return {
                     'channel_id': None,
@@ -343,7 +346,7 @@ class SousElements(commands.Cog):
                         
             return data
         except Exception as e:
-            print(f"Erreur détaillée lors de la récupération des données: {str(e)}")
+            logger.error(f"Erreur détaillée lors de la récupération des données: {str(e)}")
             return None
 
     def save_message_data(self, message_id, data):
@@ -379,7 +382,7 @@ class SousElements(commands.Cog):
             if rows_to_add:
                 self.sheet.append_rows(rows_to_add)
         except Exception as e:
-            print(f"Erreur lors de la sauvegarde des données: {e}")
+            logger.error(f"Erreur lors de la sauvegarde des données: {e}")
 
     async def load_persistent_views(self):
         await self.bot.wait_until_ready()
@@ -396,7 +399,7 @@ class SousElements(commands.Cog):
                 self.bot.add_view(view, message_id=int(message_id))
 
         except Exception as e:
-            print(f"Erreur chargement vues persistantes: {e}")
+            logger.error(f"Erreur chargement vues persistantes: {e}")
 
     async def update_message(self, message, data):
         try:
@@ -427,7 +430,7 @@ class SousElements(commands.Cog):
             )
             await message.edit(embed=embed)
         except Exception as e:
-            print(f"Erreur mise à jour message: {e}")
+            logger.error(f"Erreur mise à jour message: {e}")
 
     async def save_subelement(self, data):
         try:
@@ -444,7 +447,7 @@ class SousElements(commands.Cog):
                    str(data['discovered_by_id']), data['discovered_by_char'], '[]', str(data['message_id'])]
             worksheet.append_row(row)
         except Exception as e:
-            print(f"Erreur lors de la sauvegarde du sous-élément: {e}")
+            logger.error(f"Erreur lors de la sauvegarde du sous-élément: {e}")
             raise e
 
     async def update_subelement_users(self, element, subelement_name, user_id, character_name, adding=True):
@@ -476,7 +479,7 @@ class SousElements(commands.Cog):
                             was_archived, was_locked = original_state
                             
                             if not success:
-                                print(f"Impossible de désarchiver le thread {element} pour la mise à jour des utilisateurs")
+                                logger.error(f"Impossible de désarchiver le thread {element} pour la mise à jour des utilisateurs")
                             else:
                                 try:
                                     # Mettre à jour le message
@@ -496,22 +499,22 @@ class SousElements(commands.Cog):
                                             
                                             await message.edit(embed=embed)
                                     except discord.NotFound:
-                                        print(f"Message {message_id} non trouvé dans le thread {element}")
+                                        logger.warning(f"Message {message_id} non trouvé dans le thread {element}")
                                     except Exception as e:
-                                        print(f"Erreur lors de la mise à jour du message: {str(e)}")
+                                        logger.error(f"Erreur lors de la mise à jour du message: {str(e)}")
                                         
                                     # Restaurer l'état original du thread après les modifications
                                     if was_archived or was_locked:
                                         await thread.edit(archived=was_archived, locked=was_locked)
                                         
                                 except discord.Forbidden as e:
-                                    print(f"Permissions insuffisantes pour le thread {element}: {str(e)}")
+                                    logger.error(f"Permissions insuffisantes pour le thread {element}: {str(e)}")
                                 except Exception as e:
-                                    print(f"Erreur lors de la mise à jour du thread {element}: {str(e)}")
+                                    logger.error(f"Erreur lors de la mise à jour du thread {element}: {str(e)}")
                     break
                         
         except Exception as e:
-            print(f"Erreur lors de la mise à jour des utilisateurs: {str(e)}")
+            logger.error(f"Erreur lors de la mise à jour des utilisateurs: {str(e)}")
 
     @app_commands.command(name='ajouter-sous-element', description="Ajouter un nouveau sous-élément à la liste (MJ uniquement)")
     async def add_subelement(self, interaction: discord.Interaction):
@@ -532,7 +535,7 @@ class SousElements(commands.Cog):
                 ephemeral=True
             )
         except Exception as e:
-            print(f"Erreur lors de l'ajout du sous-élément: {str(e)}")
+            logger.error(f"Erreur lors de l'ajout du sous-élément: {str(e)}")
             if not interaction.response.is_done():
                 await interaction.response.send_message(
                     f"Une erreur est survenue : {str(e)}", 
@@ -694,7 +697,7 @@ class SousElements(commands.Cog):
                                 }
                                 
                                 if not success:
-                                    print(f"Impossible de désarchiver le thread {thread.id}")
+                                    logger.error(f"Impossible de désarchiver le thread {thread.id}")
                                     continue
                             
                             try:
@@ -705,12 +708,12 @@ class SousElements(commands.Cog):
                                 not_found += 1
                             except Exception as e:
                                 failed += 1
-                                print(f"Erreur lors de la mise à jour de {name}: {e}")
+                                logger.error(f"Erreur lors de la mise à jour de {name}: {e}")
                         else:
                             not_found += 1
                             
                     except Exception as e:
-                        print(f"Erreur lors du traitement d'une ligne: {e}")
+                        logger.error(f"Erreur lors du traitement d'une ligne: {e}")
                         failed += 1
                 
                 # Attendre 5 secondes entre chaque lot
@@ -724,7 +727,7 @@ class SousElements(commands.Cog):
                         await thread.edit(archived=state['was_archived'], locked=state['was_locked'])
                         await asyncio.sleep(1)
                     except Exception as e:
-                        print(f"Erreur lors de la restauration de l'état du thread {thread_id}: {e}")
+                        logger.error(f"Erreur lors de la restauration de l'état du thread {thread_id}: {e}")
             
             await progress_message.edit(
                 content=f"Mise à jour terminée !\n"
@@ -785,7 +788,7 @@ class SousElements(commands.Cog):
             return elements_data
             
         except Exception as e:
-            print(f"Erreur lors du chargement des sous-éléments: {e}")
+            logger.error(f"Erreur lors du chargement des sous-éléments: {e}")
             # En cas d'erreur, retourner le cache existant ou un dictionnaire vide
             return self.subelements_cache if self.subelements_cache else {
                 'Eau': [], 'Feu': [], 'Vent': [], 'Terre': [], 'Espace': []
@@ -828,7 +831,7 @@ class SousElements(commands.Cog):
                         worksheet.update_cell(idx, 9, str(new_message.id))
 
         except Exception as e:
-            print(f"Erreur dans handle_character_sheet_message: {e}")
+            logger.error(f"Erreur dans handle_character_sheet_message: {e}")
 
 class SubElementSelectView(discord.ui.View):
     def __init__(self, cog, main_message_id, user_id):
@@ -1028,7 +1031,7 @@ class RemoveSubElementSelect(discord.ui.Select):
                 pass
 
         except Exception as e:
-            print(f"Erreur lors de la suppression du sous-élément: {e}")
+            logger.error(f"Erreur lors de la suppression du sous-élément: {e}")
             await interaction.followup.send(
                 "Une erreur est survenue lors de la suppression du sous-élément.",
                 ephemeral=True,
@@ -1097,7 +1100,7 @@ class SubElementSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        print(f"[DEBUG] SubElementSelect.callback lancé par {interaction.user}")
+        logger.debug(f"SubElementSelect.callback lancé par {interaction.user}")
 
         if interaction.user.id != self.user_id:
             await interaction.followup.send(
@@ -1116,19 +1119,19 @@ class SubElementSelect(discord.ui.Select):
         try:
             element, name = self.values[0].split("|")
             data = self.view.cog.get_message_data(str(self.main_message_id))
-            print(f"[DEBUG] Élément: {element}, Nom: {name}, Data trouvée: {data is not None}")
+            logger.debug(f"Élément: {element}, Nom: {name}, Data trouvée: {data is not None}")
 
             if not data:
                 await interaction.followup.send("Message data not found.", ephemeral=True)
                 return
 
             thread_id = THREAD_CHANNELS[element]
-            print(f"[DEBUG] Tentative fetch thread ID: {thread_id}")
+            logger.debug(f"Tentative fetch thread ID: {thread_id}")
             thread = await interaction.guild.fetch_channel(thread_id)
-            print(f"[DEBUG] Thread fetché: {thread.name if thread else 'None'}")
+            logger.debug(f"Thread fetché: {thread.name if thread else 'None'}")
 
             success, original_state = await self.view.cog.ensure_thread_unarchived(thread)
-            print(f"[DEBUG] Résultat ensure_thread_unarchived: {success}")
+            logger.debug(f"Résultat ensure_thread_unarchived: {success}")
 
             if not success:
                 await interaction.followup.send(
@@ -1153,41 +1156,41 @@ class SubElementSelect(discord.ui.Select):
             # Mettre à jour les données et l'embed principal
             data['elements'][element].append(name)
             self.view.cog.save_message_data(str(self.main_message_id), data)
-            print(f"[DEBUG] Sous-élément {name} ajouté aux données de {data['character_name']}")
+            logger.debug(f"Sous-élément {name} ajouté aux données de {data['character_name']}")
             parent_message = await interaction.channel.fetch_message(int(self.main_message_id))
             await self.view.cog.update_message(parent_message, data)
-            print("[DEBUG] Message principal mis à jour")
+            logger.debug("Message principal mis à jour")
 
             # Mettre à jour le thread du sous-élément
             await self.view.cog.update_subelement_users(element, name, interaction.user.id, data['character_name'], adding=True)
-            print("[DEBUG] Mise à jour du sous-élément dans la base de données et le thread")
+            logger.debug("Mise à jour du sous-élément dans la base de données et le thread")
 
             # Restaurer l'état d'archivage/verrouillage d'origine du thread
             original_was_archived, original_was_locked = original_state
             if original_was_archived or original_was_locked:
                 try:
                     await thread.edit(archived=original_was_archived, locked=original_was_locked)
-                    print(f"[DEBUG] Thread {element} restauré: archived={original_was_archived}, locked={original_was_locked}")
+                    logger.debug(f"Thread {element} restauré: archived={original_was_archived}, locked={original_was_locked}")
                 except Exception as e:
-                    print(f"Erreur lors de la restauration de l'état du thread {element}: {e}")
+                    logger.error(f"Erreur lors de la restauration de l'état du thread {element}: {e}")
 
             # Confirmation à l'utilisateur
             await interaction.followup.send(
                 f"✅ Sous-élément **{name}** ({element}) ajouté à votre liste !",
                 ephemeral=True
             )
-            print("[DEBUG] Confirmation éphémère envoyée")
+            logger.debug("Confirmation éphémère envoyée")
 
             # Nettoyage : suppression du menu de sélection éphémère
             try:
                 original_message = await interaction.message.channel.fetch_message(interaction.message.id)
                 await original_message.delete()
-                print("[DEBUG] Message éphémère de sélection supprimé")
+                logger.debug("Message éphémère de sélection supprimé")
             except (discord.NotFound, discord.HTTPException) as e:
-                print(f"[DEBUG] Impossible de supprimer le message éphémère: {e}")
+                logger.debug(f"Impossible de supprimer le message éphémère: {e}")
 
         except Exception as e:
-            print(f"[ERREUR CALLBACK] {type(e).__name__}: {e}")
+            logger.error(f"[ERREUR CALLBACK] {type(e).__name__}: {e}")
             await interaction.followup.send(
                 "Une erreur est survenue lors de l'ajout du sous-élément.",
                 ephemeral=True
@@ -1417,7 +1420,7 @@ class AddSubElementProcess:
                 try:
                     await thread.edit(archived=was_archived, locked=was_locked)
                 except Exception as e:
-                    print(f"Erreur lors de la restauration de l'état du thread: {e}")
+                    logger.error(f"Erreur lors de la restauration de l'état du thread: {e}")
 
         except Exception as e:
             error_embed = discord.Embed(
@@ -1429,4 +1432,4 @@ class AddSubElementProcess:
 
 async def setup(bot):
     await bot.add_cog(SousElements(bot))
-    print("Cog Souselements chargé avec succès")
+    logger.info("Cog Souselements chargé avec succès")

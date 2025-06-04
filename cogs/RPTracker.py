@@ -6,6 +6,9 @@ import os
 import asyncio
 import gspread
 from google.oauth2 import service_account
+import logging
+
+logger = logging.getLogger(__name__)
 
 class RPTracker(commands.Cog):
     def __init__(self, bot):
@@ -27,12 +30,12 @@ class RPTracker(commands.Cog):
 
     @tasks.loop(hours=1)
     async def update_loop(self):
-        print("Exécution de la boucle de mise à jour")
+        logger.info("Exécution de la boucle de mise à jour")
         try:
             await self.check_and_update()
-            print("Mise à jour terminée avec succès")
+            logger.info("Mise à jour terminée avec succès")
         except Exception as e:
-            print(f"Erreur dans la boucle de mise à jour: {e}")
+            logger.error(f"Erreur dans la boucle de mise à jour: {e}")
 
     @update_loop.before_loop
     async def before_update_loop(self):
@@ -40,40 +43,40 @@ class RPTracker(commands.Cog):
         await asyncio.sleep(60)
 
     async def cog_load(self):
-        print("Cog RPTracker en cours de chargement")
+        logger.info("Cog RPTracker en cours de chargement")
         await self.initial_setup()
 
     async def initial_setup(self):
-        print("Début du setup initial")
+        logger.info("Début du setup initial")
         await self.check_and_update()
-        print("Setup initial terminé")
+        logger.info("Setup initial terminé")
 
     async def check_and_update(self):
-        print("Début de check_and_update")
+        logger.info("Début de check_and_update")
         await self.perform_update()
-        print("Fin de check_and_update")
+        logger.info("Fin de check_and_update")
 
     async def update_sheet_timestamp(self):
         try:
             now = datetime.now(self.paris_tz)
-            print(f"Tentative de mise à jour du sheet avec timestamp: {now.isoformat()}")
+            logger.info(f"Tentative de mise à jour du sheet avec timestamp: {now.isoformat()}")
             self.sheet.update('A1', [['last_update', now.isoformat()]])
-            print("Mise à jour du sheet réussie")
+            logger.info("Mise à jour du sheet réussie")
         except Exception as e:
-            print(f"Erreur lors de la mise à jour du sheet: {e}")
+            logger.error(f"Erreur lors de la mise à jour du sheet: {e}")
 
     async def perform_update(self):
-        print("Début de perform_update")
+        logger.info("Début de perform_update")
         channel = self.bot.get_channel(self.channel_id)
         if not channel:
-            print("Canal non trouvé")
+            logger.warning("Canal non trouvé")
             return
 
         try:
             message = await channel.fetch_message(self.message_id)
-            print("Message trouvé")
+            logger.info("Message trouvé")
         except discord.NotFound:
-            print("Message non trouvé")
+            logger.info("Message non trouvé")
             return
 
         recent_channels, old_channels = await self.get_active_channels()
@@ -129,7 +132,7 @@ class RPTracker(commands.Cog):
                         except asyncio.TimeoutError:
                             pass
                         except Exception as e:
-                            print(f"Erreur lors de la vérification du canal {channel.name}: {e}")
+                            logger.error(f"Erreur lors de la vérification du canal {channel.name}: {e}")
 
         recent_channels.sort(key=lambda x: x[1], reverse=True)
         old_channels.sort(key=lambda x: x[1], reverse=True)
@@ -175,4 +178,4 @@ class RPTracker(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(RPTracker(bot))
-    print("Cog RPTracker chargé avec succès")
+    logger.info("Cog RPTracker chargé avec succès")

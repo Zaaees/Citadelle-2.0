@@ -169,4 +169,4 @@ class Bump(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Bump(bot))
-    print("Cog bump chargé avec succès")
+    logging.getLogger('bump_cog').info("Cog bump chargé avec succès")

@@ -5,6 +5,7 @@ import asyncio
 from typing import Dict, List, Optional
 import logging
 
+logger = logging.getLogger(__name__)
 class InactiveUserTracker(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -101,7 +102,7 @@ class InactiveUserTracker(commands.Cog):
                                         channels_to_check.append(thread)
                                         thread_ids_checked.add(thread.id)
                             except Exception as e:
-                                print(f"Erreur lors de la récupération des threads actifs dans {channel.name}: {e}")
+                                logger.error(f"Erreur lors de la récupération des threads actifs dans {channel.name}: {e}")
                             
                             # Récupérer les threads archivés
                             try:
@@ -119,7 +120,7 @@ class InactiveUserTracker(commands.Cog):
                                         channels_to_check.append(thread)
                                         thread_ids_checked.add(thread.id)
                             except Exception as e:
-                                print(f"Erreur lors de la récupération des threads archivés dans {channel.name}: {e}")
+                                logger.error(f"Erreur lors de la récupération des threads archivés dans {channel.name}: {e}")
                         
                         # Pour les forums, récupérer leurs threads
                         elif isinstance(channel, discord.ForumChannel):
@@ -139,7 +140,7 @@ class InactiveUserTracker(commands.Cog):
                         channels_to_check.append(thread)
                         thread_ids_checked.add(thread.id)
             except Exception as e:
-                print(f"Erreur lors de la récupération des threads actifs du serveur: {e}")
+                logger.error(f"Erreur lors de la récupération des threads actifs du serveur: {e}")
             
             total_channels = len(channels_to_check)
             await self._update_status(status_message, "En cours", 
@@ -216,14 +217,14 @@ class InactiveUserTracker(commands.Cog):
                         # Certains types de canaux pourraient ne pas avoir de méthode history()
                         continue
                     except Exception as e:
-                        print(f"Erreur pendant la lecture de l'historique de {channel_name}: {e}")
+                        logger.error(f"Erreur pendant la lecture de l'historique de {channel_name}: {e}")
                         continue
                     
                 except discord.errors.Forbidden:
                     continue
                 except Exception as e:
                     error_msg = f"Erreur lors de l'analyse du canal {getattr(channel, 'name', str(channel.id))}: {e}"
-                    print(error_msg)
+                    logger.error(error_msg)
                     continue
             
             # Génération du rapport
@@ -335,7 +336,7 @@ class InactiveUserTracker(commands.Cog):
             # Tâche annulée normalement
             pass
         except Exception as e:
-            print(f"Erreur dans la mise à jour périodique: {e}")
+            logger.error(f"Erreur dans la mise à jour périodique: {e}")
 
 async def setup(bot):
     await bot.add_cog(InactiveUserTracker(bot))
