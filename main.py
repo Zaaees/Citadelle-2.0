@@ -87,6 +87,7 @@ class CustomBot(commands.Bot):
             await self.load_extension('cogs.validation')
             await self.load_extension('cogs.InactiveUserTracker')
             await self.load_extension('cogs.excès')
+            await self.load_extension('cogs.scene_todo')
             await self.tree.sync()
             logger.info("Commandes synchronisées avec succès")
         except Exception as e:
