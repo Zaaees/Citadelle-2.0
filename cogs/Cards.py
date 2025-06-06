@@ -89,12 +89,19 @@ class TradeConfirmOffererView(discord.ui.View):
 
 # SOLUTION A : fonction « globale » hors de la classe
 def _merge_cells(row):
+    """Fusionne les colonnes d'un même utilisateur en nettoyant les espaces."""
     merged = {}
     for cell in row[2:]:
-        if not cell.strip():
+        cell = cell.strip()
+        if not cell or ":" not in cell:
             continue
-        uid, cnt = cell.strip().split(":")
-        merged[uid] = merged.get(uid, 0) + int(cnt)
+        uid, cnt = cell.split(":", 1)
+        uid = uid.strip()
+        try:
+            cnt = int(cnt.strip())
+        except ValueError:
+            continue
+        merged[uid] = merged.get(uid, 0) + cnt
     return row[:2] + [f"{uid}:{cnt}" for uid, cnt in merged.items()]
 
 class Cards(commands.Cog):
@@ -219,7 +226,8 @@ class Cards(commands.Cog):
             for cell in row[2:]:
                 if not cell:
                     continue
-                uid, count = cell.split(":")
+                uid, count = cell.split(":", 1)
+                uid = uid.strip()
                 if int(uid) == user_id:
                     user_cards.extend([(cat, name)] * int(count))
         return user_cards
@@ -471,11 +479,12 @@ class Cards(commands.Cog):
                     continue
                 if row[0] == category and row[1] == name:
                     for j in range(2, len(row)):
-                        cell = row[j].strip()                         # ← NOUVEAU
-                        if cell.startswith(f"{user_id}:"):            # test sur la version nettoyée
-                            uid, count = cell.split(":")              # split sur la version nettoyée
+                        cell = row[j].strip()
+                        if cell.startswith(f"{user_id}:"):
+                            uid, count = cell.split(":", 1)
+                            uid = uid.strip()
                             row[j] = f"{uid}:{int(count) + 1}"
-                            cleaned_row = [c for c in row if c.strip()]
+                            cleaned_row = _merge_cells(row)
                             self.sheet_cards.update(f"A{i+1}", [cleaned_row])
                             return
                     row.append(f"{user_id}:1")
@@ -497,10 +506,10 @@ class Cards(commands.Cog):
                     continue
                 if row[0] == category and row[1] == name:
                     for j in range(2, len(row)):
-                        if row[j].startswith(f"{user_id}:"):
-                            uid, count = row[j].split(":")
-                            uid = uid.strip()          # retire les espaces/retours-chariot parasites
-
+                        cell = row[j].strip()
+                        if cell.startswith(f"{user_id}:"):
+                            uid, count = cell.split(":", 1)
+                            uid = uid.strip()
                             if int(count) > 1:
                                 row[j] = f"{uid}:{int(count) - 1}"
                             else:
@@ -852,7 +861,7 @@ class Cards(commands.Cog):
                     continue
 
                 cat, name = row[0], row[1]
-                discoverer_id = int(row[2].split(":", 1)[0])
+                discoverer_id = int(row[2].split(":", 1)[0].strip())
                 member = ctx.guild.get_member(discoverer_id)
                 if member:
                     discoverer_name = member.nick or member.name
@@ -1027,7 +1036,7 @@ class Cards(commands.Cog):
         index = len(seen_cards) - len(missing_cards) + 1
         for cat, name in missing_cards:
             discoverer_row = next((row for row in rows if row[0] == cat and row[1] == name), None)
-            discoverer_id = int(discoverer_row[2].split(":")[0]) if discoverer_row and len(discoverer_row) > 2 else None
+            discoverer_id = int(discoverer_row[2].split(":", 1)[0].strip()) if discoverer_row and len(discoverer_row) > 2 else None
             member = ctx.guild.get_member(discoverer_id) if discoverer_id else None
             discoverer_name = member.display_name if member else "Inconnu"
 
