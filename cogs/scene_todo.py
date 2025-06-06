@@ -2,11 +2,11 @@ import discord
 from discord.ext import commands, tasks
 from discord import app_commands
 from datetime import datetime
-import re
 import json
 import os
 
 SCENES_FILE = "scenes.json"
+MJ_ROLE_ID = 1018179623886000278
 
 class AddSceneModal(discord.ui.Modal, title="Nouvelle scène"):
     def __init__(self, cog, guild: discord.Guild):
@@ -15,7 +15,7 @@ class AddSceneModal(discord.ui.Modal, title="Nouvelle scène"):
         self.guild = guild
         self.mj_input = discord.ui.TextInput(
             label="MJ responsable",
-            placeholder="Mention ou nom",
+            placeholder="Nom du MJ",
             required=True,
         )
         self.name = discord.ui.TextInput(label="Nom de la scène", required=True)
@@ -23,28 +23,7 @@ class AddSceneModal(discord.ui.Modal, title="Nouvelle scène"):
         self.add_item(self.name)
 
     async def on_submit(self, interaction: discord.Interaction):
-        mj_text = self.mj_input.value.strip()
-        mj_id = None
-
-        match = re.match(r"<@!?(\d+)>", mj_text)
-        if match:
-            mj_id = int(match.group(1))
-        else:
-            member = discord.utils.find(
-                lambda m: m.display_name.lower() == mj_text.lower()
-                or m.name.lower() == mj_text.lower(),
-                self.guild.members,
-            )
-            if member:
-                mj_id = member.id
-
-        if not mj_id:
-            await interaction.response.send_message(
-                "MJ introuvable.", ephemeral=True
-            )
-            return
-
-        scene = self.cog.add_scene(mj_id, self.name.value)
+        scene = self.cog.add_scene(self.mj_input.value.strip(), self.name.value)
         await interaction.response.send_message(
             f"Scène '{scene['name']}' ajoutée.", ephemeral=True
         )
@@ -62,8 +41,8 @@ class CompleteSceneButton(discord.ui.Button):
         if not scene:
             await interaction.response.send_message("Scène inconnue.", ephemeral=True)
             return
-        if scene["mj_id"] != interaction.user.id:
-            await interaction.response.send_message("Seul le MJ assigné peut terminer cette scène.", ephemeral=True)
+        if not any(r.id == MJ_ROLE_ID for r in interaction.user.roles):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
             return
         self.cog.complete_scene(self.scene_id)
         await interaction.response.send_message(f"Scène '{scene['name']}' terminée.", ephemeral=True)
@@ -92,56 +71,61 @@ class AddSceneButton(discord.ui.Button):
 class SceneTodo(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.scenes = self.load_scenes()
-        self.tracked_messages = []
+        data = self.load_data()
+        self.scenes = data.get("scenes", [])
+        self.message_info = data.get("message")
         self.update_loop.start()
 
     def cog_unload(self):
         self.update_loop.cancel()
 
     def track_message(self, message: discord.Message):
-        info = (message.channel.id, message.id)
-        if info not in self.tracked_messages:
-            self.tracked_messages.append(info)
+        self.message_info = {"channel_id": message.channel.id, "message_id": message.id}
+        self.save_data()
 
     @tasks.loop(hours=1)
     async def update_loop(self):
-        for channel_id, message_id in self.tracked_messages.copy():
-            channel = self.bot.get_channel(channel_id)
-            if channel:
-                try:
-                    message = await channel.fetch_message(message_id)
-                    await self.refresh_message(message)
-                except discord.NotFound:
-                    self.tracked_messages.remove((channel_id, message_id))
+        if not self.message_info:
+            return
+        channel = self.bot.get_channel(self.message_info["channel_id"])
+        if channel:
+            try:
+                message = await channel.fetch_message(self.message_info["message_id"])
+                await self.refresh_message(message)
+            except discord.NotFound:
+                self.message_info = None
+                self.save_data()
 
     @update_loop.before_loop
     async def before_update_loop(self):
         await self.bot.wait_until_ready()
 
     # --------- Persistence ---------
-    def load_scenes(self):
+    def load_data(self):
         if os.path.isfile(SCENES_FILE):
             with open(SCENES_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        return []
+                data = json.load(f)
+                if isinstance(data, list):
+                    return {"scenes": data, "message": None}
+                return data
+        return {"scenes": [], "message": None}
 
-    def save_scenes(self):
+    def save_data(self):
         with open(SCENES_FILE, 'w', encoding='utf-8') as f:
-            json.dump(self.scenes, f, ensure_ascii=False, indent=2)
+            json.dump({"scenes": self.scenes, "message": self.message_info}, f, ensure_ascii=False, indent=2)
 
     # --------- Scene Operations ---------
-    def add_scene(self, mj_id: int, name: str):
+    def add_scene(self, mj_name: str, name: str):
         scene_id = max([s['id'] for s in self.scenes], default=0) + 1
         scene = {
             "id": scene_id,
             "name": name,
-            "mj_id": mj_id,
+            "mj": mj_name,
             "created_at": datetime.utcnow().isoformat(),
             "completed": False,
         }
         self.scenes.append(scene)
-        self.save_scenes()
+        self.save_data()
         return scene
 
     def get_scene(self, scene_id: int):
@@ -154,7 +138,7 @@ class SceneTodo(commands.Cog):
         scene = self.get_scene(scene_id)
         if scene and not scene.get("completed"):
             scene["completed"] = True
-            self.save_scenes()
+            self.save_data()
         return scene
 
     def get_active_scenes(self):
@@ -183,9 +167,8 @@ class SceneTodo(commands.Cog):
             embed.description = "Aucune scène en cours."
             return embed
         for scene in scenes:
-            mj = self.bot.get_user(scene["mj_id"])
-            mj_name = mj.mention if mj else f"<@{scene['mj_id']}>"
             since = self.format_time_ago(scene["created_at"])
+            mj_name = scene.get("mj", "?")
             embed.add_field(name=scene["name"], value=f"MJ : {mj_name}\nDepuis {since}", inline=False)
         return embed
 
@@ -201,8 +184,7 @@ class SceneTodo(commands.Cog):
             return
         channel = guild.get_channel(channel_id)
         if channel:
-            mj = guild.get_member(scene["mj_id"])
-            mj_name = mj.mention if mj else f"<@{scene['mj_id']}>"
+            mj_name = scene.get("mj", "?")
             await channel.send(f"✅ La scène **{scene['name']}** menée par {mj_name} est terminée.")
 
     # --------- Commands ---------
