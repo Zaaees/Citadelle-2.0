@@ -198,6 +198,22 @@ class Cards(commands.Cog):
     def sanitize_filename(self, name: str) -> str:
         """Nettoie le nom d'une carte pour une utilisation sûre dans les fichiers Discord."""
         return re.sub(r'[^a-zA-Z0-9_-]', '_', name)
+
+    def build_card_embed(self, cat: str, name: str, file_bytes: bytes) -> tuple[discord.Embed, discord.File]:
+        """Construit un embed et le fichier attaché pour une carte.
+
+        Le fichier utilise toujours le nom constant ``card.png`` afin que
+        l'URL ``attachment://card.png`` reste stable et ne dépende pas du nom
+        de la carte fourni par l'utilisateur.
+        """
+        file = discord.File(io.BytesIO(file_bytes), filename="card.png")
+        embed = discord.Embed(
+            title=name,
+            description=f"Catégorie : **{cat}**",
+            color=0x4E5D94,
+        )
+        embed.set_image(url="attachment://card.png")
+        return embed, file
     
     def refresh_cards_cache(self):
         """Recharge le cache depuis Google Sheets (limité par minute)."""
@@ -309,15 +325,7 @@ class Cards(commands.Cog):
                         continue
 
                     file_bytes = self.download_drive_file(file_id)
-                    safe_name = self.sanitize_filename(name)
-                    image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
-
-                    embed = discord.Embed(
-                        title=name,
-                        description=f"Catégorie : **{cat}**",
-                        color=0x4E5D94
-                    )
-                    embed.set_image(url=f"attachment://{safe_name}.png")
+                    embed, image_file = self.build_card_embed(cat, name, file_bytes)
                     embed.set_footer(text=(
                         f"Découverte par : {interaction.user.display_name}\n"
                         f"→ {len(seen) + new_draws.index((cat,name)) + 1}"
@@ -425,14 +433,11 @@ class Cards(commands.Cog):
                 file_id = next(
                     (f["id"] for f in (self.cards_by_category.get(cat, []) + self.upgrade_cards_by_category.get(cat, []))
                     if f["name"].removesuffix(".png") == name),
-                    None
+                    None,
                 )
                 if file_id:
                     file_bytes = self.download_drive_file(file_id)
-                    safe = self.sanitize_filename(name)
-                    image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe}.png")
-                    embed = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
-                    embed.set_image(url=f"attachment://{safe}.png")
+                    embed, image_file = self.build_card_embed(cat, name, file_bytes)
                     embed_msgs.append((embed, image_file))
 
             if embed_msgs:
@@ -748,18 +753,13 @@ class Cards(commands.Cog):
                     == self.normalize_name(full_name)
                 )
                 file_bytes = self.download_drive_file(file_id)
-                safe_name = self.sanitize_filename(full_name)
-                image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
-
-                embed = discord.Embed(
-                    title=f"🎉 Carte Full obtenue : {full_name}",
-                    description=(
-                        f"Vous avez échangé **{seuil}× {name}** "
-                        f"contre **{full_name}** !"
-                    ),
-                    color=discord.Color.gold()
+                embed, image_file = self.build_card_embed(cat, full_name, file_bytes)
+                embed.title = f"🎉 Carte Full obtenue : {full_name}"
+                embed.description = (
+                    f"Vous avez échangé **{seuil}× {name}** "
+                    f"contre **{full_name}** !"
                 )
-                embed.set_image(url=f"attachment://{safe_name}.png")
+                embed.color = discord.Color.gold()
 
                 await interaction.followup.send(embed=embed, file=image_file)
 
@@ -813,10 +813,7 @@ class Cards(commands.Cog):
             file_id = next((f['id'] for f in self.cards_by_category.get(cat, []) if f['name'].removesuffix(".png") == name), None)
             if file_id:
                 file_bytes = self.download_drive_file(file_id)
-                safe_name = self.sanitize_filename(name)
-                image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
-                embed = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
-                embed.set_image(url=f"attachment://{safe_name}.png")
+                embed, image_file = self.build_card_embed(cat, name, file_bytes)
                 embed_msgs.append((embed, image_file))
 
         # Mise à jour du message initial
@@ -880,15 +877,7 @@ class Cards(commands.Cog):
                     continue
 
                 file_bytes = self.download_drive_file(file_id)
-                safe_name = self.sanitize_filename(name)
-                image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
-
-                embed = discord.Embed(
-                    title=name,
-                    description=f"Catégorie : **{cat}**",
-                    color=0x4E5D94
-                )
-                embed.set_image(url=f"attachment://{safe_name}.png")
+                embed, image_file = self.build_card_embed(cat, name, file_bytes)
                 embed.set_footer(text=(
                     f"Découverte par : {discoverer_name}\n"
                     f"→ {index}{'ère' if index == 1 else 'ème'} carte découverte"
@@ -963,15 +952,12 @@ class Cards(commands.Cog):
             file_id = next(
                 (f["id"] for f in (self.cards_by_category.get(cat, []) + self.upgrade_cards_by_category.get(cat, []))
                 if f["name"].removesuffix(".png") == name),
-                None
+                None,
             )
             if not file_id:
                 continue
             file_bytes = self.download_drive_file(file_id)
-            safe = self.sanitize_filename(name)
-            image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe}.png")
-            embed = discord.Embed(title=name, description=f"Catégorie : **{cat}**", color=0x4E5D94)
-            embed.set_image(url=f"attachment://{safe}.png")
+            embed, image_file = self.build_card_embed(cat, name, file_bytes)
             embed_msgs.append((embed, image_file))
 
         if embed_msgs:
@@ -1335,15 +1321,7 @@ class CardNameModal(discord.ui.Modal, title="Afficher une carte"):
 
         # 4) Téléchargement et création de l’embed
         file_bytes = self.cog.download_drive_file(file_id)
-        safe_name = self.cog.sanitize_filename(name)
-        image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
-
-        embed = discord.Embed(
-            title=name.removesuffix(".png"),
-            description=f"Catégorie : **{cat}**",
-            color=0x4E5D94
-        )
-        embed.set_image(url=f"attachment://{safe_name}.png")
+        embed, image_file = self.cog.build_card_embed(cat, name.removesuffix(".png"), file_bytes)
 
         # 5) ENVOI UNIQUE : embed + fichier ensemble
         await interaction.response.send_message(
