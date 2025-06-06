@@ -6,7 +6,6 @@ import json
 import os
 
 SCENES_FILE = "scenes.json"
-
 MJ_ROLE_ID = 1018179623886000278
 
 class AddSceneModal(discord.ui.Modal, title="Nouvelle scène"):
