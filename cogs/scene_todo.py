@@ -6,6 +6,7 @@ import json
 import os
 
 SCENES_FILE = "scenes.json"
+
 MJ_ROLE_ID = 1018179623886000278
 
 class AddSceneModal(discord.ui.Modal, title="Nouvelle scène"):
@@ -23,10 +24,9 @@ class AddSceneModal(discord.ui.Modal, title="Nouvelle scène"):
         self.add_item(self.name)
 
     async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         scene = self.cog.add_scene(self.mj_input.value.strip(), self.name.value)
-        await interaction.response.send_message(
-            f"Scène '{scene['name']}' ajoutée.", ephemeral=True
-        )
+
         self.cog.track_message(interaction.message)
         await self.cog.refresh_message(interaction.message)
 
