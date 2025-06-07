@@ -17,6 +17,7 @@ SCOPES = [
 ]
 
 
+
 class AddSceneModal(discord.ui.Modal, title="Créer une scène"):
     def __init__(self, cog: "SceneTodo"):
         super().__init__()
@@ -164,8 +165,19 @@ class SceneTodo(commands.Cog):
                 self.sheet_scenes = spreadsheet.worksheet('Scenes')
             except gspread.exceptions.WorksheetNotFound:
                 self.sheet_scenes = spreadsheet.sheet1
-                if not self.sheet_scenes.get_all_values():
-                    self.sheet_scenes.update('A1', [["id", "name", "mj", "created_at", "completed", "message_id"]])
+            if not self.sheet_scenes.get_all_values():
+                self.sheet_scenes.update(
+                    'A1',
+                    [[
+                        "id",
+                        "name",
+                        "mj",
+                        "created_at",
+                        "completed",
+                        "message_id",
+                        "init_message_id",
+                    ]],
+                )
             try:
                 self.sheet_config = spreadsheet.worksheet('Config')
             except gspread.exceptions.WorksheetNotFound:
@@ -183,10 +195,25 @@ class SceneTodo(commands.Cog):
             return {"scenes": [], "init_message": None}
 
         scenes = []
+        init_message = None
         try:
             rows = self.sheet_scenes.get_all_values()
             header = rows[0] if rows else []
-            for row in rows[1:]:
+            for idx, row in enumerate(rows[1:], start=1):
+                if (
+                    header
+                    and len(header) > 6
+                    and header[6] == "init_message_id"
+                    and idx == 1
+                    and len(row) > 6
+                ):
+                    value = row[6]
+                    if value:
+                        try:
+                            init_message = int(value)
+                        except ValueError:
+                            init_message = None
+                    continue
                 if not row or not row[0]:
                     continue
                 scene = {
@@ -201,7 +228,6 @@ class SceneTodo(commands.Cog):
         except Exception as e:
             print(f"Erreur chargement scenes: {e}")
 
-        init_message = None
         try:
             records = self.sheet_config.get_all_records()
             for rec in records:
@@ -223,7 +249,15 @@ class SceneTodo(commands.Cog):
             return
 
         try:
-            rows = [["id", "name", "mj", "created_at", "completed", "message_id"]]
+            rows = [[
+                "id",
+                "name",
+                "mj",
+                "created_at",
+                "completed",
+                "message_id",
+                "init_message_id",
+            ], ["", "", "", "", "", "", ""]]
             for s in self.scenes:
                 rows.append([
                     str(s["id"]),
@@ -232,9 +266,15 @@ class SceneTodo(commands.Cog):
                     s["created_at"],
                     str(s.get("completed", False)),
                     str(s.get("message_id", "")),
+                    "",
                 ])
             self.sheet_scenes.clear()
             self.sheet_scenes.update('A1', rows)
+            # Save init message ID in a dedicated column
+            self.sheet_scenes.update(
+                'G1:G2',
+                [["init_message_id"], [str(self.init_message_id or "")]],
+            )
         except Exception as e:
             print(f"Erreur sauvegarde scenes: {e}")
 
