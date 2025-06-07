@@ -249,7 +249,9 @@ class SceneTodo(commands.Cog):
             message = await channel.fetch_message(scene["message_id"])
         except discord.NotFound:
             return
+
         view = SceneView(self, scene)
+
         await message.edit(embed=self.build_scene_embed(scene), view=view)
         self.bot.add_view(view, message_id=message.id)
 
