@@ -1,3 +1,5 @@
 .env
 git_auto.ps1
 Vocabulaire.csv
+__pycache__/
+*.pyc
