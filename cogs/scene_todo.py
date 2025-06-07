@@ -20,12 +20,20 @@ class AddSceneModal(discord.ui.Modal, title="Nouvelle scène"):
             required=True,
         )
         self.name = discord.ui.TextInput(label="Nom de la scène", required=True)
+        self.actions_input = discord.ui.TextInput(
+            label="Actions initiales",
+            placeholder="Une action par ligne",
+            required=False,
+            style=discord.TextStyle.paragraph,
+        )
         self.add_item(self.mj_input)
         self.add_item(self.name)
+        self.add_item(self.actions_input)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        scene = self.cog.add_scene(self.mj_input.value.strip(), self.name.value)
+        actions = [a.strip() for a in self.actions_input.value.splitlines() if a.strip()]
+        scene = self.cog.add_scene(self.mj_input.value.strip(), self.name.value, actions)
 
         self.cog.track_message(interaction.message)
         await self.cog.refresh_message(interaction.message)
@@ -50,6 +58,42 @@ class CompleteSceneButton(discord.ui.Button):
         self.cog.track_message(interaction.message)
         await self.cog.refresh_message(interaction.message)
 
+
+class ActionButton(discord.ui.Button):
+    def __init__(self, cog, scene_id: int, action_id: int, label: str, done: bool):
+        style = discord.ButtonStyle.secondary if not done else discord.ButtonStyle.success
+        super().__init__(label=label, style=style, custom_id=f"action_{scene_id}_{action_id}", disabled=done)
+        self.cog = cog
+        self.scene_id = scene_id
+        self.action_id = action_id
+
+    async def callback(self, interaction: discord.Interaction):
+        if not any(r.id == MJ_ROLE_ID for r in interaction.user.roles):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        action = self.cog.toggle_action(self.scene_id, self.action_id)
+        if action:
+            await interaction.response.send_message(f"Action '{action['label']}' mise à jour.", ephemeral=True)
+            self.cog.track_message(interaction.message)
+            await self.cog.refresh_message(interaction.message)
+
+
+class DeleteSceneButton(discord.ui.Button):
+    def __init__(self, cog, scene_id: int, name: str):
+        super().__init__(label=f"✖ {name}", style=discord.ButtonStyle.danger, custom_id=f"delete_{scene_id}")
+        self.cog = cog
+        self.scene_id = scene_id
+
+    async def callback(self, interaction: discord.Interaction):
+        if not any(r.id == MJ_ROLE_ID for r in interaction.user.roles):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        scene = self.cog.delete_scene(self.scene_id)
+        if scene:
+            await interaction.response.send_message(f"Scène '{scene['name']}' supprimée.", ephemeral=True)
+            self.cog.track_message(interaction.message)
+            await self.cog.refresh_message(interaction.message)
+
 class ScenesView(discord.ui.View):
     def __init__(self, cog):
         super().__init__(timeout=None)
@@ -58,6 +102,9 @@ class ScenesView(discord.ui.View):
         for scene in cog.get_active_scenes():
             label = f"✔ {scene['name']}"
             self.add_item(CompleteSceneButton(cog, scene['id'], label))
+            self.add_item(DeleteSceneButton(cog, scene['id'], scene['name']))
+            for action in scene.get("actions", []):
+                self.add_item(ActionButton(cog, scene['id'], action['id'], action['label'], action.get('done', False)))
 
 class AddSceneButton(discord.ui.Button):
     def __init__(self, cog):
@@ -106,7 +153,14 @@ class SceneTodo(commands.Cog):
             with open(SCENES_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 if isinstance(data, list):
-                    return {"scenes": data, "message": None}
+                    data = {"scenes": data, "message": None}
+                scenes = data.get("scenes", [])
+                # migration: ensure actions key exists
+                for s in scenes:
+                    s.setdefault("actions", [])
+                    for a in s["actions"]:
+                        a.setdefault("done", False)
+                data["scenes"] = scenes
                 return data
         return {"scenes": [], "message": None}
 
@@ -115,7 +169,7 @@ class SceneTodo(commands.Cog):
             json.dump({"scenes": self.scenes, "message": self.message_info}, f, ensure_ascii=False, indent=2)
 
     # --------- Scene Operations ---------
-    def add_scene(self, mj_name: str, name: str):
+    def add_scene(self, mj_name: str, name: str, actions=None):
         scene_id = max([s['id'] for s in self.scenes], default=0) + 1
         scene = {
             "id": scene_id,
@@ -123,7 +177,11 @@ class SceneTodo(commands.Cog):
             "mj": mj_name,
             "created_at": datetime.utcnow().isoformat(),
             "completed": False,
+            "actions": [],
         }
+        if actions:
+            for idx, label in enumerate(actions, start=1):
+                scene["actions"].append({"id": idx, "label": label, "done": False})
         self.scenes.append(scene)
         self.save_data()
         return scene
@@ -143,6 +201,36 @@ class SceneTodo(commands.Cog):
 
     def get_active_scenes(self):
         return [s for s in self.scenes if not s.get("completed")]
+
+    def add_action(self, scene_id: int, label: str):
+        scene = self.get_scene(scene_id)
+        if not scene:
+            return None
+        actions = scene.setdefault("actions", [])
+        action_id = max([a["id"] for a in actions], default=0) + 1
+        action = {"id": action_id, "label": label, "done": False}
+        actions.append(action)
+        self.save_data()
+        return action
+
+    def toggle_action(self, scene_id: int, action_id: int):
+        scene = self.get_scene(scene_id)
+        if not scene:
+            return None
+        for action in scene.get("actions", []):
+            if action["id"] == action_id:
+                action["done"] = not action.get("done", False)
+                self.save_data()
+                return action
+        return None
+
+    def delete_scene(self, scene_id: int):
+        scene = self.get_scene(scene_id)
+        if not scene:
+            return None
+        self.scenes = [s for s in self.scenes if s["id"] != scene_id]
+        self.save_data()
+        return scene
 
     # --------- Helper ---------
     def format_time_ago(self, iso_time: str) -> str:
@@ -169,7 +257,15 @@ class SceneTodo(commands.Cog):
         for scene in scenes:
             since = self.format_time_ago(scene["created_at"])
             mj_name = scene.get("mj", "?")
-            embed.add_field(name=scene["name"], value=f"MJ : {mj_name}\nDepuis {since}", inline=False)
+            actions_lines = []
+            for action in scene.get("actions", []):
+                check = "✅" if action.get("done") else "⬜️"
+                actions_lines.append(f"{check} {action['label']}")
+            actions_text = "\n".join(actions_lines)
+            value = f"MJ : {mj_name}\nDepuis {since}"
+            if actions_lines:
+                value += "\n" + actions_text
+            embed.add_field(name=scene["name"], value=value, inline=False)
         return embed
 
     async def refresh_message(self, message: discord.Message):
