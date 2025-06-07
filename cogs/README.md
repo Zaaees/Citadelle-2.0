@@ -71,6 +71,13 @@ Cog probablement lié à un thème "espace" ou à une dimension narrative spéci
 
 ---
 
+## 📝 scene_todo.py
+Gestion d'une to-do list de scènes RP.
+- Stocke les scènes et l'identifiant du message d'initialisation dans Google Sheets.
+- Utilise la variable d'environnement `SCENES_GOOGLE_SHEET_ID` pour sélectionner la feuille dédiée.
+
+---
+
 ## 🧼 bump.py
 Fonction pour le bump automatique ou assisté :
 - Relance de serveurs (type Disboard ?).
