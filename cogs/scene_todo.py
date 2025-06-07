@@ -4,12 +4,19 @@ from discord import app_commands
 from datetime import datetime
 import json
 import os
+import gspread
+from google.oauth2.service_account import Credentials
 
 SCENE_CHANNEL_ID = 1380704586016362626
 LOG_CHANNEL_ID = 1097883902279946360
 MJ_ROLE_ID = 1018179623886000278
-SCENES_FILE = "scenes.json"
 EMBED_COLOR = 0x6d5380
+SCOPES = [
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/drive'
+]
+
+SCENES_SHEET_ID = os.getenv('SCENES_GOOGLE_SHEET_ID')
 
 
 class AddSceneModal(discord.ui.Modal, title="Créer une scène"):
@@ -136,28 +143,103 @@ class AddSceneButton(discord.ui.Button):
 class SceneTodo(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.gc = None
+        self.sheet_scenes = None
+        self.sheet_config = None
+        self.setup_google_sheets()
         data = self.load_data()
         self.scenes = data.get("scenes", [])
         self.init_message_id = data.get("init_message")
         self.bot.loop.create_task(self.initialize())
 
+    def setup_google_sheets(self):
+        try:
+            creds_info = json.loads(os.getenv('SERVICE_ACCOUNT_JSON'))
+            creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+            self.gc = gspread.authorize(creds)
+            spreadsheet = self.gc.open_by_key(SCENES_SHEET_ID)
+            try:
+                self.sheet_scenes = spreadsheet.worksheet('Scenes')
+            except gspread.exceptions.WorksheetNotFound:
+                self.sheet_scenes = spreadsheet.add_worksheet(title='Scenes', rows='100', cols='6')
+                self.sheet_scenes.append_row(["id", "name", "mj", "created_at", "completed", "message_id"])
+            try:
+                self.sheet_config = spreadsheet.worksheet('Config')
+            except gspread.exceptions.WorksheetNotFound:
+                self.sheet_config = spreadsheet.add_worksheet(title='Config', rows='10', cols='2')
+                self.sheet_config.append_row(["key", "value"])
+        except Exception as e:
+            print(f"Erreur lors de la connexion à Google Sheets: {e}")
+            self.gc = None
+            self.sheet_scenes = None
+            self.sheet_config = None
+
     # ---------------- Persistence ----------------
     def load_data(self):
-        if os.path.isfile(SCENES_FILE):
-            with open(SCENES_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, list):
-                data = {"scenes": data, "init_message": None}
-            if "message" in data and "init_message" not in data:
-                data["init_message"] = data["message"]
-            for scene in data.get("scenes", []):
-                scene.setdefault("completed", False)
-            return data
-        return {"scenes": [], "init_message": None}
+        if not self.sheet_scenes or not self.sheet_config:
+            return {"scenes": [], "init_message": None}
+
+        scenes = []
+        try:
+            rows = self.sheet_scenes.get_all_values()
+            header = rows[0] if rows else []
+            for row in rows[1:]:
+                if not row or not row[0]:
+                    continue
+                scene = {
+                    "id": int(row[0]),
+                    "name": row[1],
+                    "mj": row[2],
+                    "created_at": row[3],
+                    "completed": row[4].lower() == "true",
+                    "message_id": int(row[5]) if len(row) > 5 and row[5] else None,
+                }
+                scenes.append(scene)
+        except Exception as e:
+            print(f"Erreur chargement scenes: {e}")
+
+        init_message = None
+        try:
+            records = self.sheet_config.get_all_records()
+            for rec in records:
+                if rec.get("key") == "init_message_id":
+                    value = rec.get("value")
+                    if value:
+                        try:
+                            init_message = int(value)
+                        except ValueError:
+                            init_message = None
+                    break
+        except Exception as e:
+            print(f"Erreur chargement config: {e}")
+
+        return {"scenes": scenes, "init_message": init_message}
 
     def save_data(self):
-        with open(SCENES_FILE, "w", encoding="utf-8") as f:
-            json.dump({"scenes": self.scenes, "init_message": self.init_message_id}, f, ensure_ascii=False, indent=2)
+        if not self.sheet_scenes or not self.sheet_config:
+            return
+
+        try:
+            rows = [["id", "name", "mj", "created_at", "completed", "message_id"]]
+            for s in self.scenes:
+                rows.append([
+                    str(s["id"]),
+                    s["name"],
+                    s["mj"],
+                    s["created_at"],
+                    str(s.get("completed", False)),
+                    str(s.get("message_id", "")),
+                ])
+            self.sheet_scenes.clear()
+            self.sheet_scenes.update('A1', rows)
+        except Exception as e:
+            print(f"Erreur sauvegarde scenes: {e}")
+
+        try:
+            self.sheet_config.clear()
+            self.sheet_config.update('A1', [["key", "value"], ["init_message_id", str(self.init_message_id or "")]])
+        except Exception as e:
+            print(f"Erreur sauvegarde config: {e}")
 
     # ---------------- Utility ----------------
     def get_scene(self, scene_id: int):
