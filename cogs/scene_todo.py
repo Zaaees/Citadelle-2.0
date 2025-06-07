@@ -54,6 +54,14 @@ class ActionButton(discord.ui.Button):
         if not any(r.id == MJ_ROLE_ID for r in interaction.user.roles):
             await interaction.response.send_message("Permission refusée.")
             return
+        scene = self.cog.get_scene(self.scene_id)
+        if not scene:
+            await interaction.response.send_message("Scène introuvable.")
+            return
+        scene["last_action"] = datetime.utcnow().isoformat()
+        self.cog.sort_scenes()
+        self.cog.save_data()
+        await self.cog.reorder_channel_if_needed()
         await interaction.response.defer(thinking=False)
         await interaction.channel.send("Action terminée")
 
@@ -110,6 +118,7 @@ class DeleteSceneButton(discord.ui.Button):
                 await msg.delete()
             except discord.NotFound:
                 pass
+        await self.cog.reorder_channel_if_needed()
 
 
 class SceneView(discord.ui.View):
@@ -148,6 +157,7 @@ class SceneTodo(commands.Cog):
         self.setup_google_sheets()
         data = self.load_data()
         self.scenes = data.get("scenes", [])
+        self.sort_scenes()
         self.init_message_id = data.get("init_message")
         self.bot.loop.create_task(self.initialize())
 
@@ -173,6 +183,7 @@ class SceneTodo(commands.Cog):
                         "name",
                         "mj",
                         "created_at",
+                        "last_action",
                         "completed",
                         "message_id",
                         "init_message_id",
@@ -199,15 +210,14 @@ class SceneTodo(commands.Cog):
         try:
             rows = self.sheet_scenes.get_all_values()
             header = rows[0] if rows else []
+            header_map = {name: i for i, name in enumerate(header)}
             for idx, row in enumerate(rows[1:], start=1):
                 if (
-                    header
-                    and len(header) > 6
-                    and header[6] == "init_message_id"
+                    "init_message_id" in header_map
                     and idx == 1
-                    and len(row) > 6
+                    and len(row) > header_map["init_message_id"]
                 ):
-                    value = row[6]
+                    value = row[header_map["init_message_id"]]
                     if value:
                         try:
                             init_message = int(value)
@@ -217,12 +227,23 @@ class SceneTodo(commands.Cog):
                 if not row or not row[0]:
                     continue
                 scene = {
-                    "id": int(row[0]),
-                    "name": row[1],
-                    "mj": row[2],
-                    "created_at": row[3],
-                    "completed": row[4].lower() == "true",
-                    "message_id": int(row[5]) if len(row) > 5 and row[5] else None,
+                    "id": int(row[header_map.get("id", 0)]),
+                    "name": row[header_map.get("name", 1)],
+                    "mj": row[header_map.get("mj", 2)],
+                    "created_at": row[header_map.get("created_at", 3)],
+                    "last_action": (
+                        row[header_map.get("last_action")] if "last_action" in header_map and len(row) > header_map["last_action"] else row[header_map.get("created_at", 3)]
+                    ),
+                    "completed": (
+                        row[header_map.get("completed")] .lower() == "true"
+                        if "completed" in header_map and len(row) > header_map["completed"]
+                        else False
+                    ),
+                    "message_id": (
+                        int(row[header_map.get("message_id")])
+                        if "message_id" in header_map and len(row) > header_map["message_id"] and row[header_map.get("message_id")]
+                        else None
+                    ),
                 }
                 scenes.append(scene)
         except Exception as e:
@@ -254,16 +275,18 @@ class SceneTodo(commands.Cog):
                 "name",
                 "mj",
                 "created_at",
+                "last_action",
                 "completed",
                 "message_id",
                 "init_message_id",
-            ], ["", "", "", "", "", "", ""]]
+            ], ["", "", "", "", "", "", "", ""]]
             for s in self.scenes:
                 rows.append([
                     str(s["id"]),
                     s["name"],
                     s["mj"],
                     s["created_at"],
+                    s.get("last_action", ""),
                     str(s.get("completed", False)),
                     str(s.get("message_id", "")),
                     "",
@@ -272,7 +295,7 @@ class SceneTodo(commands.Cog):
             self.sheet_scenes.update('A1', rows)
             # Save init message ID in a dedicated column
             self.sheet_scenes.update(
-                'G1:G2',
+                'H1:H2',
                 [["init_message_id"], [str(self.init_message_id or "")]],
             )
         except Exception as e:
@@ -291,6 +314,11 @@ class SceneTodo(commands.Cog):
                 return s
         return None
 
+    def sort_scenes(self):
+        self.scenes.sort(
+            key=lambda s: s.get("last_action", s.get("created_at")), reverse=True
+        )
+
     def delete_scene(self, scene_id: int):
         for i, scene in enumerate(self.scenes):
             if scene["id"] == scene_id:
@@ -304,6 +332,18 @@ class SceneTodo(commands.Cog):
         desc = f"MJ responsable : {scene['mj']}\nCréée le {created}"
         if scene.get("completed"):
             desc += "\n✅ Scène terminée"
+        if scene.get("last_action") and not scene.get("completed"):
+            try:
+                delta = datetime.utcnow() - datetime.fromisoformat(scene["last_action"])
+                if delta.days >= 1:
+                    value = delta.days
+                    unit = "jour" if value == 1 else "jours"
+                else:
+                    value = delta.seconds // 3600
+                    unit = "heure" if value == 1 else "heures"
+                desc += f"\nAction en attente depuis {value} {unit}"
+            except Exception:
+                pass
         return discord.Embed(title=scene["name"], description=desc, color=EMBED_COLOR)
 
     async def log_completion(self, scene: dict):
@@ -323,6 +363,24 @@ class SceneTodo(commands.Cog):
         await message.edit(embed=self.build_scene_embed(scene), view=view)
         self.bot.add_view(view, message_id=message.id)
 
+    async def reorder_channel_if_needed(self):
+        channel = self.bot.get_channel(SCENE_CHANNEL_ID)
+        if not channel:
+            return
+        for scene in self.scenes:
+            if scene.get("message_id"):
+                try:
+                    msg = await channel.fetch_message(scene["message_id"])
+                    await msg.delete()
+                except discord.NotFound:
+                    pass
+        for scene in self.scenes:
+            view = SceneView(self, scene)
+            message = await channel.send(embed=self.build_scene_embed(scene), view=view)
+            self.bot.add_view(view, message_id=message.id)
+            scene["message_id"] = message.id
+        self.save_data()
+
     # ---------------- Scene operations ----------------
     async def create_scene(self, channel: discord.TextChannel, name: str, mj: str):
         scene_id = max([s["id"] for s in self.scenes], default=0) + 1
@@ -331,21 +389,20 @@ class SceneTodo(commands.Cog):
             "name": name,
             "mj": mj,
             "created_at": datetime.utcnow().isoformat(),
+            "last_action": datetime.utcnow().isoformat(),
             "completed": False,
             "message_id": None,
         }
-        view = SceneView(self, scene)
-        message = await channel.send(embed=self.build_scene_embed(scene), view=view)
-        self.bot.add_view(view, message_id=message.id)
-        scene["message_id"] = message.id
         self.scenes.append(scene)
+        self.sort_scenes()
         self.save_data()
+        await self.reorder_channel_if_needed()
         return scene
 
     async def finish_scene(self, scene: dict):
         scene["completed"] = True
         self.save_data()
-        await self.refresh_scene_message(scene)
+        await self.reorder_channel_if_needed()
         await self.log_completion(scene)
 
     # ---------------- Initialization ----------------
