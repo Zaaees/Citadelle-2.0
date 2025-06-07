@@ -18,37 +18,28 @@ class AddSceneModal(discord.ui.Modal, title="Créer une scène"):
         self.cog = cog
         self.mj_input = discord.ui.TextInput(label="MJ responsable", required=True)
         self.name_input = discord.ui.TextInput(label="Nom de la scène", required=True)
-        self.actions_input = discord.ui.TextInput(
-            label="Actions initiales (une par ligne)",
-            style=discord.TextStyle.paragraph,
-            required=False,
-        )
         self.add_item(self.mj_input)
         self.add_item(self.name_input)
-        self.add_item(self.actions_input)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=False)
         channel = self.cog.bot.get_channel(SCENE_CHANNEL_ID)
         if not channel:
             return
-        actions = [a.strip() for a in self.actions_input.value.splitlines() if a.strip()]
         await self.cog.create_scene(
             channel,
             self.name_input.value.strip(),
             self.mj_input.value.strip(),
-            actions,
         )
 
 
 class ActionButton(discord.ui.Button):
-    def __init__(self, cog: "SceneTodo", scene_id: int, action: dict):
-        style = discord.ButtonStyle.success if action.get("done") else discord.ButtonStyle.secondary
+    def __init__(self, cog: "SceneTodo", scene_id: int, disabled: bool):
         super().__init__(
-            label=action["label"],
-            style=style,
-            custom_id=f"scene_{scene_id}_action_{action['id']}",
-            disabled=action.get("done", False),
+            label="Action envoyée",
+            style=discord.ButtonStyle.secondary,
+            custom_id=f"scene_{scene_id}_action",
+            disabled=disabled,
         )
         self.cog = cog
         self.scene_id = scene_id
@@ -59,17 +50,11 @@ class ActionButton(discord.ui.Button):
             await interaction.response.send_message("Permission refusée.")
             return
         scene = self.cog.get_scene(self.scene_id)
-        if not scene:
-            await interaction.response.send_message("Scène introuvable.")
-            return
-        action = self.cog.toggle_action(self.scene_id, self.action_id)
-        if not action:
-            await interaction.response.send_message("Action introuvable.")
+        if not scene or scene.get("completed"):
+            await interaction.response.send_message("Scène introuvable ou terminée.")
             return
         await interaction.response.defer(thinking=False)
-        await self.cog.refresh_scene_message(scene)
-        if action.get("done"):
-            await self.cog.log_action_done(scene, action, interaction.user)
+        await self.cog.log_action(scene, interaction.user)
 
 
 class CompleteButton(discord.ui.Button):
@@ -129,8 +114,7 @@ class DeleteSceneButton(discord.ui.Button):
 class SceneView(discord.ui.View):
     def __init__(self, cog: "SceneTodo", scene: dict):
         super().__init__(timeout=None)
-        for action in scene.get("actions", []):
-            self.add_item(ActionButton(cog, scene["id"], action))
+        self.add_item(ActionButton(cog, scene["id"], scene.get("completed", False)))
         self.add_item(CompleteButton(cog, scene["id"], scene.get("completed", False)))
         self.add_item(DeleteSceneButton(cog, scene["id"]))
 
@@ -173,7 +157,6 @@ class SceneTodo(commands.Cog):
                 data["init_message"] = data["message"]
             for scene in data.get("scenes", []):
                 scene.setdefault("completed", False)
-                scene.setdefault("actions", [])
             return data
         return {"scenes": [], "init_message": None}
 
@@ -188,26 +171,6 @@ class SceneTodo(commands.Cog):
                 return s
         return None
 
-    def add_action(self, scene_id: int, label: str):
-        scene = self.get_scene(scene_id)
-        if not scene:
-            return None
-        action_id = max([a["id"] for a in scene.get("actions", [])], default=0) + 1
-        action = {"id": action_id, "label": label, "done": False}
-        scene.setdefault("actions", []).append(action)
-        self.save_data()
-        return action
-
-    def toggle_action(self, scene_id: int, action_id: int):
-        scene = self.get_scene(scene_id)
-        if not scene:
-            return None
-        for action in scene.get("actions", []):
-            if action["id"] == action_id:
-                action["done"] = not action.get("done", False)
-                self.save_data()
-                return action
-        return None
 
     def delete_scene(self, scene_id: int):
         for i, scene in enumerate(self.scenes):
@@ -220,20 +183,15 @@ class SceneTodo(commands.Cog):
     def build_scene_embed(self, scene: dict) -> discord.Embed:
         created = datetime.fromisoformat(scene["created_at"]).strftime("%d/%m/%Y")
         desc = f"MJ responsable : {scene['mj']}\nCréée le {created}"
-        actions = scene.get("actions", [])
-        if actions:
-            for act in actions:
-                status = "✅" if act.get("done") else "⬜️"
-                desc += f"\n{status} {act['label']}"
         if scene.get("completed"):
             desc += "\n✅ Scène terminée"
         return discord.Embed(title=scene["name"], description=desc, color=EMBED_COLOR)
 
-    async def log_action_done(self, scene: dict, action: dict, user: discord.User):
+    async def log_action(self, scene: dict, user: discord.User):
         channel = self.bot.get_channel(LOG_CHANNEL_ID)
         if channel:
             await channel.send(
-                f"📌 Action **{action['label']}** complétée pour la scène **{scene['name']}** (MJ : {scene['mj']}) par {user.mention}"
+                f"📌 Action envoyée pour la scène **{scene['name']}** (MJ : {scene['mj']}) par {user.mention}"
             )
 
     async def log_completion(self, scene: dict):
@@ -249,14 +207,12 @@ class SceneTodo(commands.Cog):
             message = await channel.fetch_message(scene["message_id"])
         except discord.NotFound:
             return
-
         view = SceneView(self, scene)
-
         await message.edit(embed=self.build_scene_embed(scene), view=view)
         self.bot.add_view(view, message_id=message.id)
 
     # ---------------- Scene operations ----------------
-    async def create_scene(self, channel: discord.TextChannel, name: str, mj: str, actions: list[str]):
+    async def create_scene(self, channel: discord.TextChannel, name: str, mj: str):
         scene_id = max([s["id"] for s in self.scenes], default=0) + 1
         scene = {
             "id": scene_id,
@@ -265,10 +221,7 @@ class SceneTodo(commands.Cog):
             "created_at": datetime.utcnow().isoformat(),
             "completed": False,
             "message_id": None,
-            "actions": [],
         }
-        for i, label in enumerate(actions, start=1):
-            scene["actions"].append({"id": i, "label": label, "done": False})
         view = SceneView(self, scene)
         message = await channel.send(embed=self.build_scene_embed(scene), view=view)
         self.bot.add_view(view, message_id=message.id)
@@ -335,3 +288,4 @@ class SceneTodo(commands.Cog):
 async def setup(bot: commands.Bot):
     await bot.add_cog(SceneTodo(bot))
     print("Cog scene_todo chargé avec succès")
+
