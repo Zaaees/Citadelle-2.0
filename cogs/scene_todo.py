@@ -22,13 +22,13 @@ class AddSceneModal(discord.ui.Modal, title="Créer une scène"):
         self.add_item(self.name_input)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
         channel = self.cog.bot.get_channel(SCENE_CHANNEL_ID)
         if not channel:
-            await interaction.followup.send("Salon introuvable.", ephemeral=True)
+            await interaction.followup.send("Salon introuvable.")
             return
         scene = await self.cog.create_scene(channel, self.name_input.value.strip(), self.mj_input.value.strip())
-        await interaction.followup.send(f"Scène '{scene['name']}' créée.", ephemeral=True)
+        await interaction.followup.send(f"Scène '{scene['name']}' créée.")
 
 
 class ActionButton(discord.ui.Button):
@@ -44,13 +44,13 @@ class ActionButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         if not any(r.id == MJ_ROLE_ID for r in interaction.user.roles):
-            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            await interaction.response.send_message("Permission refusée.")
             return
         scene = self.cog.get_scene(self.scene_id)
         if not scene:
-            await interaction.response.send_message("Scène introuvable.", ephemeral=True)
+            await interaction.response.send_message("Scène introuvable.")
             return
-        await interaction.response.send_message("Action enregistrée.", ephemeral=True)
+        await interaction.response.send_message("Action enregistrée.")
         await self.cog.log_action(scene, interaction.user)
 
 
@@ -67,17 +67,17 @@ class CompleteButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         if not any(r.id == MJ_ROLE_ID for r in interaction.user.roles):
-            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            await interaction.response.send_message("Permission refusée.")
             return
         scene = self.cog.get_scene(self.scene_id)
         if not scene:
-            await interaction.response.send_message("Scène introuvable.", ephemeral=True)
+            await interaction.response.send_message("Scène introuvable.")
             return
         if scene.get("completed"):
-            await interaction.response.send_message("Scène déjà terminée.", ephemeral=True)
+            await interaction.response.send_message("Scène déjà terminée.")
             return
         await self.cog.finish_scene(scene)
-        await interaction.response.send_message(f"Scène '{scene['name']}' clôturée.", ephemeral=True)
+        await interaction.response.send_message(f"Scène '{scene['name']}' clôturée.")
 
 
 class SceneView(discord.ui.View):
@@ -93,6 +93,7 @@ class AddSceneView(discord.ui.View):
         self.cog = cog
         self.add_item(AddSceneButton(cog))
 
+
 class AddSceneButton(discord.ui.Button):
     def __init__(self, cog: "SceneTodo"):
         super().__init__(label="Ajouter une scène", style=discord.ButtonStyle.primary, custom_id="create_scene")
@@ -100,7 +101,7 @@ class AddSceneButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         if not any(r.id == MJ_ROLE_ID for r in interaction.user.roles):
-            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            await interaction.response.send_message("Permission refusée.")
             return
         await interaction.response.send_modal(AddSceneModal(self.cog))
 
@@ -235,10 +236,10 @@ class SceneTodo(commands.Cog):
     @app_commands.command(name="scenes-init", description="Réinitialiser le message de création de scènes")
     async def scenes_init(self, interaction: discord.Interaction):
         if not any(r.id == MJ_ROLE_ID for r in interaction.user.roles):
-            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            await interaction.response.send_message("Permission refusée.")
             return
         await self.ensure_init_message()
-        await interaction.response.send_message("Message initial prêt.", ephemeral=True)
+        await interaction.response.send_message("Message initial prêt.")
 
 
 async def setup(bot: commands.Bot):
