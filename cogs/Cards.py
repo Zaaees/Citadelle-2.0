@@ -1224,33 +1224,55 @@ class CardsMenuView(discord.ui.View):
             color=discord.Color.gold()
         )
 
-        # Remplissage des embeds
+        # Remplissage des embeds avec progression
         for cat in rarity_order:
             noms = cards_by_cat.get(cat, [])
 
             # 1) Cartes normales
             normales = [n for n in noms if not n.endswith(" (Full)")]
             if normales:
-                counts: dict[str,int] = {}
+                counts: dict[str, int] = {}
                 for n in normales:
                     counts[n] = counts.get(n, 0) + 1
                 lines = [
                     f"- **{n.removesuffix('.png')}**{' (x'+str(c)+')' if c>1 else ''}"
                     for n, c in counts.items()
                 ]
-                embed_normales.add_field(name=cat, value="\n".join(lines), inline=False)
+
+                total_available = len({
+                    f['name'].removesuffix('.png')
+                    for f in self.cog.cards_by_category.get(cat, [])
+                })
+                owned_unique = len(counts)
+
+                embed_normales.add_field(
+                    name=f"{cat} : {owned_unique}/{total_available}",
+                    value="\n".join(lines),
+                    inline=False
+                )
 
             # 2) Cartes Full
             fulls = [n for n in noms if n.endswith(" (Full)")]
             if fulls:
-                counts: dict[str,int] = {}
+                counts: dict[str, int] = {}
                 for n in fulls:
                     counts[n] = counts.get(n, 0) + 1
                 lines = [
                     f"- **{n.removesuffix('.png')}**{' (x'+str(c)+')' if c>1 else ''}"
                     for n, c in counts.items()
                 ]
-                embed_full.add_field(name=f"{cat} (Full)", value="\n".join(lines), inline=False)
+
+                total_full = len({
+                    f['name'].removesuffix('.png')
+                    for f in self.cog.upgrade_cards_by_category.get(cat, [])
+                })
+                owned_full = len(counts)
+
+                embed_full.add_field(
+                    name=f"{cat} (Full) : {owned_full}/{total_full}",
+                    value="\n".join(lines),
+                    inline=False
+                )
 
         # Envoi des deux embeds
         view = GalleryActionView(self.cog, self.user)
