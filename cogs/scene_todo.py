@@ -43,6 +43,7 @@ class ActionButton(discord.ui.Button):
         )
         self.cog = cog
         self.scene_id = scene_id
+        self.action_id = action["id"]
 
     async def callback(self, interaction: discord.Interaction):
         if not any(r.id == MJ_ROLE_ID for r in interaction.user.roles):
