@@ -248,6 +248,59 @@ class Cards(commands.Cog):
                     user_cards.extend([(cat, name)] * int(count))
         return user_cards
 
+    def get_unique_card_counts(self) -> dict[int, int]:
+        """Retourne un dictionnaire {user_id: nombre de cartes différentes}."""
+        now = time.time()
+        if not self.cards_cache or now - self.cards_cache_time > 5:
+            self.refresh_cards_cache()
+
+        if not self.cards_cache:
+            return {}
+
+        rows = self.cards_cache[1:]
+        user_sets: dict[int, set[tuple[str, str]]] = {}
+        for row in rows:
+            if len(row) < 3:
+                continue
+            cat, name = row[0], row[1]
+            card_key = (cat, name)
+            for cell in row[2:]:
+                cell = cell.strip()
+                if not cell or ":" not in cell:
+                    continue
+                uid_str, _ = cell.split(":", 1)
+                try:
+                    uid = int(uid_str)
+                except ValueError:
+                    continue
+                user_sets.setdefault(uid, set()).add(card_key)
+
+        return {uid: len(cards) for uid, cards in user_sets.items()}
+
+    def get_leaderboard(self, top_n: int = 5) -> list[tuple[int, int]]:
+        """Renvoie la liste triée des (user_id, compte unique) pour les `top_n` meilleurs."""
+        counts = self.get_unique_card_counts()
+        leaderboard = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+        return leaderboard[:top_n]
+
+    def get_user_rank(self, user_id: int) -> tuple[int | None, int]:
+        """Renvoie (rang, nombre de cartes uniques) de l'utilisateur."""
+        counts = self.get_unique_card_counts()
+        sorted_counts = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+        rank = None
+        for idx, (uid, _) in enumerate(sorted_counts, start=1):
+            if uid == user_id:
+                rank = idx
+                break
+        return rank, counts.get(user_id, 0)
+
+    def total_unique_cards_available(self) -> int:
+        """Nombre total de cartes différentes existantes."""
+        total = 0
+        for lst in (*self.cards_by_category.values(), *self.upgrade_cards_by_category.values()):
+            total += len(lst)
+        return total
+
     
     def safe_exchange(self, user1_id, card1, user2_id, card2) -> bool:
         cards1 = self.get_user_cards(user1_id)
@@ -388,11 +441,19 @@ class Cards(commands.Cog):
         bonus_persos = (len(owned_chars) - 1) * 5 if 'owned_chars' in locals() and len(owned_chars) > 1 else 0
         bonus_tirages = bonus_persos
 
+        unique_count = len({(c, n) for c, n in user_cards})
+        total_unique = self.total_unique_cards_available()
+        rank, _ = self.get_user_rank(interaction.user.id)
+        total_players = len(self.get_unique_card_counts())
+        rank_text = f"#{rank}/{total_players}" if rank else "N/A"
+
         await interaction.followup.send(
             f"**Menu des Cartes :**\n"
             f"🏅 Médailles comptées : **{medals_used}**\n"
             f"➕ Bonus de tirages : **{bonus_tirages}** (via personnages supplémentaires)\n"
-            f"🎴 Tirages restants : **{remaining_clicks}**",
+            f"🎴 Tirages restants : **{remaining_clicks}**\n"
+            f"📈 Cartes différentes : **{unique_count}/{total_unique}**\n"
+            f"🥇 Classement : **{rank_text}**",
             view=view,
             ephemeral=True
         )
@@ -1281,6 +1342,23 @@ class CardsMenuView(discord.ui.View):
             view=view,
             ephemeral=True
         )
+
+    @discord.ui.button(label="Classement", style=discord.ButtonStyle.secondary)
+    async def show_leaderboard(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        leaderboard = self.cog.get_leaderboard()
+        embed = discord.Embed(title="Top 5 des collectionneurs", color=0x4E5D94)
+        for idx, (uid, count) in enumerate(leaderboard, start=1):
+            user = self.cog.bot.get_user(uid)
+            name = user.display_name if user else str(uid)
+            embed.add_field(name=f"#{idx} {name}", value=f"{count} cartes différentes", inline=False)
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 
