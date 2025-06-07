@@ -16,8 +16,6 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive'
 ]
 
-SCENES_SHEET_ID = os.getenv('SCENES_GOOGLE_SHEET_ID')
-
 
 class AddSceneModal(discord.ui.Modal, title="Créer une scène"):
     def __init__(self, cog: "SceneTodo"):
@@ -153,16 +151,21 @@ class SceneTodo(commands.Cog):
         self.bot.loop.create_task(self.initialize())
 
     def setup_google_sheets(self):
+        sheet_id = os.getenv('SCENES_GOOGLE_SHEET_ID')
+        if not sheet_id:
+            print("SCENES_GOOGLE_SHEET_ID non défini")
+            return
         try:
             creds_info = json.loads(os.getenv('SERVICE_ACCOUNT_JSON'))
             creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
             self.gc = gspread.authorize(creds)
-            spreadsheet = self.gc.open_by_key(SCENES_SHEET_ID)
+            spreadsheet = self.gc.open_by_key(sheet_id)
             try:
                 self.sheet_scenes = spreadsheet.worksheet('Scenes')
             except gspread.exceptions.WorksheetNotFound:
-                self.sheet_scenes = spreadsheet.add_worksheet(title='Scenes', rows='100', cols='6')
-                self.sheet_scenes.append_row(["id", "name", "mj", "created_at", "completed", "message_id"])
+                self.sheet_scenes = spreadsheet.sheet1
+                if not self.sheet_scenes.get_all_values():
+                    self.sheet_scenes.update('A1', [["id", "name", "mj", "created_at", "completed", "message_id"]])
             try:
                 self.sheet_config = spreadsheet.worksheet('Config')
             except gspread.exceptions.WorksheetNotFound:
