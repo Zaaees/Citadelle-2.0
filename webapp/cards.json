@@ -1,0 +1,11 @@
+{
+  "Secrète": ["Carte Mystère"],
+  "Fondateur": ["Les Créateurs"],
+  "Historique": ["Ancienne Légende"],
+  "Maître": ["Haut Maître"],
+  "Black Hole": ["Trou Noir"],
+  "Architectes": ["Bâtisseur"],
+  "Professeurs": ["Enseignant"],
+  "Autre": ["Aventurier", "Gardien"],
+  "Élèves": ["Novice", "Apprenti", "Étudiant"]
+}
