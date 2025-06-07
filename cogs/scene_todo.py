@@ -55,11 +55,19 @@ class AddSceneModal(discord.ui.Modal, title="Créer une scène"):
         channel = self.cog.bot.get_channel(SCENE_CHANNEL_ID)
         if not channel:
             return
-        await self.cog.create_scene(
-            channel,
-            self.name_input.value.strip(),
-            self.mj_select.values[0],
-        )
+        try:
+            await self.cog.create_scene(
+                channel,
+                self.name_input.value.strip(),
+                self.mj_select.values[0],
+            )
+            await interaction.followup.send(
+                "Scène créée avec succès.", ephemeral=True
+            )
+        except Exception as e:
+            await interaction.followup.send(
+                f"Erreur lors de la création de la scène : {e}", ephemeral=True
+            )
 
 
 class ActionButton(discord.ui.Button):
