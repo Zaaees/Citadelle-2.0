@@ -93,7 +93,6 @@ class AddSceneView(discord.ui.View):
         self.cog = cog
         self.add_item(AddSceneButton(cog))
 
-
 class AddSceneButton(discord.ui.Button):
     def __init__(self, cog: "SceneTodo"):
         super().__init__(label="Ajouter une scène", style=discord.ButtonStyle.primary, custom_id="create_scene")
