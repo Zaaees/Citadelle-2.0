@@ -16,15 +16,37 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive'
 ]
 
+# Liste des MJ disponibles pour les scènes
+MJ_NAMES = [
+    "Zaès",
+    "Samaël",
+    "Seth",
+    "Arthur",
+    "Miwa",
+    "Noci",
+    "Isaak",
+]
+
+
+
+class MJSelect(discord.ui.Select):
+    def __init__(self):
+        options = [discord.SelectOption(label=mj, value=mj) for mj in MJ_NAMES]
+        super().__init__(
+            placeholder="Choisir le MJ responsable",
+            options=options,
+            min_values=1,
+            max_values=1,
+        )
 
 
 class AddSceneModal(discord.ui.Modal, title="Créer une scène"):
     def __init__(self, cog: "SceneTodo"):
         super().__init__()
         self.cog = cog
-        self.mj_input = discord.ui.TextInput(label="MJ responsable", required=True)
+        self.mj_select = MJSelect()
         self.name_input = discord.ui.TextInput(label="Nom de la scène", required=True)
-        self.add_item(self.mj_input)
+        self.add_item(self.mj_select)
         self.add_item(self.name_input)
         
 
@@ -36,7 +58,7 @@ class AddSceneModal(discord.ui.Modal, title="Créer une scène"):
         await self.cog.create_scene(
             channel,
             self.name_input.value.strip(),
-            self.mj_input.value.strip(),
+            self.mj_select.values[0],
         )
 
 
@@ -319,6 +341,10 @@ class SceneTodo(commands.Cog):
             key=lambda s: s.get("last_action", s.get("created_at")), reverse=False
         )
 
+    def get_available_mjs(self):
+        used = {s["mj"] for s in self.scenes if not s.get("completed", False)}
+        return [mj for mj in MJ_NAMES if mj not in used]
+
     def delete_scene(self, scene_id: int):
         for i, scene in enumerate(self.scenes):
             if scene["id"] == scene_id:
@@ -380,6 +406,7 @@ class SceneTodo(commands.Cog):
             self.bot.add_view(view, message_id=message.id)
             scene["message_id"] = message.id
         self.save_data()
+        await self.update_init_message()
 
     # ---------------- Scene operations ----------------
     async def create_scene(self, channel: discord.TextChannel, name: str, mj: str):
@@ -419,17 +446,56 @@ class SceneTodo(commands.Cog):
             try:
                 message = await channel.fetch_message(self.init_message_id)
                 view = AddSceneView(self)
-                await message.edit(view=view)
+                description = (
+                    "Utilisez le bouton ci-dessous pour créer une nouvelle scène.\n"
+                    f"MJ disponibles : {', '.join(self.get_available_mjs()) or 'Aucun'}"
+                )
+                embed = discord.Embed(
+                    title="Gestion des scènes",
+                    description=description,
+                    color=EMBED_COLOR,
+                )
+                await message.edit(embed=embed, view=view)
                 self.bot.add_view(view, message_id=message.id)
                 return
             except discord.NotFound:
                 self.init_message_id = None
-        embed = discord.Embed(title="Gestion des scènes", description="Utilisez le bouton ci-dessous pour créer une nouvelle scène.", color=EMBED_COLOR)
+        description = (
+            "Utilisez le bouton ci-dessous pour créer une nouvelle scène.\n"
+            f"MJ disponibles : {', '.join(self.get_available_mjs()) or 'Aucun'}"
+        )
+        embed = discord.Embed(
+            title="Gestion des scènes",
+            description=description,
+            color=EMBED_COLOR,
+        )
         view = AddSceneView(self)
         message = await channel.send(embed=embed, view=view)
         self.bot.add_view(view, message_id=message.id)
         self.init_message_id = message.id
         self.save_data()
+
+    async def update_init_message(self):
+        channel = self.bot.get_channel(SCENE_CHANNEL_ID)
+        if not channel or not self.init_message_id:
+            return
+        try:
+            message = await channel.fetch_message(self.init_message_id)
+        except discord.NotFound:
+            await self.ensure_init_message()
+            return
+        description = (
+            "Utilisez le bouton ci-dessous pour créer une nouvelle scène.\n"
+            f"MJ disponibles : {', '.join(self.get_available_mjs()) or 'Aucun'}"
+        )
+        embed = discord.Embed(
+            title="Gestion des scènes",
+            description=description,
+            color=EMBED_COLOR,
+        )
+        view = AddSceneView(self)
+        await message.edit(embed=embed, view=view)
+        self.bot.add_view(view, message_id=message.id)
 
     async def restore_scene_views(self):
         channel = self.bot.get_channel(SCENE_CHANNEL_ID)

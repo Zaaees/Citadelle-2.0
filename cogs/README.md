@@ -77,6 +77,8 @@ Gestion d'une to-do list de scènes RP.
   - L'ID du message est conservé dans l'onglet `Config` (clé `init_message_id`)
     et dans la colonne `init_message_id` de la feuille `Scenes`.
 - Utilise la variable d'environnement `SCENES_GOOGLE_SHEET_ID` pour sélectionner la feuille dédiée.
+- Sélection du MJ via un menu déroulant pré-défini lors de la création d'une scène.
+- Le message d'initialisation affiche les MJ disponibles (ceux sans scène en cours).
 
 ---
 
