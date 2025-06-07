@@ -17,8 +17,6 @@ SCOPES = [
 ]
 
 
-
-
 class AddSceneModal(discord.ui.Modal, title="Créer une scène"):
     def __init__(self, cog: "SceneTodo"):
         super().__init__()
