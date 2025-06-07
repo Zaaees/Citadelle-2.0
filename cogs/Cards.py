@@ -330,6 +330,46 @@ class Cards(commands.Cog):
 
         return True
 
+    def safe_multi_exchange(self, offerer_id: int, offer_cards: list[tuple[str, str]], target_id: int, target_card: tuple[str, str]) -> bool:
+        """Échange plusieurs cartes contre une seule de façon atomique."""
+        offerer_cards = self.get_user_cards(offerer_id)
+        target_cards = self.get_user_cards(target_id)
+
+        def contains(card_list, card):
+            return any(
+                cat == card[0]
+                and self.normalize_name(name.removesuffix(".png")) == self.normalize_name(card[1].removesuffix(".png"))
+                for cat, name in card_list
+            )
+
+        if not all(contains(offerer_cards, c) for c in offer_cards) or not contains(target_cards, target_card):
+            logging.warning(f"[SAFE_MULTI_EXCHANGE] Cartes manquantes : {offer_cards=} {target_card=}")
+            return False
+
+        removed = []
+        for cat, name in offer_cards:
+            if self.remove_card_from_user(offerer_id, cat, name):
+                removed.append((cat, name))
+            else:
+                logging.error(f"[SAFE_MULTI_EXCHANGE] Échec suppression {cat}/{name}")
+                for rc, rn in removed:
+                    self.add_card_to_user(offerer_id, rc, rn)
+                return False
+
+        if not self.remove_card_from_user(target_id, target_card[0], target_card[1]):
+            logging.error("[SAFE_MULTI_EXCHANGE] Échec suppression carte cible")
+            for rc, rn in removed:
+                self.add_card_to_user(offerer_id, rc, rn)
+            return False
+
+        for cat, name in offer_cards:
+            self.add_card_to_user(target_id, cat, name)
+        self.add_card_to_user(offerer_id, target_card[0], target_card[1])
+
+        self.refresh_cards_cache()
+
+        return True
+
 
     def compute_total_medals(self, user_id: int, students: dict, user_character_names: set) -> int:
         owned_chars = []
@@ -1151,6 +1191,73 @@ class Cards(commands.Cog):
         await self.check_for_upgrades(fake_inter, member.id, [])
 
         await ctx.send(f"✅ Conversion forcée terminée pour {member.mention}.")
+
+    @app_commands.command(
+        name="echanger_cartes",
+        description="Échanger plusieurs cartes contre une chez un autre joueur",
+    )
+    async def echanger_cartes(
+        self,
+        interaction: discord.Interaction,
+        cible: discord.Member,
+        carte_cible: str,
+        cartes_offertes: str,
+    ):
+        """Propose immédiatement un échange multiple sans vue interactive."""
+
+        await interaction.response.defer(ephemeral=True)
+
+        offer_names = [n.strip() for n in cartes_offertes.split(",") if n.strip()]
+        if not offer_names:
+            await interaction.followup.send("Aucune carte offerte.", ephemeral=True)
+            return
+
+        owned = self.get_user_cards(interaction.user.id)
+
+        def find_owned(name: str):
+            norm = self.normalize_name(name.removesuffix(".png"))
+            for cat, n in owned:
+                if self.normalize_name(n.removesuffix(".png")) == norm:
+                    return cat, n
+            return None
+
+        offer_cards = []
+        for name in offer_names:
+            card = find_owned(name)
+            if not card:
+                await interaction.followup.send(f"Vous ne possédez pas {name}.", ephemeral=True)
+                return
+            offer_cards.append(card)
+
+        target_cards = self.get_user_cards(cible.id)
+        norm_target = self.normalize_name(carte_cible.removesuffix(".png"))
+        match = next(
+            (
+                (cat, name)
+                for cat, name in target_cards
+                if self.normalize_name(name.removesuffix(".png")) == norm_target
+            ),
+            None,
+        )
+        if not match:
+            await interaction.followup.send(
+                f"{cible.display_name} ne possède pas cette carte.", ephemeral=True
+            )
+            return
+
+        success = self.safe_multi_exchange(interaction.user.id, offer_cards, cible.id, match)
+        if not success:
+            await interaction.followup.send("Échange impossible.", ephemeral=True)
+            return
+
+        await interaction.followup.send(
+            f"Échange effectué : {', '.join(n for _, n in offer_cards)} → {match[1]}",
+            ephemeral=True,
+        )
+
+        await self._handle_announce_and_wall(interaction, [match] + offer_cards)
+        await self.check_for_upgrades(interaction, interaction.user.id, [])
+        await self.check_for_upgrades(interaction, cible.id, [])
 
 class CardsMenuView(discord.ui.View):
     def __init__(self, cog: Cards, user: discord.User):

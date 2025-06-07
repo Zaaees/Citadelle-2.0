@@ -11,7 +11,7 @@ Gère le système de cartes à collectionner :
 - Galerie utilisateur.
 - Intégration avec Google Sheets.
 - Affichage des cartes et progression dans un mur.
-- Commandes : `/cartes`, `!tirage_journalier`, etc.
+- Commandes : `/cartes`, `!tirage_journalier`, `/echanger_cartes`, etc.
 
 ---
 
