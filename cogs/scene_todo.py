@@ -315,8 +315,14 @@ class SceneTodo(commands.Cog):
         return None
 
     def sort_scenes(self):
+        """Order scenes so the most recent appear last.
+
+        Scenes are sorted by their last interaction date in ascending order so
+        that the oldest scene is posted first and the newest ends up with the
+        most recent message in the channel.
+        """
         self.scenes.sort(
-            key=lambda s: s.get("last_action", s.get("created_at")), reverse=True
+            key=lambda s: s.get("last_action", s.get("created_at")), reverse=False
         )
 
     def delete_scene(self, scene_id: int):
