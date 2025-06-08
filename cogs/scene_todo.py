@@ -316,7 +316,7 @@ class SceneTodo(commands.Cog):
 
     def sort_scenes(self):
         self.scenes.sort(
-            key=lambda s: s.get("last_action", s.get("created_at")), reverse=False
+            key=lambda s: s.get("last_action", s.get("created_at")), reverse=True
         )
 
     def delete_scene(self, scene_id: int):
