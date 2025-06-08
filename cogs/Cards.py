@@ -544,6 +544,7 @@ class Cards(commands.Cog):
                 if len(row) < 2:
                     continue
                 if row[0] == category and row[1] == name:
+                    original_len = len(row)
                     for j in range(2, len(row)):
                         cell = row[j].strip()
                         if cell.startswith(f"{user_id}:"):
@@ -551,15 +552,22 @@ class Cards(commands.Cog):
                             uid = uid.strip()
                             row[j] = f"{uid}:{int(count) + 1}"
                             cleaned_row = _merge_cells(row)
+                            pad = max(original_len, len(cleaned_row)) - len(cleaned_row)
+                            cleaned_row += [""] * pad
                             self.sheet_cards.update(f"A{i+1}", [cleaned_row])
+                            self.refresh_cards_cache()
                             return
                     row.append(f"{user_id}:1")
                     cleaned_row = _merge_cells(row)
+                    pad = max(original_len + 1, len(cleaned_row)) - len(cleaned_row)
+                    cleaned_row += [""] * pad
                     self.sheet_cards.update(f"A{i+1}", [cleaned_row])
+                    self.refresh_cards_cache()
                     return
             # Si la carte n'existe pas encore
             new_row = [category, name, f"{user_id}:1"]
             self.sheet_cards.append_row(new_row)
+            self.refresh_cards_cache()
         except Exception as e:
             logging.error(f"Erreur lors de l'ajout de la carte dans Google Sheets: {e}")
 
@@ -571,6 +579,7 @@ class Cards(commands.Cog):
                 if len(row) < 2:
                     continue
                 if row[0] == category and row[1] == name:
+                    original_len = len(row)
                     for j in range(2, len(row)):
                         cell = row[j].strip()
                         if cell.startswith(f"{user_id}:"):
@@ -581,7 +590,10 @@ class Cards(commands.Cog):
                             else:
                                 row[j] = ""
                             cleaned_row = _merge_cells(row)
+                            pad = max(original_len, len(cleaned_row)) - len(cleaned_row)
+                            cleaned_row += [""] * pad
                             self.sheet_cards.update(f"A{i+1}", [cleaned_row])
+                            self.refresh_cards_cache()
                             return True
             return False
         except Exception as e:
