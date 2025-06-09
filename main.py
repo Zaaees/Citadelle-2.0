@@ -76,23 +76,36 @@ class CustomBot(commands.Bot):
         self.ready_called = False
 
     async def setup_hook(self):
+        extensions = [
+            'cogs.inventaire',
+            'cogs.Cards',
+            'cogs.RPTracker',
+            'cogs.bump',
+            'cogs.vocabulaire',
+            'cogs.souselement',
+            'cogs.ticket',
+            'cogs.validation',
+            'cogs.InactiveUserTracker',
+            'cogs.excès',
+            'cogs.scene_todo',
+        ]
+
+        for ext in extensions:
+            try:
+                await self.load_extension(ext)
+                logger.info(f"Extension {ext} chargée")
+            except Exception as e:
+                logger.error(f"Erreur lors du chargement de {ext} : {e}")
+                traceback.print_exc()
+
         try:
-            await self.load_extension('cogs.inventaire')
-            await self.load_extension('cogs.Cards')
-            await self.load_extension('cogs.RPTracker')
-            await self.load_extension('cogs.bump')
-            await self.load_extension('cogs.vocabulaire')
-            await self.load_extension('cogs.souselement')
-            await self.load_extension('cogs.ticket')
-            await self.load_extension('cogs.validation')
-            await self.load_extension('cogs.InactiveUserTracker')
-            await self.load_extension('cogs.excès')
-            await self.load_extension('cogs.scene_todo')
             await self.tree.sync()
             logger.info("Commandes synchronisées avec succès")
         except Exception as e:
-            logger.error(f"Erreur lors du chargement des extensions: {e}")
+            logger.error(f"Erreur lors de la synchronisation des commandes : {e}")
             traceback.print_exc()
+
+        logger.info("Tous les cogs ont été chargés")
 
     def start_http_server_thread(self):
         self.http_server_thread = threading.Thread(target=start_http_server, daemon=True)
