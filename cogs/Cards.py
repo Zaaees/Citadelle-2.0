@@ -1152,12 +1152,13 @@ class Cards(commands.Cog):
         """
         # --- petit “faux” Interaction : on lui donne juste .followup.send ---
         class DummyInteraction:
-            def __init__(self, ctx):
+            def __init__(self, ctx, user):
                 self.followup = ctx       # ctx.send existe → OK
                 self.guild = ctx.guild    # utile pour _handle_announce_and_wall
                 self.channel = ctx.channel
+                self.user = user       # used by _handle_announce_and_wall
 
-        fake_inter = DummyInteraction(ctx)
+        fake_inter = DummyInteraction(ctx, member)
 
         # on lance la vérification (drawn_cards=[] pour ne rien annoncer de plus)
         await self.check_for_upgrades(fake_inter, member.id, [])
