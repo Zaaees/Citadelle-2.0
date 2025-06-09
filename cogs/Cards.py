@@ -301,6 +301,87 @@ class Cards(commands.Cog):
             total += len(lst)
         return total
 
+    def generate_gallery_embeds(self, user: discord.abc.User) -> tuple[discord.Embed, discord.Embed] | None:
+        """Construit les embeds de galerie pour l'utilisateur donné."""
+        user_cards = self.get_user_cards(user.id)
+        if not user_cards:
+            return None
+
+        rarity_order = {
+            "Secrète": 0,
+            "Fondateur": 1,
+            "Historique": 2,
+            "Maître": 3,
+            "Black Hole": 4,
+            "Architectes": 5,
+            "Professeurs": 6,
+            "Autre": 7,
+            "Élèves": 8,
+        }
+        user_cards.sort(key=lambda c: rarity_order.get(c[0], 9))
+
+        cards_by_cat: dict[str, list[str]] = {}
+        for cat, name in user_cards:
+            cards_by_cat.setdefault(cat, []).append(name)
+
+        embed_normales = discord.Embed(
+            title=f"Galerie de {user.display_name}",
+            color=discord.Color.blue(),
+        )
+        embed_full = discord.Embed(
+            title=f"Cartes Full de {user.display_name}",
+            color=discord.Color.gold(),
+        )
+
+        for cat in rarity_order:
+            noms = cards_by_cat.get(cat, [])
+
+            normales = [n for n in noms if not n.endswith(" (Full)")]
+            if normales:
+                counts: dict[str, int] = {}
+                for n in normales:
+                    counts[n] = counts.get(n, 0) + 1
+                lines = [
+                    f"- **{n.removesuffix('.png')}**{' (x'+str(c)+')' if c>1 else ''}"
+                    for n, c in counts.items()
+                ]
+
+                total_available = len({
+                    f['name'].removesuffix('.png')
+                    for f in self.cards_by_category.get(cat, [])
+                })
+                owned_unique = len(counts)
+
+                embed_normales.add_field(
+                    name=f"{cat} : {owned_unique}/{total_available}",
+                    value="\n".join(lines),
+                    inline=False,
+                )
+
+            fulls = [n for n in noms if n.endswith(" (Full)")]
+            if fulls:
+                counts: dict[str, int] = {}
+                for n in fulls:
+                    counts[n] = counts.get(n, 0) + 1
+                lines = [
+                    f"- **{n.removesuffix('.png')}**{' (x'+str(c)+')' if c>1 else ''}"
+                    for n, c in counts.items()
+                ]
+
+                total_full = len({
+                    f['name'].removesuffix('.png')
+                    for f in self.upgrade_cards_by_category.get(cat, [])
+                })
+                owned_full = len(counts)
+
+                embed_full.add_field(
+                    name=f"{cat} (Full) : {owned_full}/{total_full}",
+                    value="\n".join(lines),
+                    inline=False,
+                )
+
+        return embed_normales, embed_full
+
     
     def safe_exchange(self, user1_id, card1, user2_id, card2) -> bool:
         cards1 = self.get_user_cards(user1_id)
@@ -1185,6 +1266,18 @@ class Cards(commands.Cog):
 
         await ctx.send(f"✅ Conversion forcée terminée pour {member.mention}.")
 
+    @commands.command(name="voir_galerie")
+    @commands.has_permissions(administrator=True)
+    async def voir_galerie(self, ctx: commands.Context, member: discord.Member):
+        """Affiche la galerie de cartes d'un utilisateur."""
+        embeds = self.generate_gallery_embeds(member)
+        if not embeds:
+            await ctx.send(f"{member.display_name} n'a aucune carte pour le moment.")
+            return
+
+        embed_normales, embed_full = embeds
+        await ctx.send(embeds=[embed_normales, embed_full])
+
 class CardsMenuView(discord.ui.View):
     def __init__(self, cog: Cards, user: discord.User):
         super().__init__(timeout=None)
@@ -1282,93 +1375,12 @@ class CardsMenuView(discord.ui.View):
             return
 
         await interaction.response.defer(ephemeral=True)
-
-        # Récupération des cartes de l'utilisateur
-        user_cards = self.cog.get_user_cards(self.user.id)
-        if not user_cards:
+        embeds = self.cog.generate_gallery_embeds(self.user)
+        if not embeds:
             await interaction.followup.send("Vous n'avez aucune carte pour le moment.", ephemeral=True)
             return
 
-        # Ordre des catégories
-        rarity_order = {
-            "Secrète": 0,
-            "Fondateur": 1,
-            "Historique": 2,
-            "Maître": 3,
-            "Black Hole": 4,
-            "Architectes": 5,
-            "Professeurs": 6,
-            "Autre": 7,
-            "Élèves": 8,
-        }
-        user_cards.sort(key=lambda c: rarity_order.get(c[0], 9))
-
-        # Constitution d'un dict {cat: [noms]}
-        cards_by_cat: dict[str, list[str]] = {}
-        for cat, name in user_cards:
-            cards_by_cat.setdefault(cat, []).append(name)
-
-        # Création des deux embeds
-        embed_normales = discord.Embed(
-            title=f"Galerie de {interaction.user.display_name}",
-            color=discord.Color.blue()
-        )
-        embed_full = discord.Embed(
-            title=f"Cartes Full de {interaction.user.display_name}",
-            color=discord.Color.gold()
-        )
-
-        # Remplissage des embeds avec progression
-        for cat in rarity_order:
-            noms = cards_by_cat.get(cat, [])
-
-            # 1) Cartes normales
-            normales = [n for n in noms if not n.endswith(" (Full)")]
-            if normales:
-                counts: dict[str, int] = {}
-                for n in normales:
-                    counts[n] = counts.get(n, 0) + 1
-                lines = [
-                    f"- **{n.removesuffix('.png')}**{' (x'+str(c)+')' if c>1 else ''}"
-                    for n, c in counts.items()
-                ]
-
-                total_available = len({
-                    f['name'].removesuffix('.png')
-                    for f in self.cog.cards_by_category.get(cat, [])
-                })
-                owned_unique = len(counts)
-
-                embed_normales.add_field(
-                    name=f"{cat} : {owned_unique}/{total_available}",
-                    value="\n".join(lines),
-                    inline=False
-                )
-
-            # 2) Cartes Full
-            fulls = [n for n in noms if n.endswith(" (Full)")]
-            if fulls:
-                counts: dict[str, int] = {}
-                for n in fulls:
-                    counts[n] = counts.get(n, 0) + 1
-                lines = [
-                    f"- **{n.removesuffix('.png')}**{' (x'+str(c)+')' if c>1 else ''}"
-                    for n, c in counts.items()
-                ]
-
-                total_full = len({
-                    f['name'].removesuffix('.png')
-                    for f in self.cog.upgrade_cards_by_category.get(cat, [])
-                })
-                owned_full = len(counts)
-
-                embed_full.add_field(
-                    name=f"{cat} (Full) : {owned_full}/{total_full}",
-                    value="\n".join(lines),
-                    inline=False
-                )
-
-        # Envoi des deux embeds
+        embed_normales, embed_full = embeds
         view = GalleryActionView(self.cog, self.user)
         await interaction.followup.send(
             embeds=[embed_normales, embed_full],
