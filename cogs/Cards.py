@@ -323,8 +323,16 @@ class Cards(commands.Cog):
             logging.error(f"[SAFE_EXCHANGE] Suppression échouée - success1={success1}, success2={success2}")
             return False
 
-        self.add_card_to_user(user1_id, card2[0], card2[1])
-        self.add_card_to_user(user2_id, card1[0], card1[1])
+        add1 = self.add_card_to_user(user1_id, card2[0], card2[1])
+        add2 = self.add_card_to_user(user2_id, card1[0], card1[1])
+
+        if not (add1 and add2):
+            logging.error(f"[SAFE_EXCHANGE] Ajout échoué - add1={add1}, add2={add2}. Rollback en cours")
+            if success1:
+                self.add_card_to_user(user1_id, card1[0], card1[1])
+            if success2:
+                self.add_card_to_user(user2_id, card2[0], card2[1])
+            return False
 
         self.refresh_cards_cache()
 
@@ -536,7 +544,7 @@ class Cards(commands.Cog):
         await self.handle_daily_draw(interaction)
 
 
-    def add_card_to_user(self, user_id: int, category: str, name: str):
+    def add_card_to_user(self, user_id: int, category: str, name: str) -> bool:
         """Ajoute une carte pour un utilisateur dans la persistance."""
         try:
             rows = self.sheet_cards.get_all_values()
@@ -556,20 +564,22 @@ class Cards(commands.Cog):
                             cleaned_row += [""] * pad
                             self.sheet_cards.update(f"A{i+1}", [cleaned_row])
                             self.refresh_cards_cache()
-                            return
+                            return True
                     row.append(f"{user_id}:1")
                     cleaned_row = _merge_cells(row)
                     pad = max(original_len + 1, len(cleaned_row)) - len(cleaned_row)
                     cleaned_row += [""] * pad
                     self.sheet_cards.update(f"A{i+1}", [cleaned_row])
                     self.refresh_cards_cache()
-                    return
+                    return True
             # Si la carte n'existe pas encore
             new_row = [category, name, f"{user_id}:1"]
             self.sheet_cards.append_row(new_row)
             self.refresh_cards_cache()
+            return True
         except Exception as e:
             logging.error(f"Erreur lors de l'ajout de la carte dans Google Sheets: {e}")
+            return False
 
     def remove_card_from_user(self, user_id: int, category: str, name: str) -> bool:
         """Supprime une carte pour un utilisateur dans la persistance."""
@@ -813,34 +823,44 @@ class Cards(commands.Cog):
                 continue
             seuil = self.upgrade_thresholds[cat]
             if count >= seuil:
-                # 1) Retirer les doublons
+                removed = 0
                 for _ in range(seuil):
-                    self.remove_card_from_user(user_id, cat, name)
+                    if self.remove_card_from_user(user_id, cat, name):
+                        removed += 1
+                    else:
+                        logging.error(
+                            f"[UPGRADE] Échec suppression {name} pour {user_id}. Rollback"
+                        )
+                        for _ in range(removed):
+                            self.add_card_to_user(user_id, cat, name)
+                        break
+                else:
+                    full_name = f"{name} (Full)"
 
-                full_name = f"{name} (Full)"
+                    file_id = next(
+                        f['id'] for f in self.upgrade_cards_by_category[cat]
+                        if self.normalize_name(f['name'].removesuffix(".png"))
+                        == self.normalize_name(full_name)
+                    )
+                    file_bytes = self.download_drive_file(file_id)
+                    embed, image_file = self.build_card_embed(cat, full_name, file_bytes)
+                    embed.title = f"🎉 Carte Full obtenue : {full_name}"
+                    embed.description = (
+                        f"Vous avez échangé **{seuil}× {name}** "
+                        f"contre **{full_name}** !"
+                    )
+                    embed.color = discord.Color.gold()
 
-                # 2) Envoi de l'embed Full privé à l'utilisateur
-                file_id = next(
-                    f['id'] for f in self.upgrade_cards_by_category[cat]
-                    if self.normalize_name(f['name'].removesuffix(".png"))
-                    == self.normalize_name(full_name)
-                )
-                file_bytes = self.download_drive_file(file_id)
-                embed, image_file = self.build_card_embed(cat, full_name, file_bytes)
-                embed.title = f"🎉 Carte Full obtenue : {full_name}"
-                embed.description = (
-                    f"Vous avez échangé **{seuil}× {name}** "
-                    f"contre **{full_name}** !"
-                )
-                embed.color = discord.Color.gold()
+                    await interaction.followup.send(embed=embed, file=image_file)
 
-                await interaction.followup.send(embed=embed, file=image_file)
+                    await self._handle_announce_and_wall(interaction, [(cat, full_name)])
 
-                # 3) Annonce sur le mur AVANT d’ajouter en base
-                await self._handle_announce_and_wall(interaction, [(cat, full_name)])
-
-                # 4) Enfin, on ajoute la Full à Google Sheets
-                self.add_card_to_user(user_id, cat, full_name)
+                    if not self.add_card_to_user(user_id, cat, full_name):
+                        logging.error(
+                            f"[UPGRADE] Échec ajout {full_name} pour {user_id}. Rollback"
+                        )
+                        for _ in range(seuil):
+                            self.add_card_to_user(user_id, cat, name)
 
 
     def log_bonus(self, user_id: int, source: str):
