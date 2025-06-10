@@ -1836,35 +1836,55 @@ class TradeRequestView(discord.ui.View):
         # Créer la vue de confirmation d'échange complet
         view = FullVaultTradeConfirmationView(self.cog, self.initiator, self.target)
 
+        # Utiliser l'embed unifié pour la confirmation
+        embed = self._create_unified_trade_confirmation_embed(
+            self.initiator, self.target, initiator_vault, target_vault,
+            f"**{self.target.display_name}**, voulez-vous échanger TOUT le contenu de votre coffre avec **{self.initiator.display_name}** ?"
+        )
+
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+    def _create_unified_trade_confirmation_embed(self, initiator, target, initiator_vault, target_vault, description):
+        """Crée un embed unifié pour les confirmations d'échange."""
         embed = discord.Embed(
-            title="🔄 Échange de coffres complets",
-            description=(
-                f"**{self.target.display_name}**, voulez-vous échanger TOUT le contenu de votre coffre "
-                f"avec TOUT le contenu du coffre de **{self.initiator.display_name}** ?\n\n"
-                f"⚠️ **Attention :** Cet échange transfère toutes les cartes des deux coffres."
-            ),
-            color=0xffa500
+            title="🔄 Confirmation d'échange complet",
+            description=description,
+            color=0x4E5D94
         )
 
         # Afficher un résumé des cartes qui seront échangées
         initiator_unique = list({(cat, name) for cat, name in initiator_vault})
         target_unique = list({(cat, name) for cat, name in target_vault})
 
+        # Cartes que l'initiateur donne
+        give_text = "\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in initiator_unique[:6]])
+        if len(initiator_unique) > 6:
+            give_text += f"\n... et {len(initiator_unique) - 6} autres cartes"
+
         embed.add_field(
-            name=f"📦 Vous recevrez ({len(initiator_unique)} cartes uniques)",
-            value="\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in initiator_unique[:5]]) +
-                  (f"\n... et {len(initiator_unique) - 5} autres" if len(initiator_unique) > 5 else ""),
-            inline=True
+            name=f"📤 {initiator.display_name} donne ({len(initiator_unique)} cartes uniques)",
+            value=give_text if give_text else "Aucune carte",
+            inline=False
+        )
+
+        # Cartes que le destinataire donne
+        receive_text = "\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in target_unique[:6]])
+        if len(target_unique) > 6:
+            receive_text += f"\n... et {len(target_unique) - 6} autres cartes"
+
+        embed.add_field(
+            name=f"📤 {target.display_name} donne ({len(target_unique)} cartes uniques)",
+            value=receive_text if receive_text else "Aucune carte",
+            inline=False
         )
 
         embed.add_field(
-            name=f"📤 Vous donnerez ({len(target_unique)} cartes uniques)",
-            value="\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in target_unique[:5]]) +
-                  (f"\n... et {len(target_unique) - 5} autres" if len(target_unique) > 5 else ""),
-            inline=True
+            name="⚠️ Important",
+            value="Cet échange transfère TOUTES les cartes des deux coffres vers vos inventaires principaux.",
+            inline=False
         )
 
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        return embed
 
     @discord.ui.button(label="❌ Refuser l'échange", style=discord.ButtonStyle.danger)
     async def decline_trade(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1917,65 +1937,29 @@ class FullVaultTradeConfirmationView(discord.ui.View):
             initiator_vault_cards = self.cog.get_user_vault_cards(self.initiator.id)
             target_vault_cards = self.cog.get_user_vault_cards(self.target.id)
 
-            embed = discord.Embed(
-                title="🔔 Confirmation requise - Échange complet",
-                description=f"**{self.target.display_name}** a accepté l'échange complet de vos coffres !\n\n**Détails de l'échange :**",
-                color=0x00ff00
+            # Utiliser l'embed unifié avec un message personnalisé pour l'initiateur
+            embed = self._create_unified_trade_confirmation_embed(
+                self.initiator, self.target, initiator_vault_cards, target_vault_cards,
+                f"**{self.target.display_name}** a accepté l'échange complet !\n\n**Confirmez-vous cet échange ?**"
             )
-
-            # Afficher ce que l'initiateur va donner
-            initiator_unique = list({(cat, name) for cat, name in initiator_vault_cards})
-            give_text = "\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in initiator_unique[:8]])
-            if len(initiator_unique) > 8:
-                give_text += f"\n... et {len(initiator_unique) - 8} autres cartes"
-
-            embed.add_field(
-                name=f"📤 Vous donnez ({len(initiator_unique)} cartes uniques)",
-                value=give_text if give_text else "Aucune carte",
-                inline=False
-            )
-
-            # Afficher ce que l'initiateur va recevoir
-            target_unique = list({(cat, name) for cat, name in target_vault_cards})
-            receive_text = "\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in target_unique[:8]])
-            if len(target_unique) > 8:
-                receive_text += f"\n... et {len(target_unique) - 8} autres cartes"
-
-            embed.add_field(
-                name=f"📥 Vous recevez ({len(target_unique)} cartes uniques)",
-                value=receive_text if receive_text else "Aucune carte",
-                inline=False
-            )
-
-            embed.add_field(
-                name="⚠️ Attention",
-                value="Cet échange transfère TOUTES les cartes des deux coffres vers vos inventaires principaux.",
-                inline=False
-            )
+            # Changer la couleur pour indiquer que c'est une confirmation finale
+            embed.color = 0x00ff00
+            embed.title = "🔔 Confirmation finale requise"
 
             view = InitiatorFinalConfirmationView(self.cog, self.initiator, self.target)
             await self.initiator.send(embed=embed, view=view)
 
         except discord.Forbidden:
-            # Si impossible d'envoyer en DM, créer un message public
+            # Si impossible d'envoyer en DM, créer un message public avec embed unifié
             initiator_vault_cards = self.cog.get_user_vault_cards(self.initiator.id)
             target_vault_cards = self.cog.get_user_vault_cards(self.target.id)
 
-            embed = discord.Embed(
-                title="🔔 Confirmation requise - Échange complet",
-                description=f"{self.initiator.mention}, **{self.target.display_name}** a accepté l'échange complet !",
-                color=0x00ff00
+            embed = self._create_unified_trade_confirmation_embed(
+                self.initiator, self.target, initiator_vault_cards, target_vault_cards,
+                f"{self.initiator.mention}, **{self.target.display_name}** a accepté l'échange complet !\n\n**Confirmez-vous cet échange ?**"
             )
-
-            # Afficher un résumé plus court pour le message public
-            initiator_unique = list({(cat, name) for cat, name in initiator_vault_cards})
-            target_unique = list({(cat, name) for cat, name in target_vault_cards})
-
-            embed.add_field(
-                name="📊 Résumé de l'échange",
-                value=f"**Vous donnez :** {len(initiator_unique)} cartes uniques\n**Vous recevez :** {len(target_unique)} cartes uniques",
-                inline=False
-            )
+            embed.color = 0x00ff00
+            embed.title = "🔔 Confirmation finale requise"
 
             view = InitiatorFinalConfirmationView(self.cog, self.initiator, self.target)
             await interaction.followup.send(embed=embed, view=view, ephemeral=False)
@@ -2178,14 +2162,6 @@ class GalleryActionView(discord.ui.View):
             return
 
         await interaction.response.send_modal(CardNameModal(self.cog, self.user))
-    
-    @discord.ui.button(label="Proposer un échange", style=discord.ButtonStyle.success)
-    async def offer_trade(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message("Ce bouton ne vous est pas destiné.", ephemeral=True)
-            return
-
-        await interaction.response.send_modal(TradeOfferCardModal(self.cog, self.user))
 
 
 class CardNameModal(discord.ui.Modal, title="Afficher une carte"):
