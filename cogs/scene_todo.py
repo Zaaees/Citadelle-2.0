@@ -315,11 +315,13 @@ class SceneTodo(commands.Cog):
         return None
 
     def sort_scenes(self):
-        """Order scenes so the most recent appear last.
+        """Order scenes so the most stale/inactive appear first.
 
         Scenes are sorted by their last interaction date in ascending order so
-        that the oldest scene is posted first and the newest ends up with the
-        most recent message in the channel.
+        that the most stale scenes (oldest last_action) are posted first and appear
+        at the top of the channel, while recently active scenes appear at the bottom.
+        This creates a natural flow where users scroll up to see stale scenes
+        and scroll down to see recently active scenes.
         """
         self.scenes.sort(
             key=lambda s: s.get("last_action", s.get("created_at")), reverse=False
@@ -453,6 +455,7 @@ class SceneTodo(commands.Cog):
 
     async def finish_scene(self, scene: dict):
         scene["completed"] = True
+        self.sort_scenes()  # Ensure proper ordering after completion
         self.save_data()
         await self.reorder_channel_if_needed()
         await self.log_completion(scene)
