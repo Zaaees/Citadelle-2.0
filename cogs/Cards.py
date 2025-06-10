@@ -269,6 +269,48 @@ class Cards(commands.Cog):
                     user_cards.extend([(cat, name)] * int(count))
         return user_cards
 
+    def _create_unified_trade_confirmation_embed(self, initiator, target, initiator_vault, target_vault, description):
+        """Crée un embed unifié pour les confirmations d'échange."""
+        embed = discord.Embed(
+            title="🔄 Confirmation d'échange complet",
+            description=description,
+            color=0x4E5D94
+        )
+
+        # Afficher un résumé des cartes qui seront échangées
+        initiator_unique = list({(cat, name) for cat, name in initiator_vault})
+        target_unique = list({(cat, name) for cat, name in target_vault})
+
+        # Cartes que l'initiateur donne
+        give_text = "\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in initiator_unique[:6]])
+        if len(initiator_unique) > 6:
+            give_text += f"\n... et {len(initiator_unique) - 6} autres cartes"
+
+        embed.add_field(
+            name=f"📤 {initiator.display_name} donne ({len(initiator_unique)} cartes uniques)",
+            value=give_text if give_text else "Aucune carte",
+            inline=False
+        )
+
+        # Cartes que le destinataire donne
+        receive_text = "\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in target_unique[:6]])
+        if len(target_unique) > 6:
+            receive_text += f"\n... et {len(target_unique) - 6} autres cartes"
+
+        embed.add_field(
+            name=f"📤 {target.display_name} donne ({len(target_unique)} cartes uniques)",
+            value=receive_text if receive_text else "Aucune carte",
+            inline=False
+        )
+
+        embed.add_field(
+            name="⚠️ Important",
+            value="Cet échange transfère TOUTES les cartes des deux coffres vers vos inventaires principaux.",
+            inline=False
+        )
+
+        return embed
+
     def get_user_vault_cards(self, user_id: int):
         """Récupère les cartes du vault d'un utilisateur."""
         now = time.time()
@@ -1532,7 +1574,7 @@ class CardsMenuView(discord.ui.View):
                 "**📦 Déposer carte :** Stockez vos cartes dans votre coffre personnel pour les échanger\n"
                 "**🤝 Initier échange :** Commencez un échange avec un autre joueur\n\n"
                 "**Comment ça marche :**\n"
-                "1. Déposez les cartes que vous voulez échanger dans votre coffre\n"
+                "1. Déposez les cartes que vous voulez échanger dans votre coffre (vous et l'autre joueur)\n"
                 "2. Initiez un échange avec un autre joueur\n"
                 "3. Les deux joueurs voient les cartes disponibles et confirment l'échange\n"
                 "4. Les cartes sont automatiquement transférées après confirmation mutuelle"
@@ -1837,54 +1879,12 @@ class TradeRequestView(discord.ui.View):
         view = FullVaultTradeConfirmationView(self.cog, self.initiator, self.target)
 
         # Utiliser l'embed unifié pour la confirmation
-        embed = self._create_unified_trade_confirmation_embed(
+        embed = self.cog._create_unified_trade_confirmation_embed(
             self.initiator, self.target, initiator_vault, target_vault,
             f"**{self.target.display_name}**, voulez-vous échanger TOUT le contenu de votre coffre avec **{self.initiator.display_name}** ?"
         )
 
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-
-    def _create_unified_trade_confirmation_embed(self, initiator, target, initiator_vault, target_vault, description):
-        """Crée un embed unifié pour les confirmations d'échange."""
-        embed = discord.Embed(
-            title="🔄 Confirmation d'échange complet",
-            description=description,
-            color=0x4E5D94
-        )
-
-        # Afficher un résumé des cartes qui seront échangées
-        initiator_unique = list({(cat, name) for cat, name in initiator_vault})
-        target_unique = list({(cat, name) for cat, name in target_vault})
-
-        # Cartes que l'initiateur donne
-        give_text = "\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in initiator_unique[:6]])
-        if len(initiator_unique) > 6:
-            give_text += f"\n... et {len(initiator_unique) - 6} autres cartes"
-
-        embed.add_field(
-            name=f"📤 {initiator.display_name} donne ({len(initiator_unique)} cartes uniques)",
-            value=give_text if give_text else "Aucune carte",
-            inline=False
-        )
-
-        # Cartes que le destinataire donne
-        receive_text = "\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in target_unique[:6]])
-        if len(target_unique) > 6:
-            receive_text += f"\n... et {len(target_unique) - 6} autres cartes"
-
-        embed.add_field(
-            name=f"📤 {target.display_name} donne ({len(target_unique)} cartes uniques)",
-            value=receive_text if receive_text else "Aucune carte",
-            inline=False
-        )
-
-        embed.add_field(
-            name="⚠️ Important",
-            value="Cet échange transfère TOUTES les cartes des deux coffres vers vos inventaires principaux.",
-            inline=False
-        )
-
-        return embed
 
     @discord.ui.button(label="❌ Refuser l'échange", style=discord.ButtonStyle.danger)
     async def decline_trade(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1938,7 +1938,7 @@ class FullVaultTradeConfirmationView(discord.ui.View):
             target_vault_cards = self.cog.get_user_vault_cards(self.target.id)
 
             # Utiliser l'embed unifié avec un message personnalisé pour l'initiateur
-            embed = self._create_unified_trade_confirmation_embed(
+            embed = self.cog._create_unified_trade_confirmation_embed(
                 self.initiator, self.target, initiator_vault_cards, target_vault_cards,
                 f"**{self.target.display_name}** a accepté l'échange complet !\n\n**Confirmez-vous cet échange ?**"
             )
@@ -1954,7 +1954,7 @@ class FullVaultTradeConfirmationView(discord.ui.View):
             initiator_vault_cards = self.cog.get_user_vault_cards(self.initiator.id)
             target_vault_cards = self.cog.get_user_vault_cards(self.target.id)
 
-            embed = self._create_unified_trade_confirmation_embed(
+            embed = self.cog._create_unified_trade_confirmation_embed(
                 self.initiator, self.target, initiator_vault_cards, target_vault_cards,
                 f"{self.initiator.mention}, **{self.target.display_name}** a accepté l'échange complet !\n\n**Confirmez-vous cet échange ?**"
             )
