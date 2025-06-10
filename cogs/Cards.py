@@ -2481,7 +2481,19 @@ class FullVaultTradeConfirmationView(discord.ui.View):
             )
             return
 
+        # Éviter les clics multiples
+        if self.target_confirmed:
+            await interaction.response.send_message(
+                "⚠️ Vous avez déjà confirmé cet échange.", ephemeral=True
+            )
+            return
+
         self.target_confirmed = True
+
+        # Désactiver les boutons immédiatement
+        for child in self.children:
+            child.disabled = True
+
         await interaction.response.send_message(
             "✅ Vous avez accepté l'échange complet. En attente de la confirmation de l'initiateur.",
             ephemeral=True
@@ -2504,6 +2516,12 @@ class FullVaultTradeConfirmationView(discord.ui.View):
 
             view = InitiatorFinalConfirmationView(self.cog, self.initiator, self.target)
             await self.initiator.send(embed=embed, view=view)
+
+            # Feedback supplémentaire pour confirmer que le DM a été envoyé
+            await interaction.followup.send(
+                f"📨 Demande de confirmation finale envoyée à {self.initiator.display_name} en message privé.",
+                ephemeral=True
+            )
 
         except discord.Forbidden:
             # Si impossible d'envoyer en DM, créer un message public avec embed unifié
@@ -2528,6 +2546,19 @@ class FullVaultTradeConfirmationView(discord.ui.View):
             )
             return
 
+        # Éviter les clics multiples sur refuser aussi
+        if self.target_confirmed:
+            await interaction.response.send_message(
+                "⚠️ Vous avez déjà traité cette proposition.", ephemeral=True
+            )
+            return
+
+        self.target_confirmed = True  # Marquer comme traité
+
+        # Désactiver tous les boutons immédiatement
+        for child in self.children:
+            child.disabled = True
+
         await interaction.response.send_message("❌ Échange refusé.", ephemeral=True)
 
         try:
@@ -2536,10 +2567,6 @@ class FullVaultTradeConfirmationView(discord.ui.View):
             )
         except discord.Forbidden:
             pass
-
-        # Désactiver tous les boutons
-        for child in self.children:
-            child.disabled = True
 
 
 class InitiatorFinalConfirmationView(discord.ui.View):
