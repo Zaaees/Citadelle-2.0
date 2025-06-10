@@ -333,6 +333,57 @@ class SceneTodo(commands.Cog):
                 return removed
         return None
 
+    def format_time_elapsed(self, delta) -> str:
+        """
+        Format a timedelta into a human-readable French string with multiple units.
+
+        Args:
+            delta: timedelta object representing the time difference
+
+        Returns:
+            str: Formatted time string (e.g., "2 jours, 3 heures, 15 minutes")
+        """
+        if delta.total_seconds() < 60:
+            # Less than a minute
+            seconds = int(delta.total_seconds())
+            if seconds <= 1:
+                return "1 seconde"
+            return f"{seconds} secondes"
+
+        # Calculate time components
+        days = delta.days
+        hours, remainder = divmod(delta.seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+
+        # Build the time string with appropriate units
+        time_parts = []
+
+        if days > 0:
+            if days == 1:
+                time_parts.append("1 jour")
+            else:
+                time_parts.append(f"{days} jours")
+
+        if hours > 0:
+            if hours == 1:
+                time_parts.append("1 heure")
+            else:
+                time_parts.append(f"{hours} heures")
+
+        if minutes > 0 and days == 0:  # Only show minutes if less than a day
+            if minutes == 1:
+                time_parts.append("1 minute")
+            else:
+                time_parts.append(f"{minutes} minutes")
+
+        # Join the parts with commas and "et" for the last part
+        if len(time_parts) == 1:
+            return time_parts[0]
+        elif len(time_parts) == 2:
+            return f"{time_parts[0]} et {time_parts[1]}"
+        else:
+            return f"{', '.join(time_parts[:-1])} et {time_parts[-1]}"
+
     def build_scene_embed(self, scene: dict) -> discord.Embed:
         created = datetime.fromisoformat(scene["created_at"]).strftime("%d/%m/%Y")
         desc = f"MJ responsable : {scene['mj']}\nCréée le {created}"
@@ -341,13 +392,8 @@ class SceneTodo(commands.Cog):
         if scene.get("last_action") and not scene.get("completed"):
             try:
                 delta = datetime.utcnow() - datetime.fromisoformat(scene["last_action"])
-                if delta.days >= 1:
-                    value = delta.days
-                    unit = "jour" if value == 1 else "jours"
-                else:
-                    value = delta.seconds // 3600
-                    unit = "heure" if value == 1 else "heures"
-                desc += f"\nAction en attente depuis {value} {unit}"
+                elapsed_time = self.format_time_elapsed(delta)
+                desc += f"\nAction en attente depuis {elapsed_time}"
             except Exception:
                 pass
         return discord.Embed(title=scene["name"], description=desc, color=EMBED_COLOR)
