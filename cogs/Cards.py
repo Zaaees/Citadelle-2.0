@@ -2548,6 +2548,7 @@ class InitiatorFinalConfirmationView(discord.ui.View):
         self.cog = cog
         self.initiator = initiator
         self.target = target
+        self.trade_executed = False  # Flag pour éviter les exécutions multiples
 
     @discord.ui.button(label="✅ Confirmer l'échange complet", style=discord.ButtonStyle.success)
     async def confirm_final_trade(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2557,21 +2558,25 @@ class InitiatorFinalConfirmationView(discord.ui.View):
             )
             return
 
+        # Éviter les exécutions multiples
+        if self.trade_executed:
+            await interaction.response.send_message(
+                "⚠️ Cet échange a déjà été exécuté.", ephemeral=True
+            )
+            return
+
+        self.trade_executed = True
         await interaction.response.defer(ephemeral=True)
+
+        # Désactiver tous les boutons pour éviter les clics multiples
+        for child in self.children:
+            child.disabled = True
 
         # Exécuter l'échange complet des coffres
         success = await self.execute_full_vault_trade(interaction)
 
-        if success:
-            await interaction.followup.send(
-                "🎉 Échange complet réussi ! Toutes les cartes ont été transférées.",
-                ephemeral=True
-            )
-        else:
-            await interaction.followup.send(
-                "❌ L'échange a échoué. Aucune modification n'a été apportée.",
-                ephemeral=True
-            )
+        # Les messages de succès/échec sont gérés dans execute_full_vault_trade
+        # Pas besoin de messages supplémentaires ici pour éviter les doublons
 
     @discord.ui.button(label="❌ Annuler l'échange", style=discord.ButtonStyle.danger)
     async def cancel_final_trade(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2604,7 +2609,7 @@ class InitiatorFinalConfirmationView(discord.ui.View):
             if not initiator_vault_cards or not target_vault_cards:
                 await interaction.followup.send(
                     "❌ Un des coffres est vide. L'échange ne peut pas avoir lieu.",
-                    ephemeral=False
+                    ephemeral=True
                 )
                 return False
 
@@ -2649,10 +2654,10 @@ class InitiatorFinalConfirmationView(discord.ui.View):
                     await self.rollback_full_trade(initiator_removed_cards, target_removed_cards)
                     return False
 
-            # Succès ! Notifier les deux utilisateurs
+            # Succès ! Notifier les deux utilisateurs avec un seul message public
             success_embed = discord.Embed(
                 title="🎉 Échange complet réussi !",
-                description="Tous les coffres ont été échangés avec succès !",
+                description=f"**{self.initiator.display_name}** et **{self.target.display_name}** ont échangé leurs coffres !",
                 color=0x00ff00
             )
 
@@ -2668,21 +2673,20 @@ class InitiatorFinalConfirmationView(discord.ui.View):
                 inline=True
             )
 
+            # Un seul message public pour éviter les doublons
             await interaction.followup.send(embed=success_embed, ephemeral=False)
 
-            # Notifier en DM
+            # Messages privés simplifiés (optionnels)
             try:
                 await self.initiator.send(
-                    f"🎉 Échange complet réussi ! Vous avez reçu {len(target_removed_cards)} cartes uniques "
-                    f"de {self.target.display_name}."
+                    f"✅ Échange terminé ! Vous avez reçu {len(target_removed_cards)} cartes de {self.target.display_name}."
                 )
             except discord.Forbidden:
                 pass
 
             try:
                 await self.target.send(
-                    f"🎉 Échange complet réussi ! Vous avez reçu {len(initiator_removed_cards)} cartes uniques "
-                    f"de {self.initiator.display_name}."
+                    f"✅ Échange terminé ! Vous avez reçu {len(initiator_removed_cards)} cartes de {self.initiator.display_name}."
                 )
             except discord.Forbidden:
                 pass
