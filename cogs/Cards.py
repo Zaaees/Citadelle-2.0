@@ -138,6 +138,18 @@ class Cards(commands.Cog):
             # initialiser l’en‑tête
             self.sheet_bonus.append_row(["user_id", "source", "date", "claimed"])
 
+        # ————— Vault pour les échanges —————
+        try:
+            self.sheet_vault = spreadsheet.worksheet("Vault")
+        except gspread.exceptions.WorksheetNotFound:
+            self.sheet_vault = spreadsheet.add_worksheet(title="Vault", rows="1000", cols="20")
+            # initialiser l'en‑tête
+            self.sheet_vault.append_row(["category", "name", "user_data..."])
+
+        # Cache pour le vault
+        self.vault_cache = None
+        self.vault_cache_time = 0
+
        
         # Service Google Drive pour accéder aux images des cartes
         self.drive_service = build('drive', 'v3', credentials=creds)
@@ -223,6 +235,15 @@ class Cards(commands.Cog):
         except Exception as e:
             logging.error(f"[CACHE] Erreur de lecture Google Sheets : {e}")
             self.cards_cache = None
+
+    def refresh_vault_cache(self):
+        """Recharge le cache du vault depuis Google Sheets."""
+        try:
+            self.vault_cache = self.sheet_vault.get_all_values()
+            self.vault_cache_time = time.time()
+        except Exception as e:
+            logging.error(f"[VAULT_CACHE] Erreur de lecture Google Sheets : {e}")
+            self.vault_cache = None
     
     def get_user_cards(self, user_id: int):
         """Récupère les cartes d’un utilisateur depuis le cache ou les données."""
@@ -247,6 +268,96 @@ class Cards(commands.Cog):
                 if int(uid) == user_id:
                     user_cards.extend([(cat, name)] * int(count))
         return user_cards
+
+    def get_user_vault_cards(self, user_id: int):
+        """Récupère les cartes du vault d'un utilisateur."""
+        now = time.time()
+        if not self.vault_cache or now - self.vault_cache_time > 5:  # 5 sec de validité
+            self.refresh_vault_cache()
+
+        if not self.vault_cache:
+            return []
+
+        rows = self.vault_cache[1:]  # Skip header
+        user_vault_cards = []
+        for row in rows:
+            if len(row) < 3:
+                continue
+            cat, name = row[0], row[1]
+            for cell in row[2:]:
+                if not cell:
+                    continue
+                uid, count = cell.split(":", 1)
+                uid = uid.strip()
+                if int(uid) == user_id:
+                    user_vault_cards.extend([(cat, name)] * int(count))
+        return user_vault_cards
+
+    def add_card_to_vault(self, user_id: int, category: str, name: str) -> bool:
+        """Ajoute une carte au vault d'un utilisateur."""
+        try:
+            rows = self.sheet_vault.get_all_values()
+            for i, row in enumerate(rows):
+                if len(row) < 2:
+                    continue
+                if row[0] == category and row[1] == name:
+                    original_len = len(row)
+                    for j in range(2, len(row)):
+                        cell = row[j].strip()
+                        if cell.startswith(f"{user_id}:"):
+                            uid, count = cell.split(":", 1)
+                            uid = uid.strip()
+                            row[j] = f"{uid}:{int(count) + 1}"
+                            cleaned_row = _merge_cells(row)
+                            pad = max(original_len, len(cleaned_row)) - len(cleaned_row)
+                            cleaned_row += [""] * pad
+                            self.sheet_vault.update(f"A{i+1}", [cleaned_row])
+                            self.refresh_vault_cache()
+                            return True
+                    row.append(f"{user_id}:1")
+                    cleaned_row = _merge_cells(row)
+                    pad = max(original_len + 1, len(cleaned_row)) - len(cleaned_row)
+                    cleaned_row += [""] * pad
+                    self.sheet_vault.update(f"A{i+1}", [cleaned_row])
+                    self.refresh_vault_cache()
+                    return True
+            # Si la carte n'existe pas encore dans le vault
+            new_row = [category, name, f"{user_id}:1"]
+            self.sheet_vault.append_row(new_row)
+            self.refresh_vault_cache()
+            return True
+        except Exception as e:
+            logging.error(f"Erreur lors de l'ajout de la carte au vault: {e}")
+            return False
+
+    def remove_card_from_vault(self, user_id: int, category: str, name: str) -> bool:
+        """Supprime une carte du vault d'un utilisateur."""
+        try:
+            rows = self.sheet_vault.get_all_values()
+            for i, row in enumerate(rows):
+                if len(row) < 2:
+                    continue
+                if row[0] == category and row[1] == name:
+                    original_len = len(row)
+                    for j in range(2, len(row)):
+                        cell = row[j].strip()
+                        if cell.startswith(f"{user_id}:"):
+                            uid, count = cell.split(":", 1)
+                            uid = uid.strip()
+                            if int(count) > 1:
+                                row[j] = f"{uid}:{int(count) - 1}"
+                            else:
+                                row[j] = ""
+                            cleaned_row = _merge_cells(row)
+                            pad = max(original_len, len(cleaned_row)) - len(cleaned_row)
+                            cleaned_row += [""] * pad
+                            self.sheet_vault.update(f"A{i+1}", [cleaned_row])
+                            self.refresh_vault_cache()
+                            return True
+            return False
+        except Exception as e:
+            logging.error(f"Erreur lors de la suppression de la carte du vault: {e}")
+            return False
 
     def get_unique_card_counts(self) -> dict[int, int]:
         """Retourne un dictionnaire {user_id: nombre de cartes différentes}."""
@@ -1405,6 +1516,671 @@ class CardsMenuView(discord.ui.View):
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
+    @discord.ui.button(label="Echanger", style=discord.ButtonStyle.success)
+    async def trade_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        # Afficher les instructions et les options d'échange
+        embed = discord.Embed(
+            title="🔄 Système d'Échange",
+            description=(
+                "**Bienvenue dans le système d'échange de cartes !**\n\n"
+                "**📦 Déposer carte :** Stockez vos cartes dans votre coffre personnel pour les échanger\n"
+                "**🤝 Initier échange :** Commencez un échange avec un autre joueur\n\n"
+                "**Comment ça marche :**\n"
+                "1. Déposez les cartes que vous voulez échanger dans votre coffre\n"
+                "2. Initiez un échange avec un autre joueur\n"
+                "3. Les deux joueurs voient les cartes disponibles et confirment l'échange\n"
+                "4. Les cartes sont automatiquement transférées après confirmation mutuelle"
+            ),
+            color=0x00ff00
+        )
+
+        view = TradeMenuView(self.cog, self.user)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+
+class TradeMenuView(discord.ui.View):
+    def __init__(self, cog: Cards, user: discord.User):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.user = user
+
+    @discord.ui.button(label="📦 Déposer carte", style=discord.ButtonStyle.primary)
+    async def deposit_card(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Ce bouton ne vous est pas destiné.", ephemeral=True)
+            return
+
+        await interaction.response.send_modal(DepositCardModal(self.cog, self.user))
+
+    @discord.ui.button(label="🤝 Initier échange", style=discord.ButtonStyle.secondary)
+    async def initiate_trade(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Ce bouton ne vous est pas destiné.", ephemeral=True)
+            return
+
+        await interaction.response.send_modal(InitiateTradeModal(self.cog, self.user))
+
+    @discord.ui.button(label="👀 Voir mon coffre", style=discord.ButtonStyle.secondary)
+    async def view_vault(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Ce bouton ne vous est pas destiné.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        vault_cards = self.cog.get_user_vault_cards(self.user.id)
+        if not vault_cards:
+            await interaction.followup.send("📦 Votre coffre est vide.", ephemeral=True)
+            return
+
+        # Grouper les cartes par catégorie et compter
+        cards_by_cat = {}
+        for cat, name in vault_cards:
+            cards_by_cat.setdefault(cat, []).append(name)
+
+        embed = discord.Embed(
+            title=f"📦 Coffre de {self.user.display_name}",
+            color=0x4E5D94
+        )
+
+        for cat, names in cards_by_cat.items():
+            counts = {}
+            for name in names:
+                counts[name] = counts.get(name, 0) + 1
+
+            lines = [
+                f"- **{name.removesuffix('.png')}**{' (x'+str(count)+')' if count > 1 else ''}"
+                for name, count in counts.items()
+            ]
+
+            embed.add_field(
+                name=f"{cat} ({len(names)} cartes)",
+                value="\n".join(lines) if lines else "Aucune carte",
+                inline=False
+            )
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+
+class DepositCardModal(discord.ui.Modal, title="Déposer une carte"):
+    card_name = discord.ui.TextInput(
+        label="Nom exact de la carte à déposer",
+        placeholder="Ex : Dorian (Variante)",
+        required=True
+    )
+
+    def __init__(self, cog: Cards, user: discord.User):
+        super().__init__()
+        self.cog = cog
+        self.user = user
+
+    async def on_submit(self, interaction: discord.Interaction):
+        input_name = self.card_name.value.strip()
+        if not input_name.lower().endswith(".png"):
+            input_name += ".png"
+
+        # Vérifier que l'utilisateur possède cette carte
+        normalized = self.cog.normalize_name(input_name.removesuffix(".png"))
+        owned = self.cog.get_user_cards(self.user.id)
+
+        match = next(
+            ((cat, name) for cat, name in owned
+             if self.cog.normalize_name(name.removesuffix(".png")) == normalized),
+            None
+        )
+
+        if not match:
+            await interaction.response.send_message(
+                "🚫 Vous ne possédez pas cette carte dans votre inventaire.", ephemeral=True
+            )
+            return
+
+        cat, name = match
+
+        # Retirer la carte de l'inventaire principal
+        if not self.cog.remove_card_from_user(self.user.id, cat, name):
+            await interaction.response.send_message(
+                "❌ Erreur lors du retrait de la carte de votre inventaire.", ephemeral=True
+            )
+            return
+
+        # Ajouter la carte au vault
+        if not self.cog.add_card_to_vault(self.user.id, cat, name):
+            # Rollback: remettre la carte dans l'inventaire
+            self.cog.add_card_to_user(self.user.id, cat, name)
+            await interaction.response.send_message(
+                "❌ Erreur lors du dépôt de la carte dans le coffre.", ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message(
+            f"✅ **{name.removesuffix('.png')}** (*{cat}*) a été déposée dans votre coffre !",
+            ephemeral=True
+        )
+
+
+class InitiateTradeModal(discord.ui.Modal, title="Initier un échange"):
+    target_user = discord.ui.TextInput(
+        label="Nom d'utilisateur ou ID Discord",
+        placeholder="Ex : @username ou 123456789012345678",
+        required=True
+    )
+
+    def __init__(self, cog: Cards, user: discord.User):
+        super().__init__()
+        self.cog = cog
+        self.user = user
+
+    async def on_submit(self, interaction: discord.Interaction):
+        target_input = self.target_user.value.strip()
+
+        # Essayer de trouver l'utilisateur
+        target_user = None
+
+        # Si c'est un ID numérique
+        if target_input.isdigit():
+            target_user = self.cog.bot.get_user(int(target_input))
+
+        # Si c'est une mention (@username)
+        elif target_input.startswith('@'):
+            username = target_input[1:]
+            for member in interaction.guild.members:
+                if member.name.lower() == username.lower() or member.display_name.lower() == username.lower():
+                    target_user = member
+                    break
+
+        # Recherche par nom d'utilisateur
+        else:
+            for member in interaction.guild.members:
+                if member.name.lower() == target_input.lower() or member.display_name.lower() == target_input.lower():
+                    target_user = member
+                    break
+
+        if not target_user:
+            await interaction.response.send_message(
+                "❌ Utilisateur introuvable. Vérifiez le nom d'utilisateur ou l'ID Discord.",
+                ephemeral=True
+            )
+            return
+
+        if target_user.id == self.user.id:
+            await interaction.response.send_message(
+                "🚫 Vous ne pouvez pas échanger avec vous-même.",
+                ephemeral=True
+            )
+            return
+
+        # Vérifier que l'utilisateur a des cartes dans son vault
+        my_vault_cards = self.cog.get_user_vault_cards(self.user.id)
+        if not my_vault_cards:
+            await interaction.response.send_message(
+                "📦 Votre coffre est vide. Déposez d'abord des cartes avant d'initier un échange.",
+                ephemeral=True
+            )
+            return
+
+        # Vérifier que la cible a des cartes dans son vault
+        target_vault_cards = self.cog.get_user_vault_cards(target_user.id)
+        if not target_vault_cards:
+            await interaction.response.send_message(
+                f"📦 Le coffre de {target_user.display_name} est vide. Ils doivent d'abord déposer des cartes.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        # Créer l'embed de proposition d'échange
+        embed = discord.Embed(
+            title="🤝 Proposition d'échange",
+            description=f"{self.user.mention} souhaite initier un échange avec {target_user.mention}",
+            color=0x00ff00
+        )
+
+        # Afficher les cartes disponibles des deux côtés
+        my_unique_cards = list({(cat, name) for cat, name in my_vault_cards})
+        target_unique_cards = list({(cat, name) for cat, name in target_vault_cards})
+
+        my_cards_text = "\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in my_unique_cards[:10]])
+        if len(my_unique_cards) > 10:
+            my_cards_text += f"\n... et {len(my_unique_cards) - 10} autres cartes"
+
+        target_cards_text = "\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in target_unique_cards[:10]])
+        if len(target_unique_cards) > 10:
+            target_cards_text += f"\n... et {len(target_unique_cards) - 10} autres cartes"
+
+        embed.add_field(
+            name=f"📦 Cartes de {self.user.display_name}",
+            value=my_cards_text,
+            inline=True
+        )
+        embed.add_field(
+            name=f"📦 Cartes de {target_user.display_name}",
+            value=target_cards_text,
+            inline=True
+        )
+
+        view = TradeRequestView(self.cog, self.user, target_user)
+
+        try:
+            await target_user.send(embed=embed, view=view)
+            await interaction.followup.send(
+                f"📨 Proposition d'échange envoyée à {target_user.display_name} en message privé !",
+                ephemeral=True
+            )
+        except discord.Forbidden:
+            await interaction.followup.send(embed=embed, view=view)
+            await interaction.followup.send(
+                f"{target_user.mention} - Vous avez reçu une proposition d'échange !",
+                ephemeral=False
+            )
+
+
+class TradeRequestView(discord.ui.View):
+    def __init__(self, cog: Cards, initiator: discord.User, target: discord.User):
+        super().__init__(timeout=300)  # 5 minutes
+        self.cog = cog
+        self.initiator = initiator
+        self.target = target
+
+    @discord.ui.button(label="✅ Accepter l'échange", style=discord.ButtonStyle.success)
+    async def accept_trade(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.target.id:
+            await interaction.response.send_message(
+                "Vous n'êtes pas le destinataire de cette proposition.", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        # Vérifier que les deux utilisateurs ont encore des cartes dans leur vault
+        initiator_vault = self.cog.get_user_vault_cards(self.initiator.id)
+        target_vault = self.cog.get_user_vault_cards(self.target.id)
+
+        if not initiator_vault:
+            await interaction.followup.send(
+                f"❌ {self.initiator.display_name} n'a plus de cartes dans son coffre.", ephemeral=True
+            )
+            return
+
+        if not target_vault:
+            await interaction.followup.send(
+                "❌ Vous n'avez plus de cartes dans votre coffre.", ephemeral=True
+            )
+            return
+
+        # Créer la vue de sélection des cartes
+        view = TradeSelectionView(self.cog, self.initiator, self.target)
+
+        embed = discord.Embed(
+            title="🎯 Sélection des cartes à échanger",
+            description=(
+                f"**{self.target.display_name}**, sélectionnez une carte de votre coffre à donner "
+                f"et une carte du coffre de **{self.initiator.display_name}** à recevoir."
+            ),
+            color=0x4E5D94
+        )
+
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+    @discord.ui.button(label="❌ Refuser l'échange", style=discord.ButtonStyle.danger)
+    async def decline_trade(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.target.id:
+            await interaction.response.send_message(
+                "Vous n'êtes pas le destinataire de cette proposition.", ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message("❌ Échange refusé.", ephemeral=True)
+
+        try:
+            await self.initiator.send(
+                f"**{self.target.display_name}** a refusé votre proposition d'échange."
+            )
+        except discord.Forbidden:
+            pass
+
+        # Désactiver tous les boutons
+        for child in self.children:
+            child.disabled = True
+
+
+class TradeSelectionView(discord.ui.View):
+    def __init__(self, cog: Cards, initiator: discord.User, target: discord.User):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.initiator = initiator
+        self.target = target
+
+    @discord.ui.button(label="🎁 Choisir carte à donner", style=discord.ButtonStyle.primary)
+    async def select_give_card(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.target.id:
+            await interaction.response.send_message(
+                "Vous n'êtes pas autorisé à utiliser ce bouton.", ephemeral=True
+            )
+            return
+
+        await interaction.response.send_modal(
+            SelectGiveCardModal(self.cog, self.initiator, self.target)
+        )
+
+    @discord.ui.button(label="📥 Choisir carte à recevoir", style=discord.ButtonStyle.secondary)
+    async def select_receive_card(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.target.id:
+            await interaction.response.send_message(
+                "Vous n'êtes pas autorisé à utiliser ce bouton.", ephemeral=True
+            )
+            return
+
+        await interaction.response.send_modal(
+            SelectReceiveCardModal(self.cog, self.initiator, self.target)
+        )
+
+
+class SelectGiveCardModal(discord.ui.Modal, title="Carte à donner"):
+    card_name = discord.ui.TextInput(
+        label="Nom de la carte de votre coffre à donner",
+        placeholder="Ex : Dorian (Variante)",
+        required=True
+    )
+
+    def __init__(self, cog: Cards, initiator: discord.User, target: discord.User):
+        super().__init__()
+        self.cog = cog
+        self.initiator = initiator
+        self.target = target
+
+    async def on_submit(self, interaction: discord.Interaction):
+        input_name = self.card_name.value.strip()
+        if not input_name.lower().endswith(".png"):
+            input_name += ".png"
+
+        # Vérifier que l'utilisateur a cette carte dans son vault
+        normalized = self.cog.normalize_name(input_name.removesuffix(".png"))
+        vault_cards = self.cog.get_user_vault_cards(self.target.id)
+
+        match = next(
+            ((cat, name) for cat, name in vault_cards
+             if self.cog.normalize_name(name.removesuffix(".png")) == normalized),
+            None
+        )
+
+        if not match:
+            await interaction.response.send_message(
+                "🚫 Vous n'avez pas cette carte dans votre coffre.", ephemeral=True
+            )
+            return
+
+        give_cat, give_name = match
+
+        # Maintenant demander la carte à recevoir
+        await interaction.response.send_modal(
+            SelectReceiveCardModal(self.cog, self.initiator, self.target, give_cat, give_name)
+        )
+
+
+class SelectReceiveCardModal(discord.ui.Modal, title="Carte à recevoir"):
+    card_name = discord.ui.TextInput(
+        label="Nom de la carte à recevoir",
+        placeholder="Ex : Alex (Variante)",
+        required=True
+    )
+
+    def __init__(self, cog: Cards, initiator: discord.User, target: discord.User, give_cat: str = None, give_name: str = None):
+        super().__init__()
+        self.cog = cog
+        self.initiator = initiator
+        self.target = target
+        self.give_cat = give_cat
+        self.give_name = give_name
+
+    async def on_submit(self, interaction: discord.Interaction):
+        input_name = self.card_name.value.strip()
+        if not input_name.lower().endswith(".png"):
+            input_name += ".png"
+
+        # Vérifier que l'initiateur a cette carte dans son vault
+        normalized = self.cog.normalize_name(input_name.removesuffix(".png"))
+        initiator_vault = self.cog.get_user_vault_cards(self.initiator.id)
+
+        match = next(
+            ((cat, name) for cat, name in initiator_vault
+             if self.cog.normalize_name(name.removesuffix(".png")) == normalized),
+            None
+        )
+
+        if not match:
+            await interaction.response.send_message(
+                f"🚫 {self.initiator.display_name} n'a pas cette carte dans son coffre.", ephemeral=True
+            )
+            return
+
+        receive_cat, receive_name = match
+
+        # Si on n'a pas encore la carte à donner, la demander
+        if not self.give_cat or not self.give_name:
+            await interaction.response.send_modal(
+                SelectGiveCardModal(self.cog, self.initiator, self.target)
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        # Créer l'embed de confirmation finale
+        embed = discord.Embed(
+            title="🔄 Confirmation d'échange",
+            description="Vérifiez les détails de l'échange avant de confirmer :",
+            color=0xffa500
+        )
+
+        embed.add_field(
+            name=f"🎁 {self.target.display_name} donne",
+            value=f"**{self.give_name.removesuffix('.png')}** (*{self.give_cat}*)",
+            inline=True
+        )
+
+        embed.add_field(
+            name=f"📥 {self.target.display_name} reçoit",
+            value=f"**{receive_name.removesuffix('.png')}** (*{receive_cat}*)",
+            inline=True
+        )
+
+        embed.add_field(
+            name="⚠️ Important",
+            value="Cet échange nécessite la confirmation des deux parties.",
+            inline=False
+        )
+
+        # Créer la vue de confirmation finale
+        view = FinalTradeConfirmationView(
+            self.cog, self.initiator, self.target,
+            self.give_cat, self.give_name, receive_cat, receive_name
+        )
+
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+        # Notifier l'initiateur
+        try:
+            await self.initiator.send(
+                f"🔔 **{self.target.display_name}** a sélectionné les cartes pour l'échange !\n"
+                f"Ils donnent : **{self.give_name.removesuffix('.png')}** (*{self.give_cat}*)\n"
+                f"Ils reçoivent : **{receive_name.removesuffix('.png')}** (*{receive_cat}*)\n"
+                f"Confirmez l'échange pour le finaliser.",
+                view=FinalTradeConfirmationView(
+                    self.cog, self.initiator, self.target,
+                    self.give_cat, self.give_name, receive_cat, receive_name
+                )
+            )
+        except discord.Forbidden:
+            pass
+
+
+class FinalTradeConfirmationView(discord.ui.View):
+    def __init__(self, cog: Cards, initiator: discord.User, target: discord.User,
+                 give_cat: str, give_name: str, receive_cat: str, receive_name: str):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.initiator = initiator
+        self.target = target
+        self.give_cat = give_cat
+        self.give_name = give_name
+        self.receive_cat = receive_cat
+        self.receive_name = receive_name
+        self.initiator_confirmed = False
+        self.target_confirmed = False
+
+    @discord.ui.button(label="✅ Confirmer (Initiateur)", style=discord.ButtonStyle.success)
+    async def confirm_initiator(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.initiator.id:
+            await interaction.response.send_message(
+                "Vous n'êtes pas l'initiateur de cet échange.", ephemeral=True
+            )
+            return
+
+        self.initiator_confirmed = True
+        await interaction.response.send_message(
+            "✅ Vous avez confirmé l'échange. En attente de la confirmation de l'autre partie.",
+            ephemeral=True
+        )
+
+        if self.target_confirmed:
+            await self.execute_trade(interaction)
+
+    @discord.ui.button(label="✅ Confirmer (Destinataire)", style=discord.ButtonStyle.primary)
+    async def confirm_target(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.target.id:
+            await interaction.response.send_message(
+                "Vous n'êtes pas le destinataire de cet échange.", ephemeral=True
+            )
+            return
+
+        self.target_confirmed = True
+        await interaction.response.send_message(
+            "✅ Vous avez confirmé l'échange. En attente de la confirmation de l'autre partie.",
+            ephemeral=True
+        )
+
+        if self.initiator_confirmed:
+            await self.execute_trade(interaction)
+
+    async def execute_trade(self, interaction: discord.Interaction):
+        """Exécute l'échange final entre les deux utilisateurs."""
+        try:
+            # Vérifier que les deux utilisateurs ont encore les cartes dans leur vault
+            initiator_vault = self.cog.get_user_vault_cards(self.initiator.id)
+            target_vault = self.cog.get_user_vault_cards(self.target.id)
+
+            initiator_has_card = any(
+                cat == self.receive_cat and
+                self.cog.normalize_name(name.removesuffix(".png")) == self.cog.normalize_name(self.receive_name.removesuffix(".png"))
+                for cat, name in initiator_vault
+            )
+
+            target_has_card = any(
+                cat == self.give_cat and
+                self.cog.normalize_name(name.removesuffix(".png")) == self.cog.normalize_name(self.give_name.removesuffix(".png"))
+                for cat, name in target_vault
+            )
+
+            if not initiator_has_card:
+                await interaction.followup.send(
+                    f"❌ {self.initiator.display_name} n'a plus la carte **{self.receive_name.removesuffix('.png')}** dans son coffre.",
+                    ephemeral=False
+                )
+                return
+
+            if not target_has_card:
+                await interaction.followup.send(
+                    f"❌ {self.target.display_name} n'a plus la carte **{self.give_name.removesuffix('.png')}** dans son coffre.",
+                    ephemeral=False
+                )
+                return
+
+            # Effectuer l'échange
+            # 1. Retirer les cartes des vaults
+            success1 = self.cog.remove_card_from_vault(self.initiator.id, self.receive_cat, self.receive_name)
+            success2 = self.cog.remove_card_from_vault(self.target.id, self.give_cat, self.give_name)
+
+            if not (success1 and success2):
+                # Rollback si nécessaire
+                if success1:
+                    self.cog.add_card_to_vault(self.initiator.id, self.receive_cat, self.receive_name)
+                if success2:
+                    self.cog.add_card_to_vault(self.target.id, self.give_cat, self.give_name)
+
+                await interaction.followup.send(
+                    "❌ Erreur lors du retrait des cartes des coffres.", ephemeral=False
+                )
+                return
+
+            # 2. Ajouter les cartes aux inventaires principaux
+            add1 = self.cog.add_card_to_user(self.initiator.id, self.give_cat, self.give_name)
+            add2 = self.cog.add_card_to_user(self.target.id, self.receive_cat, self.receive_name)
+
+            if not (add1 and add2):
+                # Rollback complet
+                self.cog.add_card_to_vault(self.initiator.id, self.receive_cat, self.receive_name)
+                self.cog.add_card_to_vault(self.target.id, self.give_cat, self.give_name)
+
+                await interaction.followup.send(
+                    "❌ Erreur lors de l'ajout des cartes aux inventaires.", ephemeral=False
+                )
+                return
+
+            # 3. Succès ! Notifier les deux utilisateurs
+            success_embed = discord.Embed(
+                title="🎉 Échange réussi !",
+                description="L'échange a été effectué avec succès !",
+                color=0x00ff00
+            )
+
+            success_embed.add_field(
+                name=f"📤 {self.target.display_name} a donné",
+                value=f"**{self.give_name.removesuffix('.png')}** (*{self.give_cat}*)",
+                inline=True
+            )
+
+            success_embed.add_field(
+                name=f"📥 {self.initiator.display_name} a donné",
+                value=f"**{self.receive_name.removesuffix('.png')}** (*{self.receive_cat}*)",
+                inline=True
+            )
+
+            await interaction.followup.send(embed=success_embed, ephemeral=False)
+
+            # Notifier en DM
+            try:
+                await self.initiator.send(
+                    f"🎉 Échange réussi ! Vous avez reçu **{self.give_name.removesuffix('.png')}** (*{self.give_cat}*) "
+                    f"de {self.target.display_name}."
+                )
+            except discord.Forbidden:
+                pass
+
+            try:
+                await self.target.send(
+                    f"🎉 Échange réussi ! Vous avez reçu **{self.receive_name.removesuffix('.png')}** (*{self.receive_cat}*) "
+                    f"de {self.initiator.display_name}."
+                )
+            except discord.Forbidden:
+                pass
+
+            # Désactiver tous les boutons
+            for child in self.children:
+                child.disabled = True
+
+        except Exception as e:
+            logging.error(f"Erreur lors de l'exécution de l'échange: {e}")
+            await interaction.followup.send(
+                "❌ Une erreur inattendue s'est produite lors de l'échange.", ephemeral=False
+            )
 
 
 class GalleryActionView(discord.ui.View):

@@ -3,3 +3,5 @@ git_auto.ps1
 Vocabulaire.csv
 __pycache__/
 *.pyc
+TRADING_SYSTEM_IMPLEMENTATION.md
+TRADING_SYSTEM_TEST_GUIDE.md
