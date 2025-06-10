@@ -1649,6 +1649,174 @@ class TradeMenuView(discord.ui.View):
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
+    @discord.ui.button(label="🔄 Retirer cartes du coffre", style=discord.ButtonStyle.danger)
+    async def withdraw_vault_cards(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Ce bouton ne vous est pas destiné.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        vault_cards = self.cog.get_user_vault_cards(self.user.id)
+        if not vault_cards:
+            await interaction.followup.send("📦 Votre coffre est vide. Aucune carte à retirer.", ephemeral=True)
+            return
+
+        # Obtenir les cartes uniques du coffre
+        unique_vault_cards = list({(cat, name) for cat, name in vault_cards})
+
+        # Compter le nombre total de cartes
+        total_cards = len(vault_cards)
+        unique_cards_count = len(unique_vault_cards)
+
+        # Créer un embed de confirmation
+        embed = discord.Embed(
+            title="⚠️ Confirmation de retrait",
+            description=f"Vous êtes sur le point de retirer **{total_cards} cartes** ({unique_cards_count} uniques) de votre coffre vers votre inventaire principal.",
+            color=0xff9900
+        )
+
+        # Afficher un aperçu des cartes
+        cards_by_cat = {}
+        for cat, name in vault_cards:
+            cards_by_cat.setdefault(cat, []).append(name)
+
+        for cat, names in list(cards_by_cat.items())[:3]:  # Limiter à 3 catégories pour l'aperçu
+            counts = {}
+            for name in names:
+                counts[name] = counts.get(name, 0) + 1
+
+            lines = [
+                f"- **{name.removesuffix('.png')}**{' (x'+str(count)+')' if count > 1 else ''}"
+                for name, count in list(counts.items())[:3]  # Limiter à 3 cartes par catégorie
+            ]
+
+            if len(counts) > 3:
+                lines.append(f"... et {len(counts) - 3} autres cartes")
+
+            embed.add_field(
+                name=f"{cat} ({len(names)} cartes)",
+                value="\n".join(lines),
+                inline=False
+            )
+
+        if len(cards_by_cat) > 3:
+            embed.add_field(
+                name="...",
+                value=f"Et {len(cards_by_cat) - 3} autres catégories",
+                inline=False
+            )
+
+        embed.add_field(
+            name="⚠️ Attention",
+            value="Cette action retirera **TOUTES** vos cartes du coffre et les remettra dans votre inventaire principal.",
+            inline=False
+        )
+
+        view = WithdrawVaultConfirmationView(self.cog, self.user, unique_vault_cards)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+
+
+class WithdrawVaultConfirmationView(discord.ui.View):
+    def __init__(self, cog: Cards, user: discord.User, unique_vault_cards: list[tuple[str, str]]):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.user = user
+        self.unique_vault_cards = unique_vault_cards
+
+    @discord.ui.button(label="✅ Confirmer le retrait", style=discord.ButtonStyle.success)
+    async def confirm_withdraw(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Ce bouton ne vous est pas destiné.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        # Récupérer toutes les cartes du coffre (avec duplicatas)
+        vault_cards = self.cog.get_user_vault_cards(self.user.id)
+        if not vault_cards:
+            await interaction.followup.send("📦 Votre coffre est maintenant vide.", ephemeral=True)
+            return
+
+        # Compter les cartes par type
+        card_counts = {}
+        for cat, name in vault_cards:
+            key = (cat, name)
+            card_counts[key] = card_counts.get(key, 0) + 1
+
+        # Listes pour le rollback en cas d'erreur
+        removed_cards = []
+        failed_additions = []
+
+        try:
+            # Étape 1: Retirer toutes les cartes du coffre
+            for (cat, name), count in card_counts.items():
+                for _ in range(count):
+                    if self.cog.remove_card_from_vault(self.user.id, cat, name):
+                        removed_cards.append((cat, name))
+                    else:
+                        # Rollback: remettre les cartes déjà retirées
+                        for rollback_cat, rollback_name in removed_cards:
+                            self.cog.add_card_to_vault(self.user.id, rollback_cat, rollback_name)
+                        await interaction.followup.send(
+                            "❌ Erreur lors du retrait des cartes du coffre. Aucune modification n'a été apportée.",
+                            ephemeral=True
+                        )
+                        return
+
+            # Étape 2: Ajouter toutes les cartes à l'inventaire principal
+            for cat, name in removed_cards:
+                if not self.cog.add_card_to_user(self.user.id, cat, name):
+                    failed_additions.append((cat, name))
+
+            # Si certaines additions ont échoué, rollback partiel
+            if failed_additions:
+                # Remettre les cartes qui n'ont pas pu être ajoutées dans le coffre
+                for cat, name in failed_additions:
+                    self.cog.add_card_to_vault(self.user.id, cat, name)
+
+                successful_transfers = len(removed_cards) - len(failed_additions)
+                await interaction.followup.send(
+                    f"⚠️ Retrait partiellement réussi. {successful_transfers} cartes ont été transférées vers votre inventaire. "
+                    f"{len(failed_additions)} cartes sont restées dans le coffre en raison d'erreurs.",
+                    ephemeral=True
+                )
+                return
+
+            # Succès complet
+            total_transferred = len(removed_cards)
+            unique_transferred = len(set(removed_cards))
+
+            embed = discord.Embed(
+                title="✅ Retrait réussi !",
+                description=f"**{total_transferred} cartes** ({unique_transferred} uniques) ont été transférées de votre coffre vers votre inventaire principal.",
+                color=0x00ff00
+            )
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except Exception as e:
+            logging.error(f"Erreur lors du retrait des cartes du coffre: {e}")
+            # Rollback complet en cas d'erreur inattendue
+            for cat, name in removed_cards:
+                self.cog.add_card_to_vault(self.user.id, cat, name)
+            await interaction.followup.send(
+                "❌ Une erreur inattendue s'est produite. Aucune modification n'a été apportée.",
+                ephemeral=True
+            )
+
+    @discord.ui.button(label="❌ Annuler", style=discord.ButtonStyle.secondary)
+    async def cancel_withdraw(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Ce bouton ne vous est pas destiné.", ephemeral=True)
+            return
+
+        await interaction.response.send_message("❌ Retrait annulé.", ephemeral=True)
+
+        # Désactiver tous les boutons
+        for child in self.children:
+            child.disabled = True
 
 
 class DepositCardModal(discord.ui.Modal, title="Déposer une carte"):
