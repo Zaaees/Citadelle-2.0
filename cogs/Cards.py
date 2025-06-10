@@ -2558,19 +2558,22 @@ class InitiatorFinalConfirmationView(discord.ui.View):
             )
             return
 
-        # Éviter les exécutions multiples
+        # Éviter les exécutions multiples - vérifier ET définir atomiquement
         if self.trade_executed:
             await interaction.response.send_message(
                 "⚠️ Cet échange a déjà été exécuté.", ephemeral=True
             )
             return
 
+        # Marquer comme exécuté IMMÉDIATEMENT pour éviter les doubles clics
         self.trade_executed = True
-        await interaction.response.defer(ephemeral=True)
 
-        # Désactiver tous les boutons pour éviter les clics multiples
+        # Désactiver tous les boutons IMMÉDIATEMENT avant toute autre opération
         for child in self.children:
             child.disabled = True
+
+        # Maintenant seulement, déférer l'interaction
+        await interaction.response.defer(ephemeral=True)
 
         # Exécuter l'échange complet des coffres
         success = await self.execute_full_vault_trade(interaction)
@@ -2586,6 +2589,19 @@ class InitiatorFinalConfirmationView(discord.ui.View):
             )
             return
 
+        # Éviter les clics multiples sur annuler aussi
+        if self.trade_executed:
+            await interaction.response.send_message(
+                "⚠️ Cet échange a déjà été traité.", ephemeral=True
+            )
+            return
+
+        self.trade_executed = True
+
+        # Désactiver tous les boutons immédiatement
+        for child in self.children:
+            child.disabled = True
+
         await interaction.response.send_message("❌ Échange annulé.", ephemeral=True)
 
         try:
@@ -2594,10 +2610,6 @@ class InitiatorFinalConfirmationView(discord.ui.View):
             )
         except discord.Forbidden:
             pass
-
-        # Désactiver tous les boutons
-        for child in self.children:
-            child.disabled = True
 
     async def execute_full_vault_trade(self, interaction: discord.Interaction) -> bool:
         """Exécute l'échange complet des coffres entre les deux utilisateurs."""
