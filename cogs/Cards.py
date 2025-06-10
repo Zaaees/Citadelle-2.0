@@ -355,7 +355,7 @@ class Cards(commands.Cog):
                         continue
             return user_vault_cards
 
-    def add_card_to_vault(self, user_id: int, category: str, name: str) -> bool:
+    def add_card_to_vault(self, user_id: int, category: str, name: str, skip_possession_check: bool = False) -> bool:
         """Ajoute une carte au vault d'un utilisateur."""
         with self._vault_lock:
             try:
@@ -370,10 +370,12 @@ class Cards(commands.Cog):
                     return False
 
                 # Vérifier que l'utilisateur possède cette carte avant de l'ajouter au vault
-                user_cards = self.get_user_cards(user_id)
-                if not any(cat == category and n == name for cat, n in user_cards):
-                    logging.error(f"[SECURITY] Tentative d'ajout d'une carte non possédée au vault: user_id={user_id}, carte=({category}, {name})")
-                    return False
+                # (sauf si skip_possession_check=True, utilisé lors du dépôt après retrait de l'inventaire)
+                if not skip_possession_check:
+                    user_cards = self.get_user_cards(user_id)
+                    if not any(cat == category and n == name for cat, n in user_cards):
+                        logging.error(f"[SECURITY] Tentative d'ajout d'une carte non possédée au vault: user_id={user_id}, carte=({category}, {name})")
+                        return False
 
                 rows = self.sheet_vault.get_all_values()
                 for i, row in enumerate(rows):
@@ -2252,8 +2254,8 @@ class DepositCardModal(discord.ui.Modal, title="Déposer une carte"):
                 )
                 return
 
-            # Ajouter la carte au vault
-            add_success = self.cog.add_card_to_vault(self.user.id, cat, name)
+            # Ajouter la carte au vault (skip_possession_check=True car la carte vient d'être retirée)
+            add_success = self.cog.add_card_to_vault(self.user.id, cat, name, skip_possession_check=True)
             if not add_success:
                 # Rollback: remettre la carte dans l'inventaire
                 self.cog.add_card_to_user(self.user.id, cat, name)
