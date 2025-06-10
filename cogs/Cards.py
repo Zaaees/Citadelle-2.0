@@ -109,6 +109,8 @@ class Cards(commands.Cog):
         self.bot = bot
         self.cards_cache = None  # Cache temporaire du contenu de sheet_cards
         self.cards_cache_time = 0
+        # Échanges en cours (escrow)
+        self.escrow_sessions: dict[tuple[int, int], "EscrowSession"] = {}
         # Charger les identifiants du service Google (mêmes credentials que le cog inventaire)
         creds_info = json.loads(os.getenv('SERVICE_ACCOUNT_JSON'))
         creds = Credentials.from_service_account_info(creds_info, scopes=[
@@ -1283,7 +1285,7 @@ class CardsMenuView(discord.ui.View):
         super().__init__(timeout=None)
         self.cog = cog
         self.user = user
-        self.user_id = user.id 
+        self.user_id = user.id
 
     @discord.ui.button(label="Tirer une carte", style=discord.ButtonStyle.primary)
     async def draw_card(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1386,6 +1388,19 @@ class CardsMenuView(discord.ui.View):
             embeds=[embed_normales, embed_full],
             view=view,
             ephemeral=True
+        )
+
+    @discord.ui.button(label="Echanger", style=discord.ButtonStyle.success)
+    async def open_trade_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
+            return
+
+        view = EscrowMenuView(self.cog, self.user)
+        await interaction.response.send_message(
+            "Utilisez les boutons ci-dessous pour initier un échange sécurisé ou déposer vos cartes.",
+            view=view,
+            ephemeral=True,
         )
 
     @discord.ui.button(label="Classement", style=discord.ButtonStyle.secondary)
@@ -1732,6 +1747,244 @@ class TradeResponseModal(discord.ui.Modal, title="Réponse à l’échange"):
             )
         except:
             logging.warning("[TRADE] Impossible d’envoyer un DM au proposeur.")
+
+
+class EscrowSession:
+    """Représente un échange en cours avec dépôt sécurisé."""
+
+    def __init__(self, cog: "Cards", user1: discord.User, user2: discord.User):
+        self.cog = cog
+        self.user1 = user1
+        self.user2 = user2
+        self.deposits: dict[int, list[tuple[str, str]]] = {
+            user1.id: [],
+            user2.id: [],
+        }
+        self.confirmed: dict[int, bool] = {
+            user1.id: False,
+            user2.id: False,
+        }
+
+    async def ask_confirmation(self):
+        """Envoie un récapitulatif aux deux joueurs pour confirmation."""
+        view1 = EscrowConfirmView(self)
+        view2 = EscrowConfirmView(self)
+
+        give1 = ", ".join(n for _, n in self.deposits[self.user1.id]) or "Aucune"
+        give2 = ", ".join(n for _, n in self.deposits[self.user2.id]) or "Aucune"
+
+        msg1 = (
+            f"Vous donnez : {give1}\n"
+            f"Vous recevrez : {give2}\nConfirmez l'échange ?"
+        )
+        msg2 = (
+            f"Vous donnez : {give2}\n"
+            f"Vous recevrez : {give1}\nConfirmez l'échange ?"
+        )
+
+        try:
+            await self.user1.send(msg1, view=view1)
+        except Exception:
+            pass
+        try:
+            await self.user2.send(msg2, view=view2)
+        except Exception:
+            pass
+
+    async def finalize(self):
+        """Échange définitif des cartes."""
+        for cat, name in self.deposits[self.user2.id]:
+            self.cog.add_card_to_user(self.user1.id, cat, name)
+        for cat, name in self.deposits[self.user1.id]:
+            self.cog.add_card_to_user(self.user2.id, cat, name)
+
+        try:
+            await self.user1.send("📦 Échange confirmé !")
+        except Exception:
+            pass
+        try:
+            await self.user2.send("📦 Échange confirmé !")
+        except Exception:
+            pass
+
+        key = tuple(sorted([self.user1.id, self.user2.id]))
+        self.cog.escrow_sessions.pop(key, None)
+
+    async def cancel(self, reason: str = "Échange annulé."):
+        """Rend les cartes aux joueurs."""
+        for uid, cards in self.deposits.items():
+            for cat, name in cards:
+                self.cog.add_card_to_user(uid, cat, name)
+
+        try:
+            await self.user1.send(reason)
+        except Exception:
+            pass
+        try:
+            await self.user2.send(reason)
+        except Exception:
+            pass
+
+        key = tuple(sorted([self.user1.id, self.user2.id]))
+        self.cog.escrow_sessions.pop(key, None)
+
+
+class EscrowConfirmView(discord.ui.View):
+    def __init__(self, session: EscrowSession):
+        super().__init__(timeout=120)
+        self.session = session
+
+    async def on_timeout(self):
+        await self.session.cancel("⏱ Temps écoulé, échange annulé.")
+
+    @discord.ui.button(label="Confirmer", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id not in self.session.confirmed:
+            await interaction.response.send_message("Vous n'êtes pas concerné par cet échange.", ephemeral=True)
+            return
+
+        self.session.confirmed[interaction.user.id] = True
+        await interaction.response.send_message("Confirmation enregistrée.", ephemeral=True)
+
+        if all(self.session.confirmed.values()):
+            await self.session.finalize()
+            self.stop()
+
+    @discord.ui.button(label="Annuler", style=discord.ButtonStyle.danger)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id not in self.session.confirmed:
+            await interaction.response.send_message("Vous n'êtes pas concerné par cet échange.", ephemeral=True)
+            return
+
+        await self.session.cancel("Échange annulé par un participant.")
+        await interaction.response.send_message("Échange annulé.", ephemeral=True)
+        self.stop()
+
+
+class EscrowMenuView(discord.ui.View):
+    def __init__(self, cog: Cards, user: discord.User):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.user = user
+
+    @discord.ui.button(label="Initier un échange", style=discord.ButtonStyle.primary)
+    async def start_exchange(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Ce bouton ne vous est pas destiné.", ephemeral=True)
+            return
+        await interaction.response.send_modal(StartTradeModal(self.cog, self.user))
+
+    @discord.ui.button(label="Déposer des cartes", style=discord.ButtonStyle.primary)
+    async def deposit_cards(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Ce bouton ne vous est pas destiné.", ephemeral=True)
+            return
+        await interaction.response.send_modal(DepositModal(self.cog, self.user))
+
+
+class StartTradeModal(discord.ui.Modal, title="Initier un échange"):
+    partner = discord.ui.TextInput(label="Joueur (mention ou ID)", required=True)
+
+    def __init__(self, cog: Cards, user: discord.User):
+        super().__init__()
+        self.cog = cog
+        self.user = user
+
+    async def on_submit(self, interaction: discord.Interaction):
+        txt = self.partner.value.strip()
+        match = re.match(r"<@!?(\d+)>", txt)
+        if match:
+            uid = int(match.group(1))
+        else:
+            try:
+                uid = int(txt)
+            except ValueError:
+                await interaction.response.send_message("Identifiant invalide.", ephemeral=True)
+                return
+
+        joueur = interaction.client.get_user(uid)
+        if joueur is None:
+            await interaction.response.send_message("Utilisateur introuvable.", ephemeral=True)
+            return
+
+        if joueur.id == self.user.id:
+            await interaction.response.send_message("Impossible d'échanger avec vous-même.", ephemeral=True)
+            return
+
+        key = tuple(sorted([self.user.id, joueur.id]))
+        if key in self.cog.escrow_sessions:
+            await interaction.response.send_message("Un échange est déjà en cours avec ce joueur.", ephemeral=True)
+            return
+
+        session = EscrowSession(self.cog, self.user, joueur)
+        self.cog.escrow_sessions[key] = session
+        await interaction.response.send_message("Échange initié. Utilisez le bouton \"Déposer des cartes\" pour ajouter vos cartes.", ephemeral=True)
+        try:
+            await joueur.send(f"{self.user.display_name} souhaite échanger des cartes avec vous. Utilisez le bouton 'Déposer des cartes' dans /cartes.")
+        except Exception:
+            pass
+
+
+class DepositModal(discord.ui.Modal, title="Déposer des cartes"):
+    partner = discord.ui.TextInput(label="Joueur (mention ou ID)", required=True)
+    cartes = discord.ui.TextInput(label="Cartes à déposer (séparées par ;)", style=discord.TextStyle.paragraph, required=True)
+
+    def __init__(self, cog: Cards, user: discord.User):
+        super().__init__()
+        self.cog = cog
+        self.user = user
+
+    async def on_submit(self, interaction: discord.Interaction):
+        txt = self.partner.value.strip()
+        match = re.match(r"<@!?(\d+)>", txt)
+        if match:
+            uid = int(match.group(1))
+        else:
+            try:
+                uid = int(txt)
+            except ValueError:
+                await interaction.response.send_message("Identifiant invalide.", ephemeral=True)
+                return
+
+        joueur = interaction.client.get_user(uid)
+        if joueur is None:
+            await interaction.response.send_message("Utilisateur introuvable.", ephemeral=True)
+            return
+
+        key = tuple(sorted([self.user.id, joueur.id]))
+        session = self.cog.escrow_sessions.get(key)
+        if not session:
+            await interaction.response.send_message("Aucun échange en cours avec ce joueur.", ephemeral=True)
+            return
+
+        names = [c.strip() for c in self.cartes.value.split(';') if c.strip()]
+        if not names:
+            await interaction.response.send_message("Aucune carte fournie.", ephemeral=True)
+            return
+
+        deposited = []
+        for name in names:
+            normalized = self.cog.normalize_name(name.removesuffix('.png'))
+            owned_cards = self.cog.get_user_cards(self.user.id)
+            match_card = next(((cat, n) for cat, n in owned_cards if self.cog.normalize_name(n.removesuffix('.png')) == normalized), None)
+            if not match_card:
+                continue
+            cat, real_name = match_card
+            if self.cog.remove_card_from_user(self.user.id, cat, real_name):
+                session.deposits[self.user.id].append((cat, real_name))
+                deposited.append(real_name)
+
+        if not deposited:
+            await interaction.response.send_message("Aucune carte valide à déposer.", ephemeral=True)
+            return
+
+        await interaction.response.send_message(f"Cartes déposées : {', '.join(deposited)}", ephemeral=True)
+
+        if session.deposits[session.user1.id] and session.deposits[session.user2.id]:
+            await session.ask_confirmation()
+
+
+    
 
 
 
