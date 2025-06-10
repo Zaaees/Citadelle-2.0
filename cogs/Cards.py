@@ -4,6 +4,7 @@ import discord
 import random
 import os, json, io
 import asyncio
+import threading
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 import gspread
@@ -109,6 +110,11 @@ class Cards(commands.Cog):
         self.bot = bot
         self.cards_cache = None  # Cache temporaire du contenu de sheet_cards
         self.cards_cache_time = 0
+
+        # Système de verrous pour éviter les race conditions
+        self._cards_lock = threading.RLock()  # Verrou pour les opérations sur les cartes
+        self._vault_lock = threading.RLock()  # Verrou pour les opérations sur le vault
+        self._cache_lock = threading.RLock()  # Verrou pour les opérations de cache
         # Charger les identifiants du service Google (mêmes credentials que le cog inventaire)
         creds_info = json.loads(os.getenv('SERVICE_ACCOUNT_JSON'))
         creds = Credentials.from_service_account_info(creds_info, scopes=[
@@ -229,45 +235,54 @@ class Cards(commands.Cog):
     
     def refresh_cards_cache(self):
         """Recharge le cache depuis Google Sheets (limité par minute)."""
-        try:
-            self.cards_cache = self.sheet_cards.get_all_values()
-            self.cards_cache_time = time.time()
-        except Exception as e:
-            logging.error(f"[CACHE] Erreur de lecture Google Sheets : {e}")
-            self.cards_cache = None
+        with self._cache_lock:
+            try:
+                self.cards_cache = self.sheet_cards.get_all_values()
+                self.cards_cache_time = time.time()
+                logging.info("[CACHE] Cache des cartes rechargé avec succès")
+            except Exception as e:
+                logging.error(f"[CACHE] Erreur de lecture Google Sheets : {e}")
+                self.cards_cache = None
 
     def refresh_vault_cache(self):
         """Recharge le cache du vault depuis Google Sheets."""
-        try:
-            self.vault_cache = self.sheet_vault.get_all_values()
-            self.vault_cache_time = time.time()
-        except Exception as e:
-            logging.error(f"[VAULT_CACHE] Erreur de lecture Google Sheets : {e}")
-            self.vault_cache = None
+        with self._cache_lock:
+            try:
+                self.vault_cache = self.sheet_vault.get_all_values()
+                self.vault_cache_time = time.time()
+                logging.info("[VAULT_CACHE] Cache du vault rechargé avec succès")
+            except Exception as e:
+                logging.error(f"[VAULT_CACHE] Erreur de lecture Google Sheets : {e}")
+                self.vault_cache = None
     
     def get_user_cards(self, user_id: int):
         """Récupère les cartes d’un utilisateur depuis le cache ou les données."""
-        now = time.time()
-        if not self.cards_cache or now - self.cards_cache_time > 5:  # 5 sec de validité
-            self.refresh_cards_cache()
+        with self._cache_lock:
+            now = time.time()
+            if not self.cards_cache or now - self.cards_cache_time > 5:  # 5 sec de validité
+                self.refresh_cards_cache()
 
-        if not self.cards_cache:
-            return []
+            if not self.cards_cache:
+                return []
 
-        rows = self.cards_cache[1:]  # Skip header
-        user_cards = []
-        for row in rows:
-            if len(row) < 3:
-                continue
-            cat, name = row[0], row[1]
-            for cell in row[2:]:
-                if not cell:
+            rows = self.cards_cache[1:]  # Skip header
+            user_cards = []
+            for row in rows:
+                if len(row) < 3:
                     continue
-                uid, count = cell.split(":", 1)
-                uid = uid.strip()
-                if int(uid) == user_id:
-                    user_cards.extend([(cat, name)] * int(count))
-        return user_cards
+                cat, name = row[0], row[1]
+                for cell in row[2:]:
+                    if not cell:
+                        continue
+                    try:
+                        uid, count = cell.split(":", 1)
+                        uid = uid.strip()
+                        if int(uid) == user_id:
+                            user_cards.extend([(cat, name)] * int(count))
+                    except (ValueError, IndexError) as e:
+                        logging.warning(f"[SECURITY] Données corrompues dans get_user_cards: {cell}, erreur: {e}")
+                        continue
+            return user_cards
 
     def _create_unified_trade_confirmation_embed(self, initiator, target, initiator_vault, target_vault, description):
         """Crée un embed unifié pour les confirmations d'échange."""
@@ -313,93 +328,143 @@ class Cards(commands.Cog):
 
     def get_user_vault_cards(self, user_id: int):
         """Récupère les cartes du vault d'un utilisateur."""
-        now = time.time()
-        if not self.vault_cache or now - self.vault_cache_time > 5:  # 5 sec de validité
-            self.refresh_vault_cache()
+        with self._cache_lock:
+            now = time.time()
+            if not self.vault_cache or now - self.vault_cache_time > 5:  # 5 sec de validité
+                self.refresh_vault_cache()
 
-        if not self.vault_cache:
-            return []
+            if not self.vault_cache:
+                return []
 
-        rows = self.vault_cache[1:]  # Skip header
-        user_vault_cards = []
-        for row in rows:
-            if len(row) < 3:
-                continue
-            cat, name = row[0], row[1]
-            for cell in row[2:]:
-                if not cell:
+            rows = self.vault_cache[1:]  # Skip header
+            user_vault_cards = []
+            for row in rows:
+                if len(row) < 3:
                     continue
-                uid, count = cell.split(":", 1)
-                uid = uid.strip()
-                if int(uid) == user_id:
-                    user_vault_cards.extend([(cat, name)] * int(count))
-        return user_vault_cards
+                cat, name = row[0], row[1]
+                for cell in row[2:]:
+                    if not cell:
+                        continue
+                    try:
+                        uid, count = cell.split(":", 1)
+                        uid = uid.strip()
+                        if int(uid) == user_id:
+                            user_vault_cards.extend([(cat, name)] * int(count))
+                    except (ValueError, IndexError) as e:
+                        logging.warning(f"[SECURITY] Données corrompues dans get_user_vault_cards: {cell}, erreur: {e}")
+                        continue
+            return user_vault_cards
 
     def add_card_to_vault(self, user_id: int, category: str, name: str) -> bool:
         """Ajoute une carte au vault d'un utilisateur."""
-        try:
-            rows = self.sheet_vault.get_all_values()
-            for i, row in enumerate(rows):
-                if len(row) < 2:
-                    continue
-                if row[0] == category and row[1] == name:
-                    original_len = len(row)
-                    for j in range(2, len(row)):
-                        cell = row[j].strip()
-                        if cell.startswith(f"{user_id}:"):
-                            uid, count = cell.split(":", 1)
-                            uid = uid.strip()
-                            row[j] = f"{uid}:{int(count) + 1}"
-                            cleaned_row = _merge_cells(row)
-                            pad = max(original_len, len(cleaned_row)) - len(cleaned_row)
-                            cleaned_row += [""] * pad
-                            self.sheet_vault.update(f"A{i+1}", [cleaned_row])
-                            self.refresh_vault_cache()
-                            return True
-                    row.append(f"{user_id}:1")
-                    cleaned_row = _merge_cells(row)
-                    pad = max(original_len + 1, len(cleaned_row)) - len(cleaned_row)
-                    cleaned_row += [""] * pad
-                    self.sheet_vault.update(f"A{i+1}", [cleaned_row])
-                    self.refresh_vault_cache()
-                    return True
-            # Si la carte n'existe pas encore dans le vault
-            new_row = [category, name, f"{user_id}:1"]
-            self.sheet_vault.append_row(new_row)
-            self.refresh_vault_cache()
-            return True
-        except Exception as e:
-            logging.error(f"Erreur lors de l'ajout de la carte au vault: {e}")
-            return False
+        with self._vault_lock:
+            try:
+                # Validation des paramètres d'entrée
+                if not category or not name or user_id <= 0:
+                    logging.error(f"[SECURITY] Paramètres invalides pour add_card_to_vault: user_id={user_id}, category='{category}', name='{name}'")
+                    return False
+
+                # RESTRICTION: Empêcher le dépôt de cartes Full dans le vault
+                if "(Full)" in name:
+                    logging.error(f"[SECURITY] Tentative de dépôt d'une carte Full dans le vault: user_id={user_id}, carte=({category}, {name})")
+                    return False
+
+                # Vérifier que l'utilisateur possède cette carte avant de l'ajouter au vault
+                user_cards = self.get_user_cards(user_id)
+                if not any(cat == category and n == name for cat, n in user_cards):
+                    logging.error(f"[SECURITY] Tentative d'ajout d'une carte non possédée au vault: user_id={user_id}, carte=({category}, {name})")
+                    return False
+
+                rows = self.sheet_vault.get_all_values()
+                for i, row in enumerate(rows):
+                    if len(row) < 2:
+                        continue
+                    if row[0] == category and row[1] == name:
+                        original_len = len(row)
+                        for j in range(2, len(row)):
+                            cell = row[j].strip()
+                            if cell.startswith(f"{user_id}:"):
+                                try:
+                                    uid, count = cell.split(":", 1)
+                                    uid = uid.strip()
+                                    new_count = int(count) + 1
+                                    row[j] = f"{uid}:{new_count}"
+                                    cleaned_row = _merge_cells(row)
+                                    pad = max(original_len, len(cleaned_row)) - len(cleaned_row)
+                                    cleaned_row += [""] * pad
+                                    self.sheet_vault.update(f"A{i+1}", [cleaned_row])
+                                    self.refresh_vault_cache()
+                                    logging.info(f"[VAULT] Carte ajoutée au vault: user_id={user_id}, carte=({category}, {name}), nouveau_count={new_count}")
+                                    return True
+                                except (ValueError, IndexError) as e:
+                                    logging.error(f"[SECURITY] Données corrompues dans add_card_to_vault: {cell}, erreur: {e}")
+                                    return False
+                        row.append(f"{user_id}:1")
+                        cleaned_row = _merge_cells(row)
+                        pad = max(original_len + 1, len(cleaned_row)) - len(cleaned_row)
+                        cleaned_row += [""] * pad
+                        self.sheet_vault.update(f"A{i+1}", [cleaned_row])
+                        self.refresh_vault_cache()
+                        logging.info(f"[VAULT] Nouvelle entrée ajoutée au vault: user_id={user_id}, carte=({category}, {name})")
+                        return True
+                # Si la carte n'existe pas encore dans le vault
+                new_row = [category, name, f"{user_id}:1"]
+                self.sheet_vault.append_row(new_row)
+                self.refresh_vault_cache()
+                logging.info(f"[VAULT] Nouvelle carte créée dans le vault: user_id={user_id}, carte=({category}, {name})")
+                return True
+            except Exception as e:
+                logging.error(f"[SECURITY] Erreur lors de l'ajout de la carte au vault: {e}")
+                return False
 
     def remove_card_from_vault(self, user_id: int, category: str, name: str) -> bool:
         """Supprime une carte du vault d'un utilisateur."""
-        try:
-            rows = self.sheet_vault.get_all_values()
-            for i, row in enumerate(rows):
-                if len(row) < 2:
-                    continue
-                if row[0] == category and row[1] == name:
-                    original_len = len(row)
-                    for j in range(2, len(row)):
-                        cell = row[j].strip()
-                        if cell.startswith(f"{user_id}:"):
-                            uid, count = cell.split(":", 1)
-                            uid = uid.strip()
-                            if int(count) > 1:
-                                row[j] = f"{uid}:{int(count) - 1}"
-                            else:
-                                row[j] = ""
-                            cleaned_row = _merge_cells(row)
-                            pad = max(original_len, len(cleaned_row)) - len(cleaned_row)
-                            cleaned_row += [""] * pad
-                            self.sheet_vault.update(f"A{i+1}", [cleaned_row])
-                            self.refresh_vault_cache()
-                            return True
-            return False
-        except Exception as e:
-            logging.error(f"Erreur lors de la suppression de la carte du vault: {e}")
-            return False
+        with self._vault_lock:
+            try:
+                # Validation des paramètres d'entrée
+                if not category or not name or user_id <= 0:
+                    logging.error(f"[SECURITY] Paramètres invalides pour remove_card_from_vault: user_id={user_id}, category='{category}', name='{name}'")
+                    return False
+
+                # Vérifier que l'utilisateur a cette carte dans son vault
+                vault_cards = self.get_user_vault_cards(user_id)
+                if not any(cat == category and n == name for cat, n in vault_cards):
+                    logging.error(f"[SECURITY] Tentative de suppression d'une carte non présente dans le vault: user_id={user_id}, carte=({category}, {name})")
+                    return False
+
+                rows = self.sheet_vault.get_all_values()
+                for i, row in enumerate(rows):
+                    if len(row) < 2:
+                        continue
+                    if row[0] == category and row[1] == name:
+                        original_len = len(row)
+                        for j in range(2, len(row)):
+                            cell = row[j].strip()
+                            if cell.startswith(f"{user_id}:"):
+                                try:
+                                    uid, count = cell.split(":", 1)
+                                    uid = uid.strip()
+                                    current_count = int(count)
+                                    if current_count > 1:
+                                        new_count = current_count - 1
+                                        row[j] = f"{uid}:{new_count}"
+                                        logging.info(f"[VAULT] Carte retirée du vault: user_id={user_id}, carte=({category}, {name}), nouveau_count={new_count}")
+                                    else:
+                                        row[j] = ""
+                                        logging.info(f"[VAULT] Dernière carte retirée du vault: user_id={user_id}, carte=({category}, {name})")
+                                    cleaned_row = _merge_cells(row)
+                                    pad = max(original_len, len(cleaned_row)) - len(cleaned_row)
+                                    cleaned_row += [""] * pad
+                                    self.sheet_vault.update(f"A{i+1}", [cleaned_row])
+                                    self.refresh_vault_cache()
+                                    return True
+                                except (ValueError, IndexError) as e:
+                                    logging.error(f"[SECURITY] Données corrompues dans remove_card_from_vault: {cell}, erreur: {e}")
+                                    return False
+                return False
+            except Exception as e:
+                logging.error(f"[SECURITY] Erreur lors de la suppression de la carte du vault: {e}")
+                return False
 
     def get_unique_card_counts(self) -> dict[int, int]:
         """Retourne un dictionnaire {user_id: nombre de cartes différentes}."""
@@ -537,40 +602,105 @@ class Cards(commands.Cog):
 
     
     def safe_exchange(self, user1_id, card1, user2_id, card2) -> bool:
-        cards1 = self.get_user_cards(user1_id)
-        cards2 = self.get_user_cards(user2_id)
+        """Effectue un échange sécurisé entre deux utilisateurs avec rollback complet en cas d'échec."""
+        # Utiliser les deux verrous pour éviter les race conditions
+        with self._cards_lock:
+            try:
+                # Validation des paramètres
+                if not card1 or not card2 or len(card1) != 2 or len(card2) != 2:
+                    logging.error(f"[SECURITY] Paramètres d'échange invalides: card1={card1}, card2={card2}")
+                    return False
 
-        def contains_card(card_list, card):
-            return any(
-                cat == card[0] and self.normalize_name(name.removesuffix(".png")) == self.normalize_name(card[1].removesuffix(".png"))
-                for cat, name in card_list
-            )
+                if user1_id <= 0 or user2_id <= 0 or user1_id == user2_id:
+                    logging.error(f"[SECURITY] IDs utilisateurs invalides: user1_id={user1_id}, user2_id={user2_id}")
+                    return False
 
-        if not contains_card(cards1, card1) or not contains_card(cards2, card2):
-            logging.warning(f"[SAFE_EXCHANGE] Échec : carte(s) non trouvée(s) - {card1=} {card2=}")
-            return False
+                # Vérifier que les cartes existent dans le système
+                all_files = {}
+                for cat, files in self.cards_by_category.items():
+                    all_files.setdefault(cat, []).extend(files)
+                for cat, files in self.upgrade_cards_by_category.items():
+                    all_files.setdefault(cat, []).extend(files)
 
-        success1 = self.remove_card_from_user(user1_id, card1[0], card1[1])
-        success2 = self.remove_card_from_user(user2_id, card2[0], card2[1])
+                card1_exists = any(f['name'].removesuffix('.png') == card1[1] for f in all_files.get(card1[0], []))
+                card2_exists = any(f['name'].removesuffix('.png') == card2[1] for f in all_files.get(card2[0], []))
 
-        if not (success1 and success2):
-            logging.error(f"[SAFE_EXCHANGE] Suppression échouée - success1={success1}, success2={success2}")
-            return False
+                if not card1_exists or not card2_exists:
+                    logging.error(f"[SECURITY] Cartes inexistantes dans l'échange: card1_exists={card1_exists}, card2_exists={card2_exists}")
+                    return False
 
-        add1 = self.add_card_to_user(user1_id, card2[0], card2[1])
-        add2 = self.add_card_to_user(user2_id, card1[0], card1[1])
+                # Obtenir les inventaires actuels
+                cards1 = self.get_user_cards(user1_id)
+                cards2 = self.get_user_cards(user2_id)
 
-        if not (add1 and add2):
-            logging.error(f"[SAFE_EXCHANGE] Ajout échoué - add1={add1}, add2={add2}. Rollback en cours")
-            if success1:
-                self.add_card_to_user(user1_id, card1[0], card1[1])
-            if success2:
-                self.add_card_to_user(user2_id, card2[0], card2[1])
-            return False
+                def contains_card(card_list, card):
+                    return any(
+                        cat == card[0] and self.normalize_name(name.removesuffix(".png")) == self.normalize_name(card[1].removesuffix(".png"))
+                        for cat, name in card_list
+                    )
 
-        self.refresh_cards_cache()
+                if not contains_card(cards1, card1) or not contains_card(cards2, card2):
+                    logging.warning(f"[SAFE_EXCHANGE] Échec : carte(s) non trouvée(s) - user1_id={user1_id} card1={card1}, user2_id={user2_id} card2={card2}")
+                    return False
 
-        return True
+                # Sauvegarder l'état initial pour rollback complet
+                initial_cards1 = cards1.copy()
+                initial_cards2 = cards2.copy()
+
+                logging.info(f"[SAFE_EXCHANGE] Début échange: user1_id={user1_id} donne {card1} pour {card2}, user2_id={user2_id} donne {card2} pour {card1}")
+
+                # Phase 1: Suppression des cartes
+                success1 = self.remove_card_from_user(user1_id, card1[0], card1[1])
+                success2 = self.remove_card_from_user(user2_id, card2[0], card2[1])
+
+                if not (success1 and success2):
+                    logging.error(f"[SAFE_EXCHANGE] Suppression échouée - success1={success1}, success2={success2}")
+                    # Rollback des suppressions réussies
+                    if success1:
+                        self.add_card_to_user(user1_id, card1[0], card1[1])
+                    if success2:
+                        self.add_card_to_user(user2_id, card2[0], card2[1])
+                    return False
+
+                # Phase 2: Ajout des cartes échangées
+                add1 = self.add_card_to_user(user1_id, card2[0], card2[1])
+                add2 = self.add_card_to_user(user2_id, card1[0], card1[1])
+
+                if not (add1 and add2):
+                    logging.error(f"[SAFE_EXCHANGE] Ajout échoué - add1={add1}, add2={add2}. Rollback complet en cours")
+
+                    # Rollback complet: restaurer l'état initial
+                    if add1:
+                        self.remove_card_from_user(user1_id, card2[0], card2[1])
+                    if add2:
+                        self.remove_card_from_user(user2_id, card1[0], card1[1])
+
+                    # Restaurer les cartes supprimées
+                    self.add_card_to_user(user1_id, card1[0], card1[1])
+                    self.add_card_to_user(user2_id, card2[0], card2[1])
+                    return False
+
+                # Vérification finale de l'intégrité
+                final_cards1 = self.get_user_cards(user1_id)
+                final_cards2 = self.get_user_cards(user2_id)
+
+                # Vérifier que l'échange s'est bien passé
+                if not contains_card(final_cards1, card2) or not contains_card(final_cards2, card1):
+                    logging.error(f"[SAFE_EXCHANGE] Vérification finale échouée. Rollback complet.")
+                    # Rollback complet
+                    self.remove_card_from_user(user1_id, card2[0], card2[1])
+                    self.remove_card_from_user(user2_id, card1[0], card1[1])
+                    self.add_card_to_user(user1_id, card1[0], card1[1])
+                    self.add_card_to_user(user2_id, card2[0], card2[1])
+                    return False
+
+                self.refresh_cards_cache()
+                logging.info(f"[SAFE_EXCHANGE] Échange réussi entre user1_id={user1_id} et user2_id={user2_id}")
+                return True
+
+            except Exception as e:
+                logging.error(f"[SAFE_EXCHANGE] Erreur critique: {e}")
+                return False
 
 
     def compute_total_medals(self, user_id: int, students: dict, user_character_names: set) -> int:
@@ -780,69 +910,272 @@ class Cards(commands.Cog):
 
     def add_card_to_user(self, user_id: int, category: str, name: str) -> bool:
         """Ajoute une carte pour un utilisateur dans la persistance."""
-        try:
-            rows = self.sheet_cards.get_all_values()
-            for i, row in enumerate(rows):
-                if len(row) < 2:
-                    continue
-                if row[0] == category and row[1] == name:
-                    original_len = len(row)
-                    for j in range(2, len(row)):
-                        cell = row[j].strip()
-                        if cell.startswith(f"{user_id}:"):
-                            uid, count = cell.split(":", 1)
-                            uid = uid.strip()
-                            row[j] = f"{uid}:{int(count) + 1}"
-                            cleaned_row = _merge_cells(row)
-                            pad = max(original_len, len(cleaned_row)) - len(cleaned_row)
-                            cleaned_row += [""] * pad
-                            self.sheet_cards.update(f"A{i+1}", [cleaned_row])
-                            self.refresh_cards_cache()
-                            return True
-                    row.append(f"{user_id}:1")
-                    cleaned_row = _merge_cells(row)
-                    pad = max(original_len + 1, len(cleaned_row)) - len(cleaned_row)
-                    cleaned_row += [""] * pad
-                    self.sheet_cards.update(f"A{i+1}", [cleaned_row])
-                    self.refresh_cards_cache()
-                    return True
-            # Si la carte n'existe pas encore
-            new_row = [category, name, f"{user_id}:1"]
-            self.sheet_cards.append_row(new_row)
-            self.refresh_cards_cache()
-            return True
-        except Exception as e:
-            logging.error(f"Erreur lors de l'ajout de la carte dans Google Sheets: {e}")
-            return False
+        with self._cards_lock:
+            try:
+                # Validation des paramètres d'entrée
+                if not category or not name or user_id <= 0:
+                    logging.error(f"[SECURITY] Paramètres invalides pour add_card_to_user: user_id={user_id}, category='{category}', name='{name}'")
+                    return False
+
+                # Vérifier que la carte existe dans les fichiers disponibles
+                all_files = {}
+                for cat, files in self.cards_by_category.items():
+                    all_files.setdefault(cat, []).extend(files)
+                for cat, files in self.upgrade_cards_by_category.items():
+                    all_files.setdefault(cat, []).extend(files)
+
+                card_exists = any(
+                    f['name'].removesuffix('.png') == name
+                    for f in all_files.get(category, [])
+                )
+                if not card_exists:
+                    logging.error(f"[SECURITY] Tentative d'ajout d'une carte inexistante: category='{category}', name='{name}'")
+                    return False
+
+                rows = self.sheet_cards.get_all_values()
+                for i, row in enumerate(rows):
+                    if len(row) < 2:
+                        continue
+                    if row[0] == category and row[1] == name:
+                        original_len = len(row)
+                        for j in range(2, len(row)):
+                            cell = row[j].strip()
+                            if cell.startswith(f"{user_id}:"):
+                                try:
+                                    uid, count = cell.split(":", 1)
+                                    uid = uid.strip()
+                                    new_count = int(count) + 1
+                                    row[j] = f"{uid}:{new_count}"
+                                    cleaned_row = _merge_cells(row)
+                                    pad = max(original_len, len(cleaned_row)) - len(cleaned_row)
+                                    cleaned_row += [""] * pad
+                                    self.sheet_cards.update(f"A{i+1}", [cleaned_row])
+                                    self.refresh_cards_cache()
+                                    logging.info(f"[CARDS] Carte ajoutée: user_id={user_id}, carte=({category}, {name}), nouveau_count={new_count}")
+                                    return True
+                                except (ValueError, IndexError) as e:
+                                    logging.error(f"[SECURITY] Données corrompues dans add_card_to_user: {cell}, erreur: {e}")
+                                    return False
+                        row.append(f"{user_id}:1")
+                        cleaned_row = _merge_cells(row)
+                        pad = max(original_len + 1, len(cleaned_row)) - len(cleaned_row)
+                        cleaned_row += [""] * pad
+                        self.sheet_cards.update(f"A{i+1}", [cleaned_row])
+                        self.refresh_cards_cache()
+                        logging.info(f"[CARDS] Nouvelle entrée ajoutée: user_id={user_id}, carte=({category}, {name})")
+                        return True
+                # Si la carte n'existe pas encore
+                new_row = [category, name, f"{user_id}:1"]
+                self.sheet_cards.append_row(new_row)
+                self.refresh_cards_cache()
+                logging.info(f"[CARDS] Nouvelle carte créée: user_id={user_id}, carte=({category}, {name})")
+                return True
+            except Exception as e:
+                logging.error(f"[SECURITY] Erreur lors de l'ajout de la carte dans Google Sheets: {e}")
+                return False
 
     def remove_card_from_user(self, user_id: int, category: str, name: str) -> bool:
         """Supprime une carte pour un utilisateur dans la persistance."""
-        try:
-            rows = self.sheet_cards.get_all_values()
-            for i, row in enumerate(rows):
-                if len(row) < 2:
-                    continue
-                if row[0] == category and row[1] == name:
-                    original_len = len(row)
-                    for j in range(2, len(row)):
-                        cell = row[j].strip()
-                        if cell.startswith(f"{user_id}:"):
+        with self._cards_lock:
+            try:
+                # Validation des paramètres d'entrée
+                if not category or not name or user_id <= 0:
+                    logging.error(f"[SECURITY] Paramètres invalides pour remove_card_from_user: user_id={user_id}, category='{category}', name='{name}'")
+                    return False
+
+                # Vérifier que l'utilisateur possède cette carte
+                user_cards = self.get_user_cards(user_id)
+                if not any(cat == category and n == name for cat, n in user_cards):
+                    logging.error(f"[SECURITY] Tentative de suppression d'une carte non possédée: user_id={user_id}, carte=({category}, {name})")
+                    return False
+
+                rows = self.sheet_cards.get_all_values()
+                for i, row in enumerate(rows):
+                    if len(row) < 2:
+                        continue
+                    if row[0] == category and row[1] == name:
+                        original_len = len(row)
+                        for j in range(2, len(row)):
+                            cell = row[j].strip()
+                            if cell.startswith(f"{user_id}:"):
+                                try:
+                                    uid, count = cell.split(":", 1)
+                                    uid = uid.strip()
+                                    current_count = int(count)
+                                    if current_count > 1:
+                                        new_count = current_count - 1
+                                        row[j] = f"{uid}:{new_count}"
+                                        logging.info(f"[CARDS] Carte retirée: user_id={user_id}, carte=({category}, {name}), nouveau_count={new_count}")
+                                    else:
+                                        row[j] = ""
+                                        logging.info(f"[CARDS] Dernière carte retirée: user_id={user_id}, carte=({category}, {name})")
+                                    cleaned_row = _merge_cells(row)
+                                    pad = max(original_len, len(cleaned_row)) - len(cleaned_row)
+                                    cleaned_row += [""] * pad
+                                    self.sheet_cards.update(f"A{i+1}", [cleaned_row])
+                                    self.refresh_cards_cache()
+                                    return True
+                                except (ValueError, IndexError) as e:
+                                    logging.error(f"[SECURITY] Données corrompues dans remove_card_from_user: {cell}, erreur: {e}")
+                                    return False
+                return False
+            except Exception as e:
+                logging.error(f"[SECURITY] Erreur lors de la suppression de la carte dans Google Sheets: {e}")
+                return False
+
+    def verify_data_integrity(self) -> dict:
+        """Vérifie l'intégrité des données et retourne un rapport."""
+        with self._cache_lock:
+            report = {
+                "corrupted_cards": [],
+                "corrupted_vault": [],
+                "invalid_users": [],
+                "duplicate_entries": [],
+                "total_cards_checked": 0,
+                "total_vault_checked": 0
+            }
+
+            try:
+                # Vérification des cartes principales
+                rows = self.sheet_cards.get_all_values()
+                for i, row in enumerate(rows[1:], start=2):  # Skip header
+                    if len(row) < 3:
+                        continue
+
+                    cat, name = row[0], row[1]
+                    report["total_cards_checked"] += 1
+
+                    # Vérifier que la carte existe dans les fichiers
+                    all_files = {}
+                    for c, files in self.cards_by_category.items():
+                        all_files.setdefault(c, []).extend(files)
+                    for c, files in self.upgrade_cards_by_category.items():
+                        all_files.setdefault(c, []).extend(files)
+
+                    card_exists = any(f['name'].removesuffix('.png') == name for f in all_files.get(cat, []))
+                    if not card_exists:
+                        report["corrupted_cards"].append(f"Ligne {i}: Carte inexistante ({cat}, {name})")
+
+                    # Vérifier les données utilisateur
+                    for j, cell in enumerate(row[2:], start=3):
+                        if not cell.strip():
+                            continue
+                        try:
                             uid, count = cell.split(":", 1)
                             uid = uid.strip()
-                            if int(count) > 1:
-                                row[j] = f"{uid}:{int(count) - 1}"
-                            else:
-                                row[j] = ""
-                            cleaned_row = _merge_cells(row)
-                            pad = max(original_len, len(cleaned_row)) - len(cleaned_row)
-                            cleaned_row += [""] * pad
-                            self.sheet_cards.update(f"A{i+1}", [cleaned_row])
-                            self.refresh_cards_cache()
-                            return True
-            return False
-        except Exception as e:
-            logging.error(f"Erreur lors de la suppression de la carte dans Google Sheets: {e}")
-            return False
+                            count = int(count.strip())
+                            if count <= 0:
+                                report["corrupted_cards"].append(f"Ligne {i}, Col {j}: Count invalide ({cell})")
+                            if int(uid) <= 0:
+                                report["invalid_users"].append(f"Ligne {i}, Col {j}: User ID invalide ({uid})")
+                        except (ValueError, IndexError):
+                            report["corrupted_cards"].append(f"Ligne {i}, Col {j}: Format invalide ({cell})")
+
+                # Vérification du vault
+                vault_rows = self.sheet_vault.get_all_values()
+                for i, row in enumerate(vault_rows[1:], start=2):  # Skip header
+                    if len(row) < 3:
+                        continue
+
+                    cat, name = row[0], row[1]
+                    report["total_vault_checked"] += 1
+
+                    # Vérifier que la carte existe dans les fichiers
+                    card_exists = any(f['name'].removesuffix('.png') == name for f in all_files.get(cat, []))
+                    if not card_exists:
+                        report["corrupted_vault"].append(f"Ligne {i}: Carte inexistante dans vault ({cat}, {name})")
+
+                    # Vérifier les données utilisateur du vault
+                    for j, cell in enumerate(row[2:], start=3):
+                        if not cell.strip():
+                            continue
+                        try:
+                            uid, count = cell.split(":", 1)
+                            uid = uid.strip()
+                            count = int(count.strip())
+                            if count <= 0:
+                                report["corrupted_vault"].append(f"Ligne {i}, Col {j}: Count invalide dans vault ({cell})")
+                            if int(uid) <= 0:
+                                report["invalid_users"].append(f"Ligne {i}, Col {j}: User ID invalide dans vault ({uid})")
+                        except (ValueError, IndexError):
+                            report["corrupted_vault"].append(f"Ligne {i}, Col {j}: Format invalide dans vault ({cell})")
+
+                logging.info(f"[INTEGRITY] Vérification terminée: {report['total_cards_checked']} cartes, {report['total_vault_checked']} vault entries")
+
+            except Exception as e:
+                logging.error(f"[INTEGRITY] Erreur lors de la vérification: {e}")
+                report["error"] = str(e)
+
+            return report
+
+    @commands.command(name="verifier_integrite", help="Vérifie l'intégrité des données des cartes")
+    @commands.has_permissions(administrator=True)
+    async def verifier_integrite(self, ctx: commands.Context):
+        """Commande d'administration pour vérifier l'intégrité des données."""
+        await ctx.send("🔍 Vérification de l'intégrité des données en cours...")
+
+        report = self.verify_data_integrity()
+
+        embed = discord.Embed(
+            title="📊 Rapport d'intégrité des données",
+            color=discord.Color.blue() if not any([
+                report["corrupted_cards"],
+                report["corrupted_vault"],
+                report["invalid_users"]
+            ]) else discord.Color.red()
+        )
+
+        embed.add_field(
+            name="📈 Statistiques",
+            value=f"Cartes vérifiées: {report['total_cards_checked']}\nVault vérifié: {report['total_vault_checked']}",
+            inline=False
+        )
+
+        if report["corrupted_cards"]:
+            corrupted_text = "\n".join(report["corrupted_cards"][:10])
+            if len(report["corrupted_cards"]) > 10:
+                corrupted_text += f"\n... et {len(report['corrupted_cards']) - 10} autres"
+            embed.add_field(
+                name="❌ Cartes corrompues",
+                value=corrupted_text,
+                inline=False
+            )
+
+        if report["corrupted_vault"]:
+            vault_text = "\n".join(report["corrupted_vault"][:10])
+            if len(report["corrupted_vault"]) > 10:
+                vault_text += f"\n... et {len(report['corrupted_vault']) - 10} autres"
+            embed.add_field(
+                name="❌ Vault corrompu",
+                value=vault_text,
+                inline=False
+            )
+
+        if report["invalid_users"]:
+            users_text = "\n".join(report["invalid_users"][:10])
+            if len(report["invalid_users"]) > 10:
+                users_text += f"\n... et {len(report['invalid_users']) - 10} autres"
+            embed.add_field(
+                name="❌ Utilisateurs invalides",
+                value=users_text,
+                inline=False
+            )
+
+        if not any([report["corrupted_cards"], report["corrupted_vault"], report["invalid_users"]]):
+            embed.add_field(
+                name="✅ Résultat",
+                value="Aucun problème d'intégrité détecté !",
+                inline=False
+            )
+
+        if "error" in report:
+            embed.add_field(
+                name="⚠️ Erreur",
+                value=f"Erreur lors de la vérification: {report['error']}",
+                inline=False
+            )
+
+        await ctx.send(embed=embed)
 
     def find_card_by_name(self, input_name: str) -> tuple[str, str, str] | None:
         """
