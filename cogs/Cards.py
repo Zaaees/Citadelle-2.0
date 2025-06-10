@@ -1662,23 +1662,44 @@ class TradeMenuView(discord.ui.View):
             await interaction.followup.send("📦 Votre coffre est vide. Aucune carte à retirer.", ephemeral=True)
             return
 
-        # Obtenir les cartes uniques du coffre
-        unique_vault_cards = list({(cat, name) for cat, name in vault_cards})
+        # Filtrer les cartes Full et obtenir les cartes uniques échangeables
+        exchangeable_cards = [(cat, name) for cat, name in vault_cards
+                             if not name.removesuffix('.png').endswith(' (Full)')]
+        full_cards = [(cat, name) for cat, name in vault_cards
+                     if name.removesuffix('.png').endswith(' (Full)')]
 
-        # Compter le nombre total de cartes
-        total_cards = len(vault_cards)
-        unique_cards_count = len(unique_vault_cards)
+        unique_exchangeable_cards = list({(cat, name) for cat, name in exchangeable_cards})
+
+        # Compter le nombre total de cartes échangeables
+        total_exchangeable = len(exchangeable_cards)
+        unique_exchangeable_count = len(unique_exchangeable_cards)
+        full_cards_count = len(full_cards)
+
+        # Vérifier s'il y a des cartes échangeables
+        if not exchangeable_cards:
+            if full_cards:
+                await interaction.followup.send(
+                    f"📦 Votre coffre ne contient que **{full_cards_count} carte(s) Full** qui ne peuvent pas être retirées car elles ne sont pas échangeables.",
+                    ephemeral=True
+                )
+            else:
+                await interaction.followup.send("📦 Votre coffre est vide. Aucune carte à retirer.", ephemeral=True)
+            return
 
         # Créer un embed de confirmation
+        description = f"Vous êtes sur le point de retirer **{total_exchangeable} cartes** ({unique_exchangeable_count} uniques) de votre coffre vers votre inventaire principal."
+        if full_cards_count > 0:
+            description += f"\n\n⚠️ **{full_cards_count} carte(s) Full** resteront dans le coffre car elles ne sont pas échangeables."
+
         embed = discord.Embed(
             title="⚠️ Confirmation de retrait",
-            description=f"Vous êtes sur le point de retirer **{total_cards} cartes** ({unique_cards_count} uniques) de votre coffre vers votre inventaire principal.",
+            description=description,
             color=0xff9900
         )
 
-        # Afficher un aperçu des cartes
+        # Afficher un aperçu des cartes échangeables uniquement
         cards_by_cat = {}
-        for cat, name in vault_cards:
+        for cat, name in exchangeable_cards:
             cards_by_cat.setdefault(cat, []).append(name)
 
         for cat, names in list(cards_by_cat.items())[:3]:  # Limiter à 3 catégories pour l'aperçu
@@ -1713,7 +1734,7 @@ class TradeMenuView(discord.ui.View):
             inline=False
         )
 
-        view = WithdrawVaultConfirmationView(self.cog, self.user, unique_vault_cards)
+        view = WithdrawVaultConfirmationView(self.cog, self.user, unique_exchangeable_cards)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
@@ -1739,11 +1760,35 @@ class WithdrawVaultConfirmationView(discord.ui.View):
             await interaction.followup.send("📦 Votre coffre est maintenant vide.", ephemeral=True)
             return
 
-        # Compter les cartes par type
+        # Filtrer les cartes Full (non échangeables) et compter les cartes par type
         card_counts = {}
+        full_cards_found = []
+
         for cat, name in vault_cards:
+            # Vérifier si c'est une carte Full
+            if name.removesuffix('.png').endswith(' (Full)'):
+                full_cards_found.append((cat, name))
+                continue  # Ignorer les cartes Full
+
             key = (cat, name)
             card_counts[key] = card_counts.get(key, 0) + 1
+
+        # Si seules des cartes Full sont présentes
+        if not card_counts and full_cards_found:
+            await interaction.followup.send(
+                "📦 Votre coffre ne contient que des cartes **Full** qui ne peuvent pas être retirées car elles ne sont pas échangeables.",
+                ephemeral=True
+            )
+            return
+
+        # Si des cartes Full sont présentes avec d'autres cartes, informer l'utilisateur
+        if full_cards_found:
+            full_count = len(full_cards_found)
+            await interaction.followup.send(
+                f"ℹ️ **{full_count} carte(s) Full** resteront dans le coffre car elles ne sont pas échangeables. "
+                f"Seules les cartes normales seront retirées.",
+                ephemeral=True
+            )
 
         # Listes pour le rollback en cas d'erreur
         removed_cards = []
@@ -1857,6 +1902,14 @@ class DepositCardModal(discord.ui.Modal, title="Déposer une carte"):
                 return
 
             cat, name = match
+
+            # Vérifier que ce n'est pas une carte Full (non échangeable)
+            if name.removesuffix('.png').endswith(' (Full)'):
+                await interaction.followup.send(
+                    "🚫 Les cartes **Full** ne peuvent pas être déposées dans le coffre car elles ne sont pas échangeables.",
+                    ephemeral=True
+                )
+                return
 
             # Retirer la carte de l'inventaire principal
             remove_success = self.cog.remove_card_from_user(self.user.id, cat, name)
