@@ -2588,25 +2588,34 @@ class InitiatorFinalConfirmationView(discord.ui.View):
         # Éviter les exécutions multiples - vérifier ET définir atomiquement
         if self.trade_executed:
             await interaction.response.send_message(
-                "⚠️ Cet échange a déjà été exécuté.", ephemeral=True
+                "⚠️ Cet échange a déjà été traité.", ephemeral=True
             )
             return
 
-        # Marquer comme exécuté IMMÉDIATEMENT pour éviter les doubles clics
+        # Répondre IMMÉDIATEMENT à l'interaction pour donner un feedback instantané
+        await interaction.response.send_message(
+            "⏳ Traitement de l'échange en cours...", ephemeral=True
+        )
+
+        # Marquer comme en cours de traitement APRÈS avoir répondu
         self.trade_executed = True
 
-        # Désactiver tous les boutons IMMÉDIATEMENT avant toute autre opération
+        # Désactiver tous les boutons IMMÉDIATEMENT
         for child in self.children:
             child.disabled = True
-
-        # Maintenant seulement, déférer l'interaction
-        await interaction.response.defer(ephemeral=True)
 
         # Exécuter l'échange complet des coffres
         success = await self.execute_full_vault_trade(interaction)
 
-        # Les messages de succès/échec sont gérés dans execute_full_vault_trade
-        # Pas besoin de messages supplémentaires ici pour éviter les doublons
+        # Mettre à jour le message de statut selon le résultat
+        if success:
+            await interaction.edit_original_response(content="✅ Échange terminé avec succès !")
+        else:
+            await interaction.edit_original_response(content="❌ Échec de l'échange.")
+            # Réactiver les boutons en cas d'échec pour permettre une nouvelle tentative
+            self.trade_executed = False
+            for child in self.children:
+                child.disabled = False
 
     @discord.ui.button(label="❌ Annuler l'échange", style=discord.ButtonStyle.danger)
     async def cancel_final_trade(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2973,7 +2982,19 @@ class TradeFinalConfirmView(discord.ui.View):
         if self.confirmed_by_target:
             await self.finalize_exchange(interaction)
 
-    async def finalize_exchange(state: TradeExchangeState, interaction: discord.Interaction):
+    async def finalize_exchange(self, interaction: discord.Interaction):
+        """Finalise l'échange entre les deux utilisateurs."""
+        # Créer un état temporaire pour l'échange
+        state = TradeExchangeState(
+            cog=self.cog,
+            offerer=self.offerer,
+            target=self.target,
+            offer_cat=self.offer_cat,
+            offer_name=self.offer_name,
+            return_cat=self.return_cat,
+            return_name=self.return_name
+        )
+
         state.completed = True
         success = state.cog.safe_exchange(
             state.offerer.id, (state.offer_cat, state.offer_name),
