@@ -561,9 +561,11 @@ class Cards(commands.Cog):
                 counts: dict[str, int] = {}
                 for n in normales:
                     counts[n] = counts.get(n, 0) + 1
+                # Sort cards alphabetically within the category (accent-insensitive)
+                sorted_cards = sorted(counts.items(), key=lambda x: self.normalize_name(x[0].removesuffix('.png')))
                 lines = [
                     f"- **{n.removesuffix('.png')}**{' (x'+str(c)+')' if c>1 else ''}"
-                    for n, c in counts.items()
+                    for n, c in sorted_cards
                 ]
 
                 total_available = len({
@@ -583,9 +585,11 @@ class Cards(commands.Cog):
                 counts: dict[str, int] = {}
                 for n in fulls:
                     counts[n] = counts.get(n, 0) + 1
+                # Sort cards alphabetically within the category (accent-insensitive)
+                sorted_cards = sorted(counts.items(), key=lambda x: self.normalize_name(x[0].removesuffix('.png')))
                 lines = [
                     f"- **{n.removesuffix('.png')}**{' (x'+str(c)+')' if c>1 else ''}"
-                    for n, c in counts.items()
+                    for n, c in sorted_cards
                 ]
 
                 total_full = len({
