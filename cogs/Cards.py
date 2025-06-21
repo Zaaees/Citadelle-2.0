@@ -229,7 +229,89 @@ class Cards(commands.Cog):
 
         # La migration se fait uniquement via la commande admin !migrer_decouvertes
         # pour éviter d'écraser les données à chaque redémarrage
-    
+
+        # Role assignment configuration
+        self.CARD_COLLECTOR_ROLE_ID = 1386125369295245388
+
+    async def assign_card_collector_role(self, user: discord.Member) -> bool:
+        """
+        Assigne automatiquement le rôle de collectionneur de cartes à un utilisateur.
+
+        Args:
+            user: Le membre Discord à qui assigner le rôle
+
+        Returns:
+            bool: True si l'assignation a réussi, False sinon
+        """
+        try:
+            # Vérifier si l'utilisateur a déjà le rôle
+            if any(role.id == self.CARD_COLLECTOR_ROLE_ID for role in user.roles):
+                logging.debug(f"[ROLE] L'utilisateur {user.display_name} ({user.id}) a déjà le rôle de collectionneur")
+                return True
+
+            # Récupérer le rôle depuis le serveur
+            guild = user.guild
+            role = guild.get_role(self.CARD_COLLECTOR_ROLE_ID)
+
+            if not role:
+                logging.error(f"[ROLE] Rôle avec l'ID {self.CARD_COLLECTOR_ROLE_ID} introuvable sur le serveur {guild.name}")
+                return False
+
+            # Vérifier les permissions du bot
+            if not guild.me.guild_permissions.manage_roles:
+                logging.error(f"[ROLE] Le bot n'a pas la permission de gérer les rôles sur {guild.name}")
+                return False
+
+            # Vérifier la hiérarchie des rôles
+            if role.position >= guild.me.top_role.position:
+                logging.error(f"[ROLE] Le rôle {role.name} est trop élevé dans la hiérarchie pour être assigné par le bot")
+                return False
+
+            # Assigner le rôle
+            await user.add_roles(role, reason="Assignation automatique - Interaction avec le système de cartes")
+            logging.info(f"[ROLE] Rôle {role.name} assigné avec succès à {user.display_name} ({user.id})")
+            return True
+
+        except discord.Forbidden:
+            logging.error(f"[ROLE] Permission refusée pour assigner le rôle à {user.display_name} ({user.id})")
+            return False
+        except discord.HTTPException as e:
+            logging.error(f"[ROLE] Erreur HTTP lors de l'assignation du rôle à {user.display_name} ({user.id}): {e}")
+            return False
+        except Exception as e:
+            logging.error(f"[ROLE] Erreur inattendue lors de l'assignation du rôle à {user.display_name} ({user.id}): {e}")
+            return False
+
+    async def ensure_card_collector_role(self, interaction: discord.Interaction) -> None:
+        """
+        S'assure qu'un utilisateur a le rôle de collectionneur de cartes lors d'une interaction.
+        Cette fonction est appelée automatiquement lors des interactions avec le système de cartes.
+
+        Args:
+            interaction: L'interaction Discord qui a déclenché l'assignation
+        """
+        try:
+            # Vérifier que l'interaction provient d'un serveur (pas d'un DM)
+            if not interaction.guild:
+                logging.debug("[ROLE] Interaction en message privé, pas d'assignation de rôle")
+                return
+
+            # Récupérer le membre depuis le serveur
+            member = interaction.guild.get_member(interaction.user.id)
+            if not member:
+                logging.warning(f"[ROLE] Impossible de récupérer le membre {interaction.user.id} depuis le serveur")
+                return
+
+            # Assigner le rôle
+            success = await self.assign_card_collector_role(member)
+            if success:
+                logging.debug(f"[ROLE] Vérification du rôle terminée pour {member.display_name}")
+            else:
+                logging.warning(f"[ROLE] Échec de l'assignation du rôle pour {member.display_name}")
+
+        except Exception as e:
+            logging.error(f"[ROLE] Erreur lors de la vérification du rôle pour {interaction.user.display_name}: {e}")
+
     def sanitize_filename(self, name: str) -> str:
         """Nettoie le nom d'une carte pour une utilisation sûre dans les fichiers Discord."""
         return re.sub(r'[^a-zA-Z0-9_-]', '_', name)
@@ -429,11 +511,37 @@ class Cards(commands.Cog):
                 self.refresh_discoveries_cache()
 
                 logging.info(f"[DISCOVERY] Nouvelle découverte enregistrée: {category}/{name} par {discoverer_name} (#{discovery_index})")
+
+                # Assigner automatiquement le rôle de collectionneur de cartes au découvreur
+                # Ceci est fait de manière asynchrone pour ne pas bloquer la découverte
+                asyncio.create_task(self._assign_role_to_discoverer(discoverer_id))
+
                 return discovery_index
 
             except Exception as e:
                 logging.error(f"[DISCOVERY] Erreur lors de l'enregistrement de la découverte: {e}")
                 return 0
+
+    async def _assign_role_to_discoverer(self, discoverer_id: int):
+        """Assigne le rôle de collectionneur de cartes à un découvreur de manière asynchrone."""
+        try:
+            # Récupérer l'utilisateur depuis tous les serveurs où le bot est présent
+            user = self.bot.get_user(discoverer_id)
+            if not user:
+                logging.debug(f"[ROLE] Utilisateur {discoverer_id} introuvable pour l'assignation de rôle")
+                return
+
+            # Chercher le membre dans tous les serveurs
+            for guild in self.bot.guilds:
+                member = guild.get_member(discoverer_id)
+                if member:
+                    await self.assign_card_collector_role(member)
+                    break
+            else:
+                logging.debug(f"[ROLE] Membre {discoverer_id} introuvable dans aucun serveur pour l'assignation de rôle")
+
+        except Exception as e:
+            logging.error(f"[ROLE] Erreur lors de l'assignation de rôle au découvreur {discoverer_id}: {e}")
 
     def migrate_existing_discoveries(self, force=False):
         """Migre les découvertes existantes depuis la feuille principale vers la feuille de découvertes."""
@@ -1227,6 +1335,9 @@ class Cards(commands.Cog):
         """Affiche les informations d'une carte par nom ou identifiant."""
         await interaction.response.defer(ephemeral=True)
 
+        # Assigner automatiquement le rôle de collectionneur de cartes
+        await self.ensure_card_collector_role(interaction)
+
         carte = carte.strip()
 
         # Vérifier si c'est un identifiant
@@ -1335,6 +1446,9 @@ class Cards(commands.Cog):
         """Affiche les dernières cartes découvertes avec leurs identifiants."""
         await interaction.response.defer(ephemeral=True)
 
+        # Assigner automatiquement le rôle de collectionneur de cartes
+        await self.ensure_card_collector_role(interaction)
+
         if nombre < 1 or nombre > 50:
             await interaction.followup.send("❌ Le nombre doit être entre 1 et 50.", ephemeral=True)
             return
@@ -1392,6 +1506,9 @@ class Cards(commands.Cog):
 
         await interaction.response.defer(ephemeral=True)  # ✅ Ajout indispensable
 
+        # Assigner automatiquement le rôle de collectionneur de cartes
+        await self.ensure_card_collector_role(interaction)
+
         await self.update_character_ownership(interaction.user)
 
         view = CardsMenuView(self, interaction.user)
@@ -1448,6 +1565,9 @@ class Cards(commands.Cog):
     async def handle_daily_draw(self, interaction: discord.Interaction):
         # 1) defer une seule fois pour éviter le timeout
         await interaction.response.defer(ephemeral=False)
+
+        # Assigner automatiquement le rôle de collectionneur de cartes
+        await self.ensure_card_collector_role(interaction)
 
         user_id_str = str(interaction.user.id)
         paris_tz    = pytz.timezone("Europe/Paris")
@@ -2182,6 +2302,9 @@ class Cards(commands.Cog):
         description="Récupérez vos tirages bonus non réclamés"
     )
     async def reclamer_bonus(self, interaction: discord.Interaction):
+        # Assigner automatiquement le rôle de collectionneur de cartes
+        await self.ensure_card_collector_role(interaction)
+
         user_id_str = str(interaction.user.id)
         # Lecture des bonus
         try:
@@ -2263,6 +2386,185 @@ class Cards(commands.Cog):
         await ctx.send(
             f"✅ {count} bonus ajouté{'s' if count > 1 else ''} pour {member.display_name} (raison : {source})."
         )
+
+    @commands.command(name="assign_card_roles", help="Assigne le rôle de collectionneur à tous les utilisateurs du système de cartes")
+    @commands.has_permissions(administrator=True)
+    async def assign_card_roles(self, ctx: commands.Context, force: str = ""):
+        """
+        Commande admin pour assigner rétroactivement le rôle de collectionneur de cartes
+        à tous les utilisateurs existants dans le système de cartes.
+
+        Usage: !assign_card_roles [force]
+        - Utilisez 'force' pour forcer l'assignation même si des utilisateurs ont déjà le rôle
+        """
+        await ctx.send("🔄 Début de l'assignation des rôles de collectionneur de cartes...")
+
+        try:
+            # Récupérer le rôle
+            role = ctx.guild.get_role(self.CARD_COLLECTOR_ROLE_ID)
+            if not role:
+                await ctx.send(f"❌ Erreur: Le rôle avec l'ID {self.CARD_COLLECTOR_ROLE_ID} n'existe pas sur ce serveur.")
+                return
+
+            # Vérifier les permissions du bot
+            if not ctx.guild.me.guild_permissions.manage_roles:
+                await ctx.send("❌ Erreur: Le bot n'a pas la permission de gérer les rôles.")
+                return
+
+            if role.position >= ctx.guild.me.top_role.position:
+                await ctx.send(f"❌ Erreur: Le rôle {role.name} est trop élevé dans la hiérarchie pour être assigné par le bot.")
+                return
+
+            # Collecter tous les utilisateurs uniques du système de cartes
+            unique_users = set()
+
+            # 1. Utilisateurs avec des cartes
+            await ctx.send("📊 Collecte des utilisateurs depuis la feuille des cartes...")
+            try:
+                cards_rows = self.sheet_cards.get_all_values()[1:]  # Skip header
+                for row in cards_rows:
+                    if len(row) < 3:
+                        continue
+                    for cell in row[2:]:
+                        if not cell or ":" not in cell:
+                            continue
+                        try:
+                            user_id = int(cell.split(":", 1)[0].strip())
+                            unique_users.add(user_id)
+                        except (ValueError, IndexError):
+                            continue
+            except Exception as e:
+                await ctx.send(f"⚠️ Erreur lors de la lecture des cartes: {e}")
+
+            # 2. Utilisateurs avec des cartes dans le vault
+            await ctx.send("📊 Collecte des utilisateurs depuis le vault...")
+            try:
+                vault_rows = self.sheet_vault.get_all_values()[1:]  # Skip header
+                for row in vault_rows:
+                    if len(row) < 3:
+                        continue
+                    for cell in row[2:]:
+                        if not cell or ":" not in cell:
+                            continue
+                        try:
+                            user_id = int(cell.split(":", 1)[0].strip())
+                            unique_users.add(user_id)
+                        except (ValueError, IndexError):
+                            continue
+            except Exception as e:
+                await ctx.send(f"⚠️ Erreur lors de la lecture du vault: {e}")
+
+            # 3. Utilisateurs qui ont découvert des cartes
+            await ctx.send("📊 Collecte des utilisateurs depuis les découvertes...")
+            try:
+                discovery_rows = self.sheet_discoveries.get_all_values()[1:]  # Skip header
+                for row in discovery_rows:
+                    if len(row) >= 3 and row[2]:
+                        try:
+                            user_id = int(row[2])
+                            unique_users.add(user_id)
+                        except (ValueError, IndexError):
+                            continue
+            except Exception as e:
+                await ctx.send(f"⚠️ Erreur lors de la lecture des découvertes: {e}")
+
+            # 4. Utilisateurs avec des tirages journaliers
+            await ctx.send("📊 Collecte des utilisateurs depuis les tirages journaliers...")
+            try:
+                daily_rows = self.sheet_daily_draw.get_all_values()[1:]  # Skip header
+                for row in daily_rows:
+                    if len(row) >= 1 and row[0]:
+                        try:
+                            user_id = int(row[0])
+                            unique_users.add(user_id)
+                        except (ValueError, IndexError):
+                            continue
+            except Exception as e:
+                await ctx.send(f"⚠️ Erreur lors de la lecture des tirages journaliers: {e}")
+
+            # 5. Utilisateurs avec des bonus
+            await ctx.send("📊 Collecte des utilisateurs depuis les bonus...")
+            try:
+                bonus_rows = self.sheet_bonus.get_all_values()[1:]  # Skip header
+                for row in bonus_rows:
+                    if len(row) >= 1 and row[0]:
+                        try:
+                            user_id = int(row[0])
+                            unique_users.add(user_id)
+                        except (ValueError, IndexError):
+                            continue
+            except Exception as e:
+                await ctx.send(f"⚠️ Erreur lors de la lecture des bonus: {e}")
+
+            await ctx.send(f"📈 {len(unique_users)} utilisateurs uniques trouvés dans le système de cartes.")
+
+            if not unique_users:
+                await ctx.send("ℹ️ Aucun utilisateur trouvé dans le système de cartes.")
+                return
+
+            # Assigner les rôles
+            success_count = 0
+            already_has_role = 0
+            not_found_count = 0
+            error_count = 0
+
+            force_assignment = force.lower() == "force"
+
+            for i, user_id in enumerate(unique_users, 1):
+                if i % 10 == 0:  # Mise à jour tous les 10 utilisateurs
+                    await ctx.send(f"🔄 Progression: {i}/{len(unique_users)} utilisateurs traités...")
+
+                try:
+                    member = ctx.guild.get_member(user_id)
+                    if not member:
+                        not_found_count += 1
+                        continue
+
+                    # Vérifier si l'utilisateur a déjà le rôle
+                    if any(r.id == self.CARD_COLLECTOR_ROLE_ID for r in member.roles):
+                        if not force_assignment:
+                            already_has_role += 1
+                            continue
+
+                    # Assigner le rôle
+                    success = await self.assign_card_collector_role(member)
+                    if success:
+                        success_count += 1
+                    else:
+                        error_count += 1
+
+                except Exception as e:
+                    logging.error(f"[BULK_ROLE] Erreur pour l'utilisateur {user_id}: {e}")
+                    error_count += 1
+
+            # Rapport final
+            embed = discord.Embed(
+                title="📊 Rapport d'assignation des rôles",
+                color=discord.Color.green() if error_count == 0 else discord.Color.orange()
+            )
+
+            embed.add_field(
+                name="📈 Statistiques",
+                value=f"Utilisateurs trouvés: {len(unique_users)}\n"
+                      f"Rôles assignés: {success_count}\n"
+                      f"Déjà possédaient le rôle: {already_has_role}\n"
+                      f"Utilisateurs introuvables: {not_found_count}\n"
+                      f"Erreurs: {error_count}",
+                inline=False
+            )
+
+            if error_count > 0:
+                embed.add_field(
+                    name="⚠️ Remarques",
+                    value="Certaines assignations ont échoué. Vérifiez les logs pour plus de détails.",
+                    inline=False
+                )
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            await ctx.send(f"❌ Erreur critique lors de l'assignation des rôles: {e}")
+            logging.error(f"[BULK_ROLE] Erreur critique: {e}")
 
     @commands.command(name="verifier_mur", help="Vérifie et met à jour le mur des cartes")
     @commands.has_permissions(administrator=True)
