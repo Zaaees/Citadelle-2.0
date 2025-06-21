@@ -168,7 +168,7 @@ class Cards(commands.Cog):
         # Cache pour les découvertes
         self.discoveries_cache = None
         self.discoveries_cache_time = 0
-        self._discoveries_lock = threading.Lock()
+        self._discoveries_lock = threading.RLock()  # Utiliser RLock pour éviter les deadlocks
 
        
         # Service Google Drive pour accéder aux images des cartes
@@ -404,16 +404,18 @@ class Cards(commands.Cog):
         """Enregistre une nouvelle découverte et retourne l'index de découverte."""
         with self._discoveries_lock:
             try:
-                # Vérifier si la carte n'est pas déjà découverte
-                existing = self.get_discovery_info(category, name)
-                if existing:
-                    return existing['discovery_index']
-
-                # Calculer le nouvel index de découverte
+                # Rafraîchir le cache si nécessaire
                 now = time.time()
                 if not self.discoveries_cache or now - self.discoveries_cache_time > 5:
                     self.refresh_discoveries_cache()
 
+                # Vérifier si la carte n'est pas déjà découverte (sans appel récursif)
+                if self.discoveries_cache:
+                    for row in self.discoveries_cache[1:]:  # Skip header
+                        if len(row) >= 6 and row[0] == category and row[1] == name:
+                            return int(row[5])  # Retourner l'index existant
+
+                # Calculer le nouvel index de découverte
                 discovery_index = 1
                 if self.discoveries_cache and len(self.discoveries_cache) > 1:
                     discovery_index = len(self.discoveries_cache)  # Header + existing discoveries
