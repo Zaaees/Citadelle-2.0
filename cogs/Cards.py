@@ -2743,6 +2743,15 @@ class InitiatorFinalConfirmationView(discord.ui.View):
             except discord.Forbidden:
                 pass
 
+            # Vérifier et effectuer les conversions de cartes (5 régulières → 1 Full) pour les deux utilisateurs
+            try:
+                await self.cog.check_for_upgrades(interaction, self.initiator.id, [])
+                await self.cog.check_for_upgrades(interaction, self.target.id, [])
+                logging.info(f"[VAULT_TRADE] Vérifications de conversion terminées pour les utilisateurs {self.initiator.id} et {self.target.id}")
+            except Exception as e:
+                logging.error(f"[VAULT_TRADE] Erreur lors de la vérification des conversions après échange de coffres: {e}")
+                # Ne pas faire échouer l'échange si les conversions échouent
+
             return True
 
         except Exception as e:
