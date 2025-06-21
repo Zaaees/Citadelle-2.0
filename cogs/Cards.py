@@ -913,6 +913,27 @@ class Cards(commands.Cog):
                     count_text = f' (x{c})' if c > 1 else ''
                     lines.append(f"- **{card_name}**{identifier_text}{count_text}")
 
+                # Limiter la longueur du champ à 1024 caractères
+                field_value = "\n".join(lines)
+                if len(field_value) > 1024:
+                    # Calculer combien de lignes on peut garder
+                    truncated_lines = []
+                    current_length = 0
+                    remaining_cards = len(lines)
+
+                    for line in lines:
+                        # Réserver de l'espace pour le message de troncature
+                        truncate_msg = f"\n... et {remaining_cards - len(truncated_lines)} autres cartes"
+                        if current_length + len(line) + len(truncate_msg) > 1024:
+                            break
+                        truncated_lines.append(line)
+                        current_length += len(line) + 1  # +1 pour le \n
+
+                    if len(truncated_lines) < len(lines):
+                        remaining = len(lines) - len(truncated_lines)
+                        field_value = "\n".join(truncated_lines) + f"\n... et {remaining} autres cartes"
+                    else:
+                        field_value = "\n".join(truncated_lines)
 
                 total_available = len({
                     f['name'].removesuffix('.png')
@@ -922,7 +943,7 @@ class Cards(commands.Cog):
 
                 embed_normales.add_field(
                     name=f"{cat} : {owned_unique}/{total_available}",
-                    value="\n".join(lines),
+                    value=field_value,
                     inline=False,
                 )
 
@@ -938,6 +959,28 @@ class Cards(commands.Cog):
                     for n, c in sorted_cards
                 ]
 
+                # Limiter la longueur du champ à 1024 caractères
+                field_value = "\n".join(lines)
+                if len(field_value) > 1024:
+                    # Calculer combien de lignes on peut garder
+                    truncated_lines = []
+                    current_length = 0
+                    remaining_cards = len(lines)
+
+                    for line in lines:
+                        # Réserver de l'espace pour le message de troncature
+                        truncate_msg = f"\n... et {remaining_cards - len(truncated_lines)} autres cartes"
+                        if current_length + len(line) + len(truncate_msg) > 1024:
+                            break
+                        truncated_lines.append(line)
+                        current_length += len(line) + 1  # +1 pour le \n
+
+                    if len(truncated_lines) < len(lines):
+                        remaining = len(lines) - len(truncated_lines)
+                        field_value = "\n".join(truncated_lines) + f"\n... et {remaining} autres cartes"
+                    else:
+                        field_value = "\n".join(truncated_lines)
+
                 total_full = len({
                     f['name'].removesuffix('.png')
                     for f in self.upgrade_cards_by_category.get(cat, [])
@@ -946,7 +989,7 @@ class Cards(commands.Cog):
 
                 embed_full.add_field(
                     name=f"{cat} (Full) : {owned_full}/{total_full}",
-                    value="\n".join(lines),
+                    value=field_value,
                     inline=False,
                 )
 
