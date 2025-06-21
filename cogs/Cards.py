@@ -136,6 +136,15 @@ class Cards(commands.Cog):
         except gspread.exceptions.WorksheetNotFound:
             self.sheet_daily_draw = spreadsheet.add_worksheet(title="Tirages Journaliers", rows="1000", cols="2")
 
+        # Nouvelle feuille pour le suivi des découvertes
+        try:
+            self.sheet_discoveries = spreadsheet.worksheet("Découvertes")
+        except gspread.exceptions.WorksheetNotFound:
+            self.sheet_discoveries = spreadsheet.add_worksheet(title="Découvertes", rows="1000", cols="6")
+            # Ajouter les en-têtes
+            headers = ["Card_Category", "Card_Name", "Discoverer_ID", "Discoverer_Name", "Discovery_Timestamp", "Discovery_Index"]
+            self.sheet_discoveries.update("A1:F1", [headers])
+
         # ————— Bonus tirages —————
         try:
             self.sheet_bonus = spreadsheet.worksheet("Bonus")
@@ -155,6 +164,11 @@ class Cards(commands.Cog):
         # Cache pour le vault
         self.vault_cache = None
         self.vault_cache_time = 0
+
+        # Cache pour les découvertes
+        self.discoveries_cache = None
+        self.discoveries_cache_time = 0
+        self._discoveries_lock = threading.Lock()
 
        
         # Service Google Drive pour accéder aux images des cartes
@@ -212,6 +226,12 @@ class Cards(commands.Cog):
                     and f['name'].lower().endswith('.png')
                 ]
                 self.upgrade_cards_by_category[cat] = files
+
+        # Effectuer la migration des découvertes existantes au démarrage
+        try:
+            self.migrate_existing_discoveries()
+        except Exception as e:
+            logging.error(f"[INIT] Erreur lors de la migration initiale des découvertes: {e}")
     
     def sanitize_filename(self, name: str) -> str:
         """Nettoie le nom d'une carte pour une utilisation sûre dans les fichiers Discord."""
@@ -254,6 +274,167 @@ class Cards(commands.Cog):
             except Exception as e:
                 logging.error(f"[VAULT_CACHE] Erreur de lecture Google Sheets : {e}")
                 self.vault_cache = None
+
+    def refresh_discoveries_cache(self):
+        """Recharge le cache des découvertes depuis Google Sheets."""
+        with self._discoveries_lock:
+            try:
+                self.discoveries_cache = self.sheet_discoveries.get_all_values()
+                self.discoveries_cache_time = time.time()
+                logging.info("[DISCOVERIES_CACHE] Cache des découvertes rechargé avec succès")
+            except Exception as e:
+                logging.error(f"[DISCOVERIES_CACHE] Erreur de lecture Google Sheets : {e}")
+                self.discoveries_cache = None
+
+    def get_discovered_cards(self):
+        """Récupère toutes les cartes découvertes depuis le cache."""
+        with self._discoveries_lock:
+            now = time.time()
+            if not self.discoveries_cache or now - self.discoveries_cache_time > 5:  # 5 sec de validité
+                self.refresh_discoveries_cache()
+
+            if not self.discoveries_cache:
+                return set()
+
+            discovered = set()
+            for row in self.discoveries_cache[1:]:  # Skip header
+                if len(row) >= 2:
+                    discovered.add((row[0], row[1]))  # (category, name)
+            return discovered
+
+    def get_discovery_info(self, category: str, name: str):
+        """Récupère les informations de découverte d'une carte spécifique."""
+        with self._discoveries_lock:
+            now = time.time()
+            if not self.discoveries_cache or now - self.discoveries_cache_time > 5:
+                self.refresh_discoveries_cache()
+
+            if not self.discoveries_cache:
+                return None
+
+            for row in self.discoveries_cache[1:]:  # Skip header
+                if len(row) >= 6 and row[0] == category and row[1] == name:
+                    return {
+                        'discoverer_id': int(row[2]),
+                        'discoverer_name': row[3],
+                        'timestamp': row[4],
+                        'discovery_index': int(row[5])
+                    }
+            return None
+
+    def log_discovery(self, category: str, name: str, discoverer_id: int, discoverer_name: str) -> int:
+        """Enregistre une nouvelle découverte et retourne l'index de découverte."""
+        with self._discoveries_lock:
+            try:
+                # Vérifier si la carte n'est pas déjà découverte
+                existing = self.get_discovery_info(category, name)
+                if existing:
+                    return existing['discovery_index']
+
+                # Calculer le nouvel index de découverte
+                now = time.time()
+                if not self.discoveries_cache or now - self.discoveries_cache_time > 5:
+                    self.refresh_discoveries_cache()
+
+                discovery_index = 1
+                if self.discoveries_cache and len(self.discoveries_cache) > 1:
+                    discovery_index = len(self.discoveries_cache)  # Header + existing discoveries
+
+                # Ajouter la nouvelle découverte
+                timestamp = datetime.now().isoformat()
+                new_row = [category, name, str(discoverer_id), discoverer_name, timestamp, str(discovery_index)]
+                self.sheet_discoveries.append_row(new_row)
+
+                # Rafraîchir le cache
+                self.refresh_discoveries_cache()
+
+                logging.info(f"[DISCOVERY] Nouvelle découverte enregistrée: {category}/{name} par {discoverer_name} (#{discovery_index})")
+                return discovery_index
+
+            except Exception as e:
+                logging.error(f"[DISCOVERY] Erreur lors de l'enregistrement de la découverte: {e}")
+                return 0
+
+    def migrate_existing_discoveries(self):
+        """Migre les découvertes existantes depuis la feuille principale vers la feuille de découvertes."""
+        with self._discoveries_lock:
+            try:
+                # Vérifier si la migration a déjà été effectuée
+                existing_discoveries = self.sheet_discoveries.get_all_values()
+                if len(existing_discoveries) > 1:  # Plus que juste les en-têtes
+                    logging.info("[MIGRATION] Migration déjà effectuée, ignorée")
+                    return
+
+                # Récupérer les données existantes de la feuille principale
+                main_sheet_rows = self.sheet_cards.get_all_values()[1:]  # Skip header
+                discoveries_to_migrate = []
+
+                for row in main_sheet_rows:
+                    if len(row) < 3 or not row[2].strip():
+                        continue
+
+                    cat, name = row[0], row[1]
+                    # Prendre le premier utilisateur comme découvreur (celui qui apparaît en premier)
+                    first_user_cell = row[2].strip()
+                    if ":" in first_user_cell:
+                        discoverer_id = first_user_cell.split(":", 1)[0].strip()
+                        try:
+                            discoverer_id = int(discoverer_id)
+                            # Essayer de récupérer le nom de l'utilisateur
+                            try:
+                                user = self.bot.get_user(discoverer_id)
+                                if user:
+                                    discoverer_name = user.display_name
+                                else:
+                                    discoverer_name = f"User_{discoverer_id}"
+                            except:
+                                discoverer_name = f"User_{discoverer_id}"
+
+                            discoveries_to_migrate.append((cat, name, discoverer_id, discoverer_name))
+                        except ValueError:
+                            continue
+
+                # Ajouter les découvertes à la nouvelle feuille
+                if discoveries_to_migrate:
+                    timestamp = datetime.now().isoformat()
+                    rows_to_add = []
+                    for i, (cat, name, discoverer_id, discoverer_name) in enumerate(discoveries_to_migrate, 1):
+                        row = [cat, name, str(discoverer_id), discoverer_name, timestamp, str(i)]
+                        rows_to_add.append(row)
+
+                    # Ajouter toutes les lignes en une fois
+                    if rows_to_add:
+                        self.sheet_discoveries.append_rows(rows_to_add)
+                        logging.info(f"[MIGRATION] {len(rows_to_add)} découvertes migrées avec succès")
+
+                        # Rafraîchir le cache
+                        self.refresh_discoveries_cache()
+
+            except Exception as e:
+                logging.error(f"[MIGRATION] Erreur lors de la migration des découvertes: {e}")
+
+    @commands.command(name="migrer_decouvertes", help="Migre les découvertes existantes vers le nouveau système")
+    @commands.has_permissions(administrator=True)
+    async def migrer_decouvertes(self, ctx: commands.Context):
+        """Commande admin pour migrer manuellement les découvertes existantes."""
+        await ctx.send("🔄 Migration des découvertes en cours...")
+
+        try:
+            # Forcer la migration même si elle a déjà été effectuée
+            with self._discoveries_lock:
+                # Vider la feuille de découvertes (garder seulement les en-têtes)
+                self.sheet_discoveries.clear()
+                headers = ["Card_Category", "Card_Name", "Discoverer_ID", "Discoverer_Name", "Discovery_Timestamp", "Discovery_Index"]
+                self.sheet_discoveries.update("A1:F1", [headers])
+
+                # Effectuer la migration
+                self.migrate_existing_discoveries()
+
+            await ctx.send("✅ Migration des découvertes terminée avec succès!")
+
+        except Exception as e:
+            logging.error(f"[MIGRATION_CMD] Erreur: {e}")
+            await ctx.send(f"❌ Erreur lors de la migration: {e}")
     
     def get_user_cards(self, user_id: int):
         """Récupère les cartes d’un utilisateur depuis le cache ou les données."""
@@ -786,9 +967,8 @@ class Cards(commands.Cog):
                 return
 
             try:
-                # 1) Charger toutes les cartes déjà vues (feuille Google Sheets)
-                all_user_cards = self.sheet_cards.get_all_values()[1:]
-                seen = {(row[0], row[1]) for row in all_user_cards if len(row) >= 2}
+                # 1) Charger toutes les cartes déjà découvertes depuis la nouvelle feuille de découvertes
+                discovered_cards = self.get_discovered_cards()
 
                 # 2) Fusionner les fichiers “normaux” et “Full”
                 all_files = {}
@@ -797,8 +977,8 @@ class Cards(commands.Cog):
                 for cat, files in self.upgrade_cards_by_category.items():
                     all_files.setdefault(cat, []).extend(files)
 
-                # 3) Identifier les nouvelles cartes
-                new_draws = [card for card in drawn_cards if card not in seen]
+                # 3) Identifier les nouvelles cartes (non découvertes)
+                new_draws = [card for card in drawn_cards if card not in discovered_cards]
                 if not new_draws:
                     return
 
@@ -812,12 +992,15 @@ class Cards(commands.Cog):
                     if not file_id:
                         continue
 
+                    # Enregistrer la découverte et obtenir l'index
+                    discovery_index = self.log_discovery(cat, name, interaction.user.id, interaction.user.display_name)
+
                     file_bytes = self.download_drive_file(file_id)
                     embed, image_file = self.build_card_embed(cat, name, file_bytes)
                     embed.set_footer(text=(
                         f"Découverte par : {interaction.user.display_name}\n"
-                        f"→ {len(seen) + new_draws.index((cat,name)) + 1}"
-                        f"{'ère' if (len(seen) + new_draws.index((cat,name)) + 1) == 1 else 'ème'} carte découverte"
+                        f"→ {discovery_index}"
+                        f"{'ère' if discovery_index == 1 else 'ème'} carte découverte"
                     ))
 
                     await announce_channel.send(embed=embed, file=image_file)
@@ -833,8 +1016,10 @@ class Cards(commands.Cog):
                 )
                 total_cards_excluding_full = sum(len(lst) for lst in self.cards_by_category.values())
 
-                discovered = len(seen) + len(new_draws)
-                discovered_excluding_full = len({(cat, name) for cat, name in (seen | set(new_draws))
+                # Utiliser les cartes découvertes depuis la nouvelle feuille
+                all_discovered = discovered_cards | set(new_draws)
+                discovered = len(all_discovered)
+                discovered_excluding_full = len({(cat, name) for cat, name in all_discovered
                                                 if not name.removesuffix('.png').endswith(' (Full)')})
 
                 remaining = total_cards - discovered
@@ -930,8 +1115,8 @@ class Cards(commands.Cog):
             drawn_cards = self.draw_cards(3)
 
             # (a) annonce publique si nouvelles cartes
-            seen = {(r[0], r[1]) for r in self.sheet_cards.get_all_values()[1:]}
-            new_ = [c for c in drawn_cards if c not in seen]
+            discovered_cards = self.get_discovered_cards()
+            new_ = [c for c in drawn_cards if c not in discovered_cards]
             if new_:
                 await self._handle_announce_and_wall(interaction, new_)
 
@@ -1587,23 +1772,17 @@ class Cards(commands.Cog):
             all_files.setdefault(category, []).extend(files)
 
         try:
-            rows = self.sheet_cards.get_all_values()[1:]
-            index = 1
-            for row in rows:
-                if len(row) < 3 or not row[2].strip():
+            # Utiliser la nouvelle feuille de découvertes triée par index de découverte
+            discovery_rows = self.sheet_discoveries.get_all_values()[1:]  # Skip header
+            # Trier par index de découverte (colonne 6)
+            discovery_rows.sort(key=lambda row: int(row[5]) if len(row) >= 6 and row[5].isdigit() else 0)
+
+            for row in discovery_rows:
+                if len(row) < 6:
                     continue
 
-                cat, name = row[0], row[1]
-                discoverer_id = int(row[2].split(":", 1)[0].strip())
-                member = ctx.guild.get_member(discoverer_id)
-                if member:
-                    discoverer_name = member.nick or member.name
-                else:
-                    try:
-                        user = await self.bot.fetch_user(discoverer_id)
-                        discoverer_name = user.name
-                    except:
-                        discoverer_name = f"<@{discoverer_id}>"
+                cat, name, discoverer_id_str, discoverer_name, timestamp, discovery_index = row
+                discovery_index = int(discovery_index)
 
                 file_id = next(
                     (f['id'] for f in all_files.get(cat, []) if f['name'].removesuffix(".png") == name),
@@ -1616,16 +1795,27 @@ class Cards(commands.Cog):
                 embed, image_file = self.build_card_embed(cat, name, file_bytes)
                 embed.set_footer(text=(
                     f"Découverte par : {discoverer_name}\n"
-                    f"→ {index}{'ère' if index == 1 else 'ème'} carte découverte"
+                    f"→ {discovery_index}{'ère' if discovery_index == 1 else 'ème'} carte découverte"
                 ))
 
                 await announce_channel.send(embed=embed, file=image_file)
                 await asyncio.sleep(0.5)
-                index += 1
 
             total_cards = sum(len(lst) for lst in all_files.values())
-            discovered = index - 1
+            total_cards_excluding_full = sum(len(lst) for lst in self.cards_by_category.values())
+
+            discovered = len(discovery_rows)
+            discovered_excluding_full = len([row for row in discovery_rows
+                                           if len(row) >= 2 and not row[1].removesuffix('.png').endswith(' (Full)')])
+
             remaining = total_cards - discovered
+            remaining_excluding_full = total_cards_excluding_full - discovered_excluding_full
+
+            await announce_channel.send(
+                f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes) | "
+                f"Hors Full : {discovered_excluding_full}/{total_cards_excluding_full} ({remaining_excluding_full} restantes)"
+            )
+
             await ctx.send(
                 f"✅ Mur reconstruit : {discovered}/{total_cards} cartes postées ({remaining} restantes)."
             )
@@ -1731,9 +1921,8 @@ class Cards(commands.Cog):
 
         await ctx.send("🔍 Vérification du mur des cartes en cours...")
 
-        # Récupérer les cartes déjà présentes
-        rows = self.sheet_cards.get_all_values()[1:]  # skip header
-        seen_cards = {(row[0], row[1]) for row in rows if len(row) >= 2}
+        # Récupérer les cartes découvertes depuis la nouvelle feuille
+        discovered_cards = self.get_discovered_cards()
 
         # Fusionner cartes normales et Full
         all_files = {}
@@ -1744,7 +1933,7 @@ class Cards(commands.Cog):
 
         # Détecter les cartes manquantes sur le mur
         missing_cards = []
-        for card in seen_cards:
+        for card in discovered_cards:
             cat, name = card
             message_exists = False
             async for msg in announce_channel.history(limit=None):
@@ -1755,12 +1944,14 @@ class Cards(commands.Cog):
                 missing_cards.append((cat, name))
 
         # Poster les cartes manquantes
-        index = len(seen_cards) - len(missing_cards) + 1
         for cat, name in missing_cards:
-            discoverer_row = next((row for row in rows if row[0] == cat and row[1] == name), None)
-            discoverer_id = int(discoverer_row[2].split(":", 1)[0].strip()) if discoverer_row and len(discoverer_row) > 2 else None
-            member = ctx.guild.get_member(discoverer_id) if discoverer_id else None
-            discoverer_name = member.display_name if member else "Inconnu"
+            discovery_info = self.get_discovery_info(cat, name)
+            if discovery_info:
+                discoverer_name = discovery_info['discoverer_name']
+                discovery_index = discovery_info['discovery_index']
+            else:
+                discoverer_name = "Inconnu"
+                discovery_index = 0
 
             file_id = next((f['id'] for f in all_files.get(cat, []) if f['name'].removesuffix(".png") == name), None)
             if not file_id:
@@ -1779,12 +1970,11 @@ class Cards(commands.Cog):
             embed.set_footer(
                 text=(
                     f"Découverte par : {discoverer_name}\n"
-                    f"→ {index}{'ère' if index == 1 else 'ème'} carte découverte"
+                    f"→ {discovery_index}{'ère' if discovery_index == 1 else 'ème'} carte découverte"
                 )
             )
             await announce_channel.send(embed=embed, file=image_file)
             await asyncio.sleep(1)
-            index += 1
 
         # Mise à jour du message de progression
         async for msg in announce_channel.history(limit=50):
@@ -1795,8 +1985,8 @@ class Cards(commands.Cog):
         total_cards = sum(len(lst) for lst in all_files.values())
         total_cards_excluding_full = sum(len(lst) for lst in self.cards_by_category.values())
 
-        discovered = len(seen_cards)
-        discovered_excluding_full = len({(cat, name) for cat, name in seen_cards
+        discovered = len(discovered_cards)
+        discovered_excluding_full = len({(cat, name) for cat, name in discovered_cards
                                         if not name.removesuffix('.png').endswith(' (Full)')})
 
         remaining = total_cards - discovered
