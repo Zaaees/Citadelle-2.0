@@ -319,6 +319,87 @@ class Cards(commands.Cog):
                     }
             return None
 
+    def get_card_identifier(self, category: str, name: str) -> str | None:
+        """Récupère l'identifiant de carte (ex: 'C1', 'C150') basé sur l'index de découverte."""
+        discovery_info = self.get_discovery_info(category, name)
+        if discovery_info and discovery_info['discovery_index'] > 0:
+            return f"C{discovery_info['discovery_index']}"
+        return None
+
+    def find_card_by_identifier(self, identifier: str) -> tuple[str, str] | None:
+        """
+        Trouve une carte par son identifiant (ex: 'C1', 'C150').
+        Retourne (category, name) ou None si non trouvé.
+        """
+        # Vérifier le format de l'identifiant
+        if not identifier.upper().startswith('C') or len(identifier) < 2:
+            return None
+
+        try:
+            discovery_index = int(identifier[1:])
+        except ValueError:
+            return None
+
+        with self._discoveries_lock:
+            now = time.time()
+            if not self.discoveries_cache or now - self.discoveries_cache_time > 5:
+                self.refresh_discoveries_cache()
+
+            if not self.discoveries_cache:
+                return None
+
+            # Chercher la carte avec cet index de découverte
+            for row in self.discoveries_cache[1:]:  # Skip header
+                if len(row) >= 6 and row[5].isdigit() and int(row[5]) == discovery_index:
+                    return (row[0], row[1])  # (category, name)
+            return None
+
+    def is_card_identifier(self, input_text: str) -> bool:
+        """Vérifie si le texte d'entrée est un identifiant de carte (format C123)."""
+        input_text = input_text.strip().upper()
+        if not input_text.startswith('C') or len(input_text) < 2:
+            return False
+        try:
+            int(input_text[1:])
+            return True
+        except ValueError:
+            return False
+
+    def resolve_card_input(self, input_text: str, user_id: int) -> tuple[str, str] | None:
+        """
+        Résout une entrée utilisateur qui peut être soit un nom de carte soit un identifiant.
+        Retourne (category, name) si trouvé, None sinon.
+        Vérifie que l'utilisateur possède la carte.
+        """
+        input_text = input_text.strip()
+
+        # Vérifier si c'est un identifiant de carte
+        if self.is_card_identifier(input_text):
+            card_info = self.find_card_by_identifier(input_text)
+            if not card_info:
+                return None
+
+            category, name = card_info
+            # Vérifier que l'utilisateur possède cette carte
+            owned_cards = self.get_user_cards(user_id)
+            if any(cat == category and n == name for cat, n in owned_cards):
+                return (category, name)
+            return None
+
+        # Sinon, traiter comme un nom de carte
+        if not input_text.lower().endswith(".png"):
+            input_text += ".png"
+
+        normalized_input = self.normalize_name(input_text.removesuffix(".png"))
+        owned_cards = self.get_user_cards(user_id)
+
+        match = next(
+            ((cat, name) for cat, name in owned_cards
+             if self.normalize_name(name.removesuffix(".png")) == normalized_input),
+            None
+        )
+        return match
+
     def log_discovery(self, category: str, name: str, discoverer_id: int, discoverer_name: str) -> int:
         """Enregistre une nouvelle découverte et retourne l'index de découverte."""
         with self._discoveries_lock:
@@ -821,10 +902,15 @@ class Cards(commands.Cog):
                     counts[n] = counts.get(n, 0) + 1
                 # Sort cards alphabetically within the category (accent-insensitive)
                 sorted_cards = sorted(counts.items(), key=lambda x: self.normalize_name(x[0].removesuffix('.png')))
-                lines = [
-                    f"- **{n.removesuffix('.png')}**{' (x'+str(c)+')' if c>1 else ''}"
-                    for n, c in sorted_cards
-                ]
+                lines = []
+                for n, c in sorted_cards:
+                    card_name = n.removesuffix('.png')
+                    # Get card identifier if available
+                    identifier = self.get_card_identifier(cat, n)
+                    identifier_text = f" ({identifier})" if identifier else ""
+                    count_text = f' (x{c})' if c > 1 else ''
+                    lines.append(f"- **{card_name}**{identifier_text}{count_text}")
+
 
                 total_available = len({
                     f['name'].removesuffix('.png')
@@ -1052,6 +1138,170 @@ class Cards(commands.Cog):
             except Exception as e:
                 logging.error("Erreur lors de la mise à jour du mur :", e)
 
+
+    @app_commands.command(name="carte_info", description="Obtenir des informations sur une carte par nom ou identifiant")
+    async def carte_info(self, interaction: discord.Interaction, carte: str):
+        """Affiche les informations d'une carte par nom ou identifiant."""
+        await interaction.response.defer(ephemeral=True)
+
+        carte = carte.strip()
+
+        # Vérifier si c'est un identifiant
+        if self.is_card_identifier(carte):
+            card_info = self.find_card_by_identifier(carte)
+            if not card_info:
+                await interaction.followup.send(
+                    f"❌ Aucune carte trouvée avec l'identifiant '{carte.upper()}'.",
+                    ephemeral=True
+                )
+                return
+
+            category, name = card_info
+            identifier = carte.upper()
+        else:
+            # Rechercher par nom
+            if not carte.lower().endswith(".png"):
+                carte += ".png"
+
+            normalized_input = self.normalize_name(carte.removesuffix(".png"))
+
+            # Chercher dans toutes les cartes disponibles
+            all_files = {}
+            for cat, files in self.cards_by_category.items():
+                all_files.setdefault(cat, []).extend(files)
+            for cat, files in self.upgrade_cards_by_category.items():
+                all_files.setdefault(cat, []).extend(files)
+
+            found_card = None
+            for cat, files in all_files.items():
+                for f in files:
+                    file_name = f["name"]
+                    normalized_file = self.normalize_name(file_name.removesuffix(".png"))
+                    if normalized_file == normalized_input:
+                        found_card = (cat, file_name)
+                        break
+                if found_card:
+                    break
+
+            if not found_card:
+                await interaction.followup.send(
+                    f"❌ Aucune carte trouvée avec le nom '{carte}'.",
+                    ephemeral=True
+                )
+                return
+
+            category, name = found_card
+            identifier = self.get_card_identifier(category, name)
+
+        # Obtenir les informations de découverte
+        discovery_info = self.get_discovery_info(category, name)
+
+        # Créer l'embed d'information
+        embed = discord.Embed(
+            title=f"📋 Informations de carte",
+            color=discord.Color.blue()
+        )
+
+        card_display_name = name.removesuffix('.png')
+        embed.add_field(name="🎴 Nom", value=f"**{card_display_name}**", inline=True)
+        embed.add_field(name="🏷️ Catégorie", value=f"**{category}**", inline=True)
+
+        if identifier:
+            embed.add_field(name="🔢 Identifiant", value=f"**{identifier}**", inline=True)
+        else:
+            embed.add_field(name="🔢 Identifiant", value="*Non découverte*", inline=True)
+
+        if discovery_info:
+            discoverer_name = discovery_info['discoverer_name']
+            discovery_index = discovery_info['discovery_index']
+            timestamp = discovery_info['timestamp']
+
+            # Formater la date
+            try:
+                from datetime import datetime
+                dt = datetime.fromisoformat(timestamp)
+                formatted_date = dt.strftime("%d/%m/%Y à %H:%M")
+            except:
+                formatted_date = timestamp
+
+            embed.add_field(
+                name="🔍 Découverte",
+                value=f"Par **{discoverer_name}**\n{formatted_date}\n#{discovery_index}{'ère' if discovery_index == 1 else 'ème'} carte découverte",
+                inline=False
+            )
+        else:
+            embed.add_field(name="🔍 Découverte", value="*Carte non encore découverte*", inline=False)
+
+        # Vérifier si l'utilisateur possède cette carte
+        user_cards = self.get_user_cards(interaction.user.id)
+        user_count = sum(1 for cat, n in user_cards if cat == category and n == name)
+
+        if user_count > 0:
+            embed.add_field(
+                name="👤 Votre collection",
+                value=f"Vous possédez **{user_count}** exemplaire{'s' if user_count > 1 else ''}",
+                inline=True
+            )
+        else:
+            embed.add_field(name="👤 Votre collection", value="*Vous ne possédez pas cette carte*", inline=True)
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="decouvertes_recentes", description="Affiche les cartes récemment découvertes avec leurs identifiants")
+    async def decouvertes_recentes(self, interaction: discord.Interaction, nombre: int = 10):
+        """Affiche les dernières cartes découvertes avec leurs identifiants."""
+        await interaction.response.defer(ephemeral=True)
+
+        if nombre < 1 or nombre > 50:
+            await interaction.followup.send("❌ Le nombre doit être entre 1 et 50.", ephemeral=True)
+            return
+
+        with self._discoveries_lock:
+            now = time.time()
+            if not self.discoveries_cache or now - self.discoveries_cache_time > 5:
+                self.refresh_discoveries_cache()
+
+            if not self.discoveries_cache or len(self.discoveries_cache) <= 1:
+                await interaction.followup.send("❌ Aucune découverte trouvée.", ephemeral=True)
+                return
+
+            # Trier par index de découverte (décroissant pour avoir les plus récentes en premier)
+            discovery_rows = self.discoveries_cache[1:]  # Skip header
+            discovery_rows.sort(key=lambda row: int(row[5]) if len(row) >= 6 and row[5].isdigit() else 0, reverse=True)
+
+            # Prendre les N dernières découvertes
+            recent_discoveries = discovery_rows[:nombre]
+
+            embed = discord.Embed(
+                title=f"🔍 {len(recent_discoveries)} Découvertes Récentes",
+                description="Voici les cartes récemment découvertes avec leurs identifiants :",
+                color=discord.Color.green()
+            )
+
+            for row in recent_discoveries:
+                if len(row) >= 6:
+                    cat, name, discoverer_id_str, discoverer_name, timestamp, discovery_index = row
+                    discovery_index = int(discovery_index)
+
+                    # Formater la date
+                    try:
+                        from datetime import datetime
+                        dt = datetime.fromisoformat(timestamp)
+                        formatted_date = dt.strftime("%d/%m/%Y")
+                    except:
+                        formatted_date = "Date inconnue"
+
+                    card_display_name = name.removesuffix('.png')
+                    identifier = f"C{discovery_index}"
+
+                    embed.add_field(
+                        name=f"{identifier} - {card_display_name}",
+                        value=f"**{cat}** | Découvert par {discoverer_name}\n{formatted_date}",
+                        inline=False
+                    )
+
+            embed.set_footer(text="💡 Utilisez /carte_info <identifiant> pour plus d'informations sur une carte")
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="cartes", description="Gérer vos cartes à collectionner")
     async def cartes(self, interaction: discord.Interaction):
@@ -2209,11 +2459,14 @@ class CardsMenuView(discord.ui.View):
                 "**Bienvenue dans le système d'échange de cartes !**\n\n"
                 "**📦 Déposer carte :** Stockez vos cartes dans votre coffre personnel pour les échanger\n"
                 "**🤝 Initier échange :** Commencez un échange avec un autre joueur\n\n"
+                "**💡 Astuce :** Vous pouvez utiliser les **identifiants de cartes** (ex: C42) au lieu des noms complets !\n"
+                "Les identifiants sont visibles dans votre galerie à côté du nom de chaque carte.\n\n"
                 "**Comment ça marche :**\n"
                 "1. Déposez les cartes que vous voulez échanger dans votre coffre (vous et l'autre joueur)\n"
                 "2. Initiez un échange avec un autre joueur\n"
                 "3. Les deux joueurs voient les cartes disponibles et confirment l'échange\n"
-                "4. Les cartes sont automatiquement transférées après confirmation mutuelle"
+                "4. Les cartes sont automatiquement transférées après confirmation mutuelle\n\n"
+                "**Saisie de cartes :** Utilisez soit le nom complet (ex: 'Dorian (Variante)') soit l'identifiant (ex: 'C42')"
             ),
             color=0x00ff00
         )
@@ -2502,8 +2755,8 @@ class WithdrawVaultConfirmationView(discord.ui.View):
 
 class DepositCardModal(discord.ui.Modal, title="Déposer une carte"):
     card_name = discord.ui.TextInput(
-        label="Nom exact de la carte à déposer",
-        placeholder="Ex : Dorian (Variante)",
+        label="Carte à déposer (nom ou identifiant)",
+        placeholder="Ex : Dorian (Variante) ou C42",
         required=True
     )
 
@@ -2517,24 +2770,19 @@ class DepositCardModal(discord.ui.Modal, title="Déposer une carte"):
         await interaction.response.defer(ephemeral=True)
 
         try:
-            input_name = self.card_name.value.strip()
-            if not input_name.lower().endswith(".png"):
-                input_name += ".png"
+            input_text = self.card_name.value.strip()
 
-            # Vérifier que l'utilisateur possède cette carte
-            normalized = self.cog.normalize_name(input_name.removesuffix(".png"))
-            owned = self.cog.get_user_cards(self.user.id)
-
-            match = next(
-                ((cat, name) for cat, name in owned
-                 if self.cog.normalize_name(name.removesuffix(".png")) == normalized),
-                None
-            )
+            # Utiliser la nouvelle méthode de résolution
+            match = self.cog.resolve_card_input(input_text, self.user.id)
 
             if not match:
-                await interaction.followup.send(
-                    "🚫 Vous ne possédez pas cette carte dans votre inventaire.", ephemeral=True
-                )
+                # Message d'erreur amélioré pour inclure les identifiants
+                error_msg = "🚫 Vous ne possédez pas cette carte dans votre inventaire."
+                if self.cog.is_card_identifier(input_text):
+                    error_msg += f" L'identifiant '{input_text.upper()}' n'a pas été trouvé dans votre collection."
+                else:
+                    error_msg += " Vous pouvez utiliser le nom de la carte ou son identifiant (ex: C42)."
+                await interaction.followup.send(error_msg, ephemeral=True)
                 return
 
             cat, name = match
@@ -3084,8 +3332,8 @@ class GalleryActionView(discord.ui.View):
 
 class CardNameModal(discord.ui.Modal, title="Afficher une carte"):
     card_name = discord.ui.TextInput(
-        label="Nom exact de la carte (sans .png)",
-        placeholder="Ex : Dorian (Variante)",
+        label="Carte à afficher (nom ou identifiant)",
+        placeholder="Ex : Dorian (Variante) ou C42",
         required=True
     )
 
@@ -3095,18 +3343,23 @@ class CardNameModal(discord.ui.Modal, title="Afficher une carte"):
         self.user = user
 
     async def on_submit(self, interaction: discord.Interaction):
-        # 1) Préparation du nom de fichier
-        input_name = self.card_name.value.strip()
-        if not input_name.lower().endswith(".png"):
-            input_name += ".png"
+        input_text = self.card_name.value.strip()
 
-        # 2) Vérification de possession
-        normalized = self.cog.normalize_name(input_name.removesuffix(".png"))
-        owned = self.cog.get_user_cards(self.user.id)
-        if not any(self.cog.normalize_name(n.removesuffix(".png")) == normalized for _, n in owned):
-            return await interaction.response.send_message(
-                "🚫 Vous ne possédez pas cette carte.", ephemeral=True
-            )
+        # Utiliser la nouvelle méthode de résolution
+        match = self.cog.resolve_card_input(input_text, self.user.id)
+
+        if not match:
+            # Message d'erreur amélioré pour inclure les identifiants
+            error_msg = "🚫 Vous ne possédez pas cette carte."
+            if self.cog.is_card_identifier(input_text):
+                error_msg += f" L'identifiant '{input_text.upper()}' n'a pas été trouvé dans votre collection."
+            else:
+                error_msg += " Vous pouvez utiliser le nom de la carte ou son identifiant (ex: C42)."
+            return await interaction.response.send_message(error_msg, ephemeral=True)
+
+        cat, name = match
+        # Préparer le nom pour la recherche dans Drive
+        input_name = name if name.lower().endswith(".png") else name + ".png"
 
         # 3) Recherche dans Drive
         result = self.cog.find_card_by_name(input_name)
@@ -3128,7 +3381,7 @@ class CardNameModal(discord.ui.Modal, title="Afficher une carte"):
         )
 
 class TradeOfferCardModal(discord.ui.Modal, title="Proposer un échange"):
-    card_name = discord.ui.TextInput(label="Nom exact de la carte à échanger", placeholder="Ex : Alex (Variante)", required=True)
+    card_name = discord.ui.TextInput(label="Carte à échanger (nom ou identifiant)", placeholder="Ex : Alex (Variante) ou C42", required=True)
 
     def __init__(self, cog: Cards, user: discord.User):
         super().__init__()
@@ -3136,19 +3389,19 @@ class TradeOfferCardModal(discord.ui.Modal, title="Proposer un échange"):
         self.user = user
 
     async def on_submit(self, interaction: discord.Interaction):
-        input_name = self.card_name.value.strip()
-        normalized_input = self.cog.normalize_name(input_name.removesuffix(".png"))
+        input_text = self.card_name.value.strip()
 
-        owned_cards = self.cog.get_user_cards(self.user.id)
-
-        match = next(
-            ((cat, name) for cat, name in owned_cards
-             if self.cog.normalize_name(name.removesuffix(".png")) == normalized_input),
-            None
-        )
+        # Utiliser la nouvelle méthode de résolution
+        match = self.cog.resolve_card_input(input_text, self.user.id)
 
         if not match:
-            await interaction.response.send_message("🚫 Vous ne possédez pas cette carte.", ephemeral=True)
+            # Message d'erreur amélioré pour inclure les identifiants
+            error_msg = "🚫 Vous ne possédez pas cette carte."
+            if self.cog.is_card_identifier(input_text):
+                error_msg += f" L'identifiant '{input_text.upper()}' n'a pas été trouvé dans votre collection."
+            else:
+                error_msg += " Vous pouvez utiliser le nom de la carte ou son identifiant (ex: C42)."
+            await interaction.response.send_message(error_msg, ephemeral=True)
             return
 
         offer_cat, offer_name = match
@@ -3338,8 +3591,8 @@ class TradeFinalConfirmView(discord.ui.View):
 
 class TradeResponseModal(discord.ui.Modal, title="Réponse à l’échange"):
     card_name = discord.ui.TextInput(
-    label="Carte que vous proposez (sans .png)", 
-    placeholder="Ex : Inès (Variante)", 
+    label="Carte que vous proposez (nom ou identifiant)",
+    placeholder="Ex : Inès (Variante) ou C42",
     required=True
 )
 
@@ -3353,18 +3606,19 @@ class TradeResponseModal(discord.ui.Modal, title="Réponse à l’échange"):
         self.offer_name = offer_name
 
     async def on_submit(self, interaction: discord.Interaction):
-        input_name = self.card_name.value.strip()
-        normalized_input = self.cog.normalize_name(input_name.removesuffix(".png"))
+        input_text = self.card_name.value.strip()
 
-        owned_cards = self.cog.get_user_cards(interaction.user.id)
-        match = next(
-            ((cat, name) for cat, name in owned_cards
-             if self.cog.normalize_name(name.removesuffix(".png")) == normalized_input),
-            None
-        )
+        # Utiliser la nouvelle méthode de résolution
+        match = self.cog.resolve_card_input(input_text, interaction.user.id)
 
         if not match:
-            await interaction.response.send_message("🚫 Vous ne possédez pas cette carte.", ephemeral=True)
+            # Message d'erreur amélioré pour inclure les identifiants
+            error_msg = "🚫 Vous ne possédez pas cette carte."
+            if self.cog.is_card_identifier(input_text):
+                error_msg += f" L'identifiant '{input_text.upper()}' n'a pas été trouvé dans votre collection."
+            else:
+                error_msg += " Vous pouvez utiliser le nom de la carte ou son identifiant (ex: C42)."
+            await interaction.response.send_message(error_msg, ephemeral=True)
             return
 
         return_cat, return_name = match
