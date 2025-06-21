@@ -864,9 +864,27 @@ class Cards(commands.Cog):
 
     def generate_gallery_embeds(self, user: discord.abc.User) -> tuple[discord.Embed, discord.Embed] | None:
         """Construit les embeds de galerie pour l'utilisateur donné."""
+        return self.generate_paginated_gallery_embeds(user, 0)
+
+    def generate_paginated_gallery_embeds(self, user: discord.abc.User, page: int = 0) -> tuple[discord.Embed, discord.Embed, dict] | None:
+        """Construit les embeds de galerie paginés pour l'utilisateur donné.
+
+        Returns:
+            tuple[discord.Embed, discord.Embed, dict] | None:
+            (embed_normales, embed_full, pagination_info) ou None si pas de cartes
+
+            pagination_info contient:
+            - current_page: page actuelle
+            - total_pages: nombre total de pages
+            - has_previous: bool, True s'il y a une page précédente
+            - has_next: bool, True s'il y a une page suivante
+        """
         user_cards = self.get_user_cards(user.id)
         if not user_cards:
             return None
+
+        # Configuration de la pagination
+        CARDS_PER_PAGE = 15  # Nombre de cartes par catégorie par page
 
         rarity_order = {
             "Secrète": 0,
@@ -885,12 +903,36 @@ class Cards(commands.Cog):
         for cat, name in user_cards:
             cards_by_cat.setdefault(cat, []).append(name)
 
+        # Calculer le nombre total de pages nécessaires
+        max_pages_needed = 0
+        for cat in rarity_order:
+            noms = cards_by_cat.get(cat, [])
+            normales = [n for n in noms if not n.endswith(" (Full)")]
+            fulls = [n for n in noms if n.endswith(" (Full)")]
+
+            if normales:
+                counts = {}
+                for n in normales:
+                    counts[n] = counts.get(n, 0) + 1
+                pages_for_cat = (len(counts) + CARDS_PER_PAGE - 1) // CARDS_PER_PAGE
+                max_pages_needed = max(max_pages_needed, pages_for_cat)
+
+            if fulls:
+                counts = {}
+                for n in fulls:
+                    counts[n] = counts.get(n, 0) + 1
+                pages_for_cat = (len(counts) + CARDS_PER_PAGE - 1) // CARDS_PER_PAGE
+                max_pages_needed = max(max_pages_needed, pages_for_cat)
+
+        total_pages = max(1, max_pages_needed)
+        current_page = max(0, min(page, total_pages - 1))
+
         embed_normales = discord.Embed(
-            title=f"Galerie de {user.display_name}",
+            title=f"Galerie de {user.display_name} (Page {current_page + 1}/{total_pages})",
             color=discord.Color.blue(),
         )
         embed_full = discord.Embed(
-            title=f"Cartes Full de {user.display_name}",
+            title=f"Cartes Full de {user.display_name} (Page {current_page + 1}/{total_pages})",
             color=discord.Color.gold(),
         )
 
@@ -904,48 +946,42 @@ class Cards(commands.Cog):
                     counts[n] = counts.get(n, 0) + 1
                 # Sort cards alphabetically within the category (accent-insensitive)
                 sorted_cards = sorted(counts.items(), key=lambda x: self.normalize_name(x[0].removesuffix('.png')))
-                lines = []
-                for n, c in sorted_cards:
-                    card_name = n.removesuffix('.png')
-                    # Get card identifier if available
-                    identifier = self.get_card_identifier(cat, n)
-                    identifier_text = f" ({identifier})" if identifier else ""
-                    count_text = f' (x{c})' if c > 1 else ''
-                    lines.append(f"- **{card_name}**{identifier_text}{count_text}")
 
-                # Limiter la longueur du champ à 1024 caractères
-                field_value = "\n".join(lines)
-                if len(field_value) > 1024:
-                    # Calculer combien de lignes on peut garder
-                    truncated_lines = []
-                    current_length = 0
-                    remaining_cards = len(lines)
+                # Pagination logic for normal cards
+                start_idx = current_page * CARDS_PER_PAGE
+                end_idx = start_idx + CARDS_PER_PAGE
+                page_cards = sorted_cards[start_idx:end_idx]
 
-                    for line in lines:
-                        # Réserver de l'espace pour le message de troncature
-                        truncate_msg = f"\n... et {remaining_cards - len(truncated_lines)} autres cartes"
-                        if current_length + len(line) + len(truncate_msg) > 1024:
-                            break
-                        truncated_lines.append(line)
-                        current_length += len(line) + 1  # +1 pour le \n
+                if page_cards:  # Only show category if there are cards on this page
+                    lines = []
+                    for n, c in page_cards:
+                        card_name = n.removesuffix('.png')
+                        # Get card identifier if available
+                        identifier = self.get_card_identifier(cat, n)
+                        identifier_text = f" ({identifier})" if identifier else ""
+                        count_text = f' (x{c})' if c > 1 else ''
+                        lines.append(f"- **{card_name}**{identifier_text}{count_text}")
 
-                    if len(truncated_lines) < len(lines):
-                        remaining = len(lines) - len(truncated_lines)
-                        field_value = "\n".join(truncated_lines) + f"\n... et {remaining} autres cartes"
-                    else:
-                        field_value = "\n".join(truncated_lines)
+                    field_value = "\n".join(lines)
 
-                total_available = len({
-                    f['name'].removesuffix('.png')
-                    for f in self.cards_by_category.get(cat, [])
-                })
-                owned_unique = len(counts)
+                    # Add pagination info if there are more cards
+                    total_cards_in_cat = len(sorted_cards)
+                    if total_cards_in_cat > CARDS_PER_PAGE:
+                        showing_start = start_idx + 1
+                        showing_end = min(end_idx, total_cards_in_cat)
+                        field_value += f"\n\n*Affichage {showing_start}-{showing_end} sur {total_cards_in_cat}*"
 
-                embed_normales.add_field(
-                    name=f"{cat} : {owned_unique}/{total_available}",
-                    value=field_value,
-                    inline=False,
-                )
+                    total_available = len({
+                        f['name'].removesuffix('.png')
+                        for f in self.cards_by_category.get(cat, [])
+                    })
+                    owned_unique = len(counts)
+
+                    embed_normales.add_field(
+                        name=f"{cat} : {owned_unique}/{total_available}",
+                        value=field_value,
+                        inline=False,
+                    )
 
             fulls = [n for n in noms if n.endswith(" (Full)")]
             if fulls:
@@ -954,46 +990,48 @@ class Cards(commands.Cog):
                     counts[n] = counts.get(n, 0) + 1
                 # Sort cards alphabetically within the category (accent-insensitive)
                 sorted_cards = sorted(counts.items(), key=lambda x: self.normalize_name(x[0].removesuffix('.png')))
-                lines = [
-                    f"- **{n.removesuffix('.png')}**{' (x'+str(c)+')' if c>1 else ''}"
-                    for n, c in sorted_cards
-                ]
 
-                # Limiter la longueur du champ à 1024 caractères
-                field_value = "\n".join(lines)
-                if len(field_value) > 1024:
-                    # Calculer combien de lignes on peut garder
-                    truncated_lines = []
-                    current_length = 0
-                    remaining_cards = len(lines)
+                # Pagination logic for full cards
+                start_idx = current_page * CARDS_PER_PAGE
+                end_idx = start_idx + CARDS_PER_PAGE
+                page_cards = sorted_cards[start_idx:end_idx]
 
-                    for line in lines:
-                        # Réserver de l'espace pour le message de troncature
-                        truncate_msg = f"\n... et {remaining_cards - len(truncated_lines)} autres cartes"
-                        if current_length + len(line) + len(truncate_msg) > 1024:
-                            break
-                        truncated_lines.append(line)
-                        current_length += len(line) + 1  # +1 pour le \n
+                if page_cards:  # Only show category if there are cards on this page
+                    lines = [
+                        f"- **{n.removesuffix('.png')}**{' (x'+str(c)+')' if c>1 else ''}"
+                        for n, c in page_cards
+                    ]
 
-                    if len(truncated_lines) < len(lines):
-                        remaining = len(lines) - len(truncated_lines)
-                        field_value = "\n".join(truncated_lines) + f"\n... et {remaining} autres cartes"
-                    else:
-                        field_value = "\n".join(truncated_lines)
+                    field_value = "\n".join(lines)
 
-                total_full = len({
-                    f['name'].removesuffix('.png')
-                    for f in self.upgrade_cards_by_category.get(cat, [])
-                })
-                owned_full = len(counts)
+                    # Add pagination info if there are more cards
+                    total_cards_in_cat = len(sorted_cards)
+                    if total_cards_in_cat > CARDS_PER_PAGE:
+                        showing_start = start_idx + 1
+                        showing_end = min(end_idx, total_cards_in_cat)
+                        field_value += f"\n\n*Affichage {showing_start}-{showing_end} sur {total_cards_in_cat}*"
 
-                embed_full.add_field(
-                    name=f"{cat} (Full) : {owned_full}/{total_full}",
-                    value=field_value,
-                    inline=False,
-                )
+                    total_full = len({
+                        f['name'].removesuffix('.png')
+                        for f in self.upgrade_cards_by_category.get(cat, [])
+                    })
+                    owned_full = len(counts)
 
-        return embed_normales, embed_full
+                    embed_full.add_field(
+                        name=f"{cat} (Full) : {owned_full}/{total_full}",
+                        value=field_value,
+                        inline=False,
+                    )
+
+        # Prepare pagination info
+        pagination_info = {
+            'current_page': current_page,
+            'total_pages': total_pages,
+            'has_previous': current_page > 0,
+            'has_next': current_page < total_pages - 1
+        }
+
+        return embed_normales, embed_full, pagination_info
 
     
     def safe_exchange(self, user1_id, card1, user2_id, card2) -> bool:
@@ -2342,15 +2380,26 @@ class Cards(commands.Cog):
 
     @commands.command(name="voir_galerie")
     @commands.has_permissions(administrator=True)
-    async def voir_galerie(self, ctx: commands.Context, member: discord.Member):
-        """Affiche la galerie de cartes d'un utilisateur."""
-        embeds = self.generate_gallery_embeds(member)
-        if not embeds:
+    async def voir_galerie(self, ctx: commands.Context, member: discord.Member, page: int = 1):
+        """Affiche la galerie de cartes d'un utilisateur avec pagination.
+
+        Args:
+            member: Le membre dont afficher la galerie
+            page: Numéro de page (commence à 1, par défaut 1)
+        """
+        # Convert to 0-based page index
+        page_index = max(0, page - 1)
+
+        result = self.generate_paginated_gallery_embeds(member, page_index)
+        if not result:
             await ctx.send(f"{member.display_name} n'a aucune carte pour le moment.")
             return
 
-        embed_normales, embed_full = embeds
-        await ctx.send(embeds=[embed_normales, embed_full])
+        embed_normales, embed_full, pagination_info = result
+
+        # Create a view for pagination (non-ephemeral for admin commands)
+        view = AdminPaginatedGalleryView(self, member, page_index)
+        await ctx.send(embeds=[embed_normales, embed_full], view=view)
 
 class CardsMenuView(discord.ui.View):
     def __init__(self, cog: Cards, user: discord.User):
@@ -2449,13 +2498,13 @@ class CardsMenuView(discord.ui.View):
             return
 
         await interaction.response.defer(ephemeral=True)
-        embeds = self.cog.generate_gallery_embeds(self.user)
-        if not embeds:
+        result = self.cog.generate_paginated_gallery_embeds(self.user, 0)
+        if not result:
             await interaction.followup.send("Vous n'avez aucune carte pour le moment.", ephemeral=True)
             return
 
-        embed_normales, embed_full = embeds
-        view = GalleryActionView(self.cog, self.user)
+        embed_normales, embed_full, pagination_info = result
+        view = PaginatedGalleryView(self.cog, self.user, 0)
         await interaction.followup.send(
             embeds=[embed_normales, embed_full],
             view=view,
@@ -3358,6 +3407,188 @@ class InitiatorFinalConfirmationView(discord.ui.View):
 
 # Les anciennes classes de sélection de cartes individuelles ont été supprimées
 # Le nouveau système échange les coffres complets
+
+
+class AdminPaginatedGalleryView(discord.ui.View):
+    """Paginated gallery view for admin commands (non-ephemeral)."""
+    def __init__(self, cog: Cards, user: discord.User, current_page: int = 0):
+        super().__init__(timeout=300)  # 5 minutes timeout
+        self.cog = cog
+        self.user = user
+        self.current_page = current_page
+        self.update_buttons()
+
+    def update_buttons(self):
+        """Update button states based on current page and total pages."""
+        self.clear_items()
+
+        # Get pagination info
+        result = self.cog.generate_paginated_gallery_embeds(self.user, self.current_page)
+        if not result:
+            return
+
+        embed_normales, embed_full, pagination_info = result
+
+        # Previous page button
+        if pagination_info['has_previous']:
+            prev_button = discord.ui.Button(
+                label="◀ Page précédente",
+                style=discord.ButtonStyle.secondary,
+                custom_id="admin_prev_page"
+            )
+            prev_button.callback = self.previous_page
+            self.add_item(prev_button)
+
+        # Page indicator (non-clickable)
+        page_indicator = discord.ui.Button(
+            label=f"Page {pagination_info['current_page'] + 1}/{pagination_info['total_pages']}",
+            style=discord.ButtonStyle.gray,
+            disabled=True,
+            custom_id="admin_page_indicator"
+        )
+        self.add_item(page_indicator)
+
+        # Next page button
+        if pagination_info['has_next']:
+            next_button = discord.ui.Button(
+                label="Page suivante ▶",
+                style=discord.ButtonStyle.secondary,
+                custom_id="admin_next_page"
+            )
+            next_button.callback = self.next_page
+            self.add_item(next_button)
+
+    async def previous_page(self, interaction: discord.Interaction):
+        """Handle previous page button click."""
+        self.current_page = max(0, self.current_page - 1)
+        await self.update_gallery(interaction)
+
+    async def next_page(self, interaction: discord.Interaction):
+        """Handle next page button click."""
+        result = self.cog.generate_paginated_gallery_embeds(self.user, self.current_page)
+        if result:
+            _, _, pagination_info = result
+            self.current_page = min(pagination_info['total_pages'] - 1, self.current_page + 1)
+
+        await self.update_gallery(interaction)
+
+    async def update_gallery(self, interaction: discord.Interaction):
+        """Update the gallery display with current page."""
+        result = self.cog.generate_paginated_gallery_embeds(self.user, self.current_page)
+        if not result:
+            await interaction.response.send_message("Erreur lors de la mise à jour de la galerie.", ephemeral=True)
+            return
+
+        embed_normales, embed_full, pagination_info = result
+        self.update_buttons()
+
+        await interaction.response.edit_message(
+            embeds=[embed_normales, embed_full],
+            view=self
+        )
+
+
+class PaginatedGalleryView(discord.ui.View):
+    def __init__(self, cog: Cards, user: discord.User, current_page: int = 0):
+        super().__init__(timeout=300)  # 5 minutes timeout
+        self.cog = cog
+        self.user = user
+        self.current_page = current_page
+        self.update_buttons()
+
+    def update_buttons(self):
+        """Update button states based on current page and total pages."""
+        self.clear_items()
+
+        # Get pagination info
+        result = self.cog.generate_paginated_gallery_embeds(self.user, self.current_page)
+        if not result:
+            return
+
+        embed_normales, embed_full, pagination_info = result
+
+        # Previous page button
+        if pagination_info['has_previous']:
+            prev_button = discord.ui.Button(
+                label="◀ Page précédente",
+                style=discord.ButtonStyle.secondary,
+                custom_id="prev_page"
+            )
+            prev_button.callback = self.previous_page
+            self.add_item(prev_button)
+
+        # Page indicator (non-clickable)
+        page_indicator = discord.ui.Button(
+            label=f"Page {pagination_info['current_page'] + 1}/{pagination_info['total_pages']}",
+            style=discord.ButtonStyle.gray,
+            disabled=True,
+            custom_id="page_indicator"
+        )
+        self.add_item(page_indicator)
+
+        # Next page button
+        if pagination_info['has_next']:
+            next_button = discord.ui.Button(
+                label="Page suivante ▶",
+                style=discord.ButtonStyle.secondary,
+                custom_id="next_page"
+            )
+            next_button.callback = self.next_page
+            self.add_item(next_button)
+
+        # Show card button (always present)
+        show_card_button = discord.ui.Button(
+            label="Afficher une carte",
+            style=discord.ButtonStyle.primary,
+            custom_id="show_card"
+        )
+        show_card_button.callback = self.show_card_modal
+        self.add_item(show_card_button)
+
+    async def previous_page(self, interaction: discord.Interaction):
+        """Handle previous page button click."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Ce bouton ne vous est pas destiné.", ephemeral=True)
+            return
+
+        self.current_page = max(0, self.current_page - 1)
+        await self.update_gallery(interaction)
+
+    async def next_page(self, interaction: discord.Interaction):
+        """Handle next page button click."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Ce bouton ne vous est pas destiné.", ephemeral=True)
+            return
+
+        result = self.cog.generate_paginated_gallery_embeds(self.user, self.current_page)
+        if result:
+            _, _, pagination_info = result
+            self.current_page = min(pagination_info['total_pages'] - 1, self.current_page + 1)
+
+        await self.update_gallery(interaction)
+
+    async def update_gallery(self, interaction: discord.Interaction):
+        """Update the gallery display with current page."""
+        result = self.cog.generate_paginated_gallery_embeds(self.user, self.current_page)
+        if not result:
+            await interaction.response.send_message("Erreur lors de la mise à jour de la galerie.", ephemeral=True)
+            return
+
+        embed_normales, embed_full, pagination_info = result
+        self.update_buttons()
+
+        await interaction.response.edit_message(
+            embeds=[embed_normales, embed_full],
+            view=self
+        )
+
+    async def show_card_modal(self, interaction: discord.Interaction):
+        """Show the card display modal."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Ce bouton ne vous est pas destiné.", ephemeral=True)
+            return
+
+        await interaction.response.send_modal(CardNameModal(self.cog, self.user))
 
 
 class GalleryActionView(discord.ui.View):
