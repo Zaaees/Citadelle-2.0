@@ -227,11 +227,8 @@ class Cards(commands.Cog):
                 ]
                 self.upgrade_cards_by_category[cat] = files
 
-        # Effectuer la migration des découvertes existantes au démarrage
-        try:
-            self.migrate_existing_discoveries()
-        except Exception as e:
-            logging.error(f"[INIT] Erreur lors de la migration initiale des découvertes: {e}")
+        # La migration se fait uniquement via la commande admin !migrer_decouvertes
+        # pour éviter d'écraser les données à chaque redémarrage
     
     def sanitize_filename(self, name: str) -> str:
         """Nettoie le nom d'une carte pour une utilisation sûre dans les fichiers Discord."""
@@ -355,15 +352,15 @@ class Cards(commands.Cog):
                 logging.error(f"[DISCOVERY] Erreur lors de l'enregistrement de la découverte: {e}")
                 return 0
 
-    def migrate_existing_discoveries(self):
+    def migrate_existing_discoveries(self, force=False):
         """Migre les découvertes existantes depuis la feuille principale vers la feuille de découvertes."""
         with self._discoveries_lock:
             try:
                 # Vérifier si la migration a déjà été effectuée
                 existing_discoveries = self.sheet_discoveries.get_all_values()
-                if len(existing_discoveries) > 1:  # Plus que juste les en-têtes
-                    logging.info("[MIGRATION] Migration déjà effectuée, ignorée")
-                    return
+                if len(existing_discoveries) > 1 and not force:  # Plus que juste les en-têtes
+                    logging.info("[MIGRATION] Migration déjà effectuée, utilisez force=True pour forcer")
+                    return False
 
                 # Récupérer les données existantes de la feuille principale
                 main_sheet_rows = self.sheet_cards.get_all_values()[1:]  # Skip header
@@ -409,28 +406,51 @@ class Cards(commands.Cog):
 
                         # Rafraîchir le cache
                         self.refresh_discoveries_cache()
+                        return True
+                    else:
+                        logging.info("[MIGRATION] Aucune découverte à migrer")
+                        return False
 
             except Exception as e:
                 logging.error(f"[MIGRATION] Erreur lors de la migration des découvertes: {e}")
+                return False
 
     @commands.command(name="migrer_decouvertes", help="Migre les découvertes existantes vers le nouveau système")
     @commands.has_permissions(administrator=True)
-    async def migrer_decouvertes(self, ctx: commands.Context):
+    async def migrer_decouvertes(self, ctx: commands.Context, force: str = ""):
         """Commande admin pour migrer manuellement les découvertes existantes."""
-        await ctx.send("🔄 Migration des découvertes en cours...")
+
+        # Vérifier d'abord si la migration a déjà été effectuée
+        existing_discoveries = self.sheet_discoveries.get_all_values()
+        if len(existing_discoveries) > 1 and force.lower() != "force":
+            await ctx.send(
+                "⚠️ **Migration déjà effectuée !**\n"
+                f"La feuille de découvertes contient déjà {len(existing_discoveries)-1} entrées.\n"
+                "Si vous voulez vraiment recommencer la migration (⚠️ **DANGER** ⚠️), "
+                "utilisez `!migrer_decouvertes force`\n"
+                "**Attention : Cela effacera toutes les découvertes actuelles !**"
+            )
+            return
+
+        if force.lower() == "force":
+            await ctx.send("⚠️ **MIGRATION FORCÉE** - Effacement des données existantes...")
+        else:
+            await ctx.send("🔄 Migration des découvertes en cours...")
 
         try:
-            # Forcer la migration même si elle a déjà été effectuée
-            with self._discoveries_lock:
+            if force.lower() == "force":
                 # Vider la feuille de découvertes (garder seulement les en-têtes)
                 self.sheet_discoveries.clear()
                 headers = ["Card_Category", "Card_Name", "Discoverer_ID", "Discoverer_Name", "Discovery_Timestamp", "Discovery_Index"]
                 self.sheet_discoveries.update("A1:F1", [headers])
 
-                # Effectuer la migration
-                self.migrate_existing_discoveries()
+            # Effectuer la migration
+            success = self.migrate_existing_discoveries(force=(force.lower() == "force"))
 
-            await ctx.send("✅ Migration des découvertes terminée avec succès!")
+            if success:
+                await ctx.send("✅ Migration des découvertes terminée avec succès!")
+            else:
+                await ctx.send("ℹ️ Aucune migration nécessaire ou aucune donnée à migrer.")
 
         except Exception as e:
             logging.error(f"[MIGRATION_CMD] Erreur: {e}")

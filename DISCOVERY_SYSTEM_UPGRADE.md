@@ -47,13 +47,21 @@ Migre les découvertes existantes depuis l'ancien système.
 #### `!migrer_decouvertes`
 Force la migration manuelle des découvertes existantes vers le nouveau système.
 
-## 🔄 Migration Automatique
+## 🔄 Migration Sécurisée
 
-Le système effectue automatiquement la migration au démarrage :
+**⚠️ IMPORTANT : La migration ne se fait PAS automatiquement au démarrage pour éviter d'écraser les données.**
+
+### Migration Manuelle Uniquement
+La migration doit être déclenchée manuellement via la commande admin :
+- `!migrer_decouvertes` - Migration normale (échoue si déjà effectuée)
+- `!migrer_decouvertes force` - Migration forcée (⚠️ EFFACE les données existantes)
+
+### Processus de Migration
 1. Vérifie si la migration a déjà été effectuée
 2. Analyse la feuille principale pour identifier les découvertes existantes
 3. Prend le premier utilisateur de chaque carte comme découvreur original
 4. Préserve l'ordre de découverte autant que possible
+5. Retourne un statut de succès/échec
 
 ## 📊 Compatibilité
 
@@ -77,9 +85,9 @@ Le système effectue automatiquement la migration au démarrage :
 - Les credentials Google Sheets existants sont utilisés
 
 ### Étapes de Déploiement
-1. Redémarrer le bot pour déclencher la migration automatique
-2. Vérifier les logs pour confirmer la migration réussie
-3. Optionnel : Exécuter `!migrer_decouvertes` pour forcer une nouvelle migration
+1. Redémarrer le bot (la feuille "Découvertes" sera créée automatiquement)
+2. **OBLIGATOIRE** : Exécuter `!migrer_decouvertes` pour migrer les données existantes
+3. Vérifier les logs pour confirmer la migration réussie
 
 ### Vérification Post-Déploiement
 1. Vérifier que la feuille "Découvertes" a été créée
@@ -109,6 +117,13 @@ Le système effectue automatiquement la migration au démarrage :
 
 ## 🔒 Sécurité
 
+### Protection contre les Migrations Accidentelles
+- ✅ **Pas de migration automatique** au démarrage pour éviter d'écraser les données
+- ✅ **Vérification préalable** : la commande échoue si la migration a déjà été effectuée
+- ✅ **Option force explicite** : `!migrer_decouvertes force` pour les cas exceptionnels
+- ✅ **Messages d'avertissement** clairs avant toute action destructive
+
+### Sécurité Générale
 - Validation des paramètres d'entrée
 - Gestion des erreurs avec rollback
 - Verrouillage thread-safe
@@ -118,7 +133,7 @@ Le système effectue automatiquement la migration au démarrage :
 
 - Utilise `threading.Lock()` pour la synchronisation
 - Cache avec TTL de 5 secondes
-- Migration idempotente (peut être exécutée plusieurs fois)
+- Migration sécurisée (protection contre les écrasements accidentels)
 - Gestion gracieuse des erreurs Google Sheets
 
 ---
