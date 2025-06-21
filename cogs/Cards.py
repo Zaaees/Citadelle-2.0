@@ -497,9 +497,47 @@ class Cards(commands.Cog):
 
         return {uid: len(cards) for uid, cards in user_sets.items()}
 
+    def get_unique_card_counts_excluding_full(self) -> dict[int, int]:
+        """Retourne un dictionnaire {user_id: nombre de cartes différentes} en excluant les cartes Full."""
+        now = time.time()
+        if not self.cards_cache or now - self.cards_cache_time > 5:
+            self.refresh_cards_cache()
+
+        if not self.cards_cache:
+            return {}
+
+        rows = self.cards_cache[1:]
+        user_sets: dict[int, set[tuple[str, str]]] = {}
+        for row in rows:
+            if len(row) < 3:
+                continue
+            cat, name = row[0], row[1]
+            # Skip full cards
+            if name.removesuffix('.png').endswith(' (Full)'):
+                continue
+            card_key = (cat, name)
+            for cell in row[2:]:
+                cell = cell.strip()
+                if not cell or ":" not in cell:
+                    continue
+                uid_str, _ = cell.split(":", 1)
+                try:
+                    uid = int(uid_str)
+                except ValueError:
+                    continue
+                user_sets.setdefault(uid, set()).add(card_key)
+
+        return {uid: len(cards) for uid, cards in user_sets.items()}
+
     def get_leaderboard(self, top_n: int = 5) -> list[tuple[int, int]]:
         """Renvoie la liste triée des (user_id, compte unique) pour les `top_n` meilleurs."""
         counts = self.get_unique_card_counts()
+        leaderboard = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+        return leaderboard[:top_n]
+
+    def get_leaderboard_excluding_full(self, top_n: int = 5) -> list[tuple[int, int]]:
+        """Renvoie la liste triée des (user_id, compte unique hors Full) pour les `top_n` meilleurs."""
+        counts = self.get_unique_card_counts_excluding_full()
         leaderboard = sorted(counts.items(), key=lambda x: x[1], reverse=True)
         return leaderboard[:top_n]
 
@@ -514,10 +552,29 @@ class Cards(commands.Cog):
                 break
         return rank, counts.get(user_id, 0)
 
+    def get_user_rank_excluding_full(self, user_id: int) -> tuple[int | None, int]:
+        """Renvoie (rang, nombre de cartes uniques hors Full) de l'utilisateur."""
+        counts = self.get_unique_card_counts_excluding_full()
+        sorted_counts = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+        rank = None
+        for idx, (uid, _) in enumerate(sorted_counts, start=1):
+            if uid == user_id:
+                rank = idx
+                break
+        return rank, counts.get(user_id, 0)
+
     def total_unique_cards_available(self) -> int:
         """Nombre total de cartes différentes existantes."""
         total = 0
         for lst in (*self.cards_by_category.values(), *self.upgrade_cards_by_category.values()):
+            total += len(lst)
+        return total
+
+    def total_unique_cards_available_excluding_full(self) -> int:
+        """Nombre total de cartes différentes existantes en excluant les cartes Full."""
+        total = 0
+        # Count only normal cards (exclude upgrade/full cards)
+        for lst in self.cards_by_category.values():
             total += len(lst)
         return total
 
@@ -774,10 +831,18 @@ class Cards(commands.Cog):
                 total_cards = sum(
                     len(lst) for lst in (*self.cards_by_category.values(), *self.upgrade_cards_by_category.values())
                 )
+                total_cards_excluding_full = sum(len(lst) for lst in self.cards_by_category.values())
+
                 discovered = len(seen) + len(new_draws)
+                discovered_excluding_full = len({(cat, name) for cat, name in (seen | set(new_draws))
+                                                if not name.removesuffix('.png').endswith(' (Full)')})
+
                 remaining = total_cards - discovered
+                remaining_excluding_full = total_cards_excluding_full - discovered_excluding_full
+
                 await announce_channel.send(
-                    f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes)"
+                    f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes) | "
+                    f"Hors Full : {discovered_excluding_full}/{total_cards_excluding_full} ({remaining_excluding_full} restantes)"
                 )
             except Exception as e:
                 logging.error("Erreur lors de la mise à jour du mur :", e)
@@ -820,18 +885,23 @@ class Cards(commands.Cog):
         bonus_tirages = bonus_persos
 
         unique_count = len({(c, n) for c, n in user_cards})
+        unique_count_excluding_full = len({(c, n) for c, n in user_cards if not n.removesuffix('.png').endswith(' (Full)')})
         total_unique = self.total_unique_cards_available()
+        total_unique_excluding_full = self.total_unique_cards_available_excluding_full()
         rank, _ = self.get_user_rank(interaction.user.id)
+        rank_excluding_full, _ = self.get_user_rank_excluding_full(interaction.user.id)
         total_players = len(self.get_unique_card_counts())
+        total_players_excluding_full = len(self.get_unique_card_counts_excluding_full())
         rank_text = f"#{rank}/{total_players}" if rank else "N/A"
+        rank_text_excluding_full = f"#{rank_excluding_full}/{total_players_excluding_full}" if rank_excluding_full else "N/A"
 
         await interaction.followup.send(
             f"**Menu des Cartes :**\n"
             f"🏅 Médailles comptées : **{medals_used}**\n"
             f"➕ Bonus de tirages : **{bonus_tirages}** (via personnages supplémentaires)\n"
             f"🎴 Tirages restants : **{remaining_clicks}**\n"
-            f"📈 Cartes différentes : **{unique_count}/{total_unique}**\n"
-            f"🥇 Classement : **{rank_text}**",
+            f"📈 Cartes différentes : **{unique_count}/{total_unique}** | Hors Full : **{unique_count_excluding_full}/{total_unique_excluding_full}**\n"
+            f"🥇 Classement : **{rank_text}** | Hors Full : **{rank_text_excluding_full}**",
             view=view,
             ephemeral=True
         )
@@ -1723,11 +1793,18 @@ class Cards(commands.Cog):
                 break
 
         total_cards = sum(len(lst) for lst in all_files.values())
+        total_cards_excluding_full = sum(len(lst) for lst in self.cards_by_category.values())
+
         discovered = len(seen_cards)
+        discovered_excluding_full = len({(cat, name) for cat, name in seen_cards
+                                        if not name.removesuffix('.png').endswith(' (Full)')})
+
         remaining = total_cards - discovered
+        remaining_excluding_full = total_cards_excluding_full - discovered_excluding_full
 
         await announce_channel.send(
-            f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes)"
+            f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes) | "
+            f"Hors Full : {discovered_excluding_full}/{total_cards_excluding_full} ({remaining_excluding_full} restantes)"
         )
 
         await ctx.send(f"✅ Mur vérifié : {len(missing_cards)} cartes ajoutées, progression mise à jour.")
@@ -1889,11 +1966,21 @@ class CardsMenuView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
 
         leaderboard = self.cog.get_leaderboard()
+        leaderboard_excluding_full = self.cog.get_leaderboard_excluding_full()
+
+        # Create a mapping for excluding full counts
+        excluding_full_counts = {uid: count for uid, count in leaderboard_excluding_full}
+
         embed = discord.Embed(title="Top 5 des collectionneurs", color=0x4E5D94)
         for idx, (uid, count) in enumerate(leaderboard, start=1):
             user = self.cog.bot.get_user(uid)
             name = user.display_name if user else str(uid)
-            embed.add_field(name=f"#{idx} {name}", value=f"{count} cartes différentes", inline=False)
+            excluding_full_count = excluding_full_counts.get(uid, 0)
+            embed.add_field(
+                name=f"#{idx} {name}",
+                value=f"{count} cartes différentes | Hors Full : {excluding_full_count}",
+                inline=False
+            )
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
