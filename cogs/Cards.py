@@ -785,7 +785,7 @@ class Cards(commands.Cog):
         except Exception as e:
             logging.error(f"[ROLE] Erreur lors de l'assignation de rôle au découvreur {discoverer_id}: {e}")
 
-    def migrate_existing_discoveries(self, force=False):
+    async def migrate_existing_discoveries(self, force=False):
         """Migre les découvertes existantes depuis la feuille principale vers la feuille de découvertes."""
         with self._discoveries_lock:
             try:
@@ -812,11 +812,17 @@ class Cards(commands.Cog):
                             discoverer_id = int(discoverer_id)
                             # Essayer de récupérer le nom de l'utilisateur
                             try:
+                                # D'abord essayer avec get_user (cache)
                                 user = self.bot.get_user(discoverer_id)
                                 if user:
                                     discoverer_name = user.display_name
                                 else:
-                                    discoverer_name = f"User_{discoverer_id}"
+                                    # Si pas en cache, essayer avec fetch_user (API)
+                                    try:
+                                        user = await self.bot.fetch_user(discoverer_id)
+                                        discoverer_name = user.display_name
+                                    except:
+                                        discoverer_name = f"User_{discoverer_id}"
                             except:
                                 discoverer_name = f"User_{discoverer_id}"
 
@@ -848,6 +854,87 @@ class Cards(commands.Cog):
                 logging.error(f"[MIGRATION] Erreur lors de la migration des découvertes: {e}")
                 return False
 
+    async def corriger_noms_utilisateurs(self):
+        """Corrige les noms d'utilisateurs dans la feuille de découvertes."""
+        with self._discoveries_lock:
+            try:
+                # Récupérer toutes les découvertes
+                rows = self.sheet_discoveries.get_all_values()
+                if len(rows) <= 1:  # Pas de données à corriger
+                    return 0
+
+                corrections_count = 0
+                updated_rows = []
+
+                # Traiter chaque ligne (skip header)
+                for i, row in enumerate(rows[1:], start=2):  # start=2 car ligne 1 = header
+                    if len(row) < 4:
+                        continue
+
+                    cat, name, discoverer_id_str, discoverer_name = row[0], row[1], row[2], row[3]
+
+                    # Vérifier si le nom est au format "User_XXXXX"
+                    if discoverer_name.startswith("User_") and discoverer_name[5:].isdigit():
+                        try:
+                            discoverer_id = int(discoverer_id_str)
+
+                            # Essayer de récupérer le vrai nom d'utilisateur
+                            user = self.bot.get_user(discoverer_id)
+                            if user:
+                                new_name = user.display_name
+                            else:
+                                # Si pas en cache, essayer avec fetch_user (API)
+                                try:
+                                    user = await self.bot.fetch_user(discoverer_id)
+                                    new_name = user.display_name
+                                except:
+                                    continue  # Garder l'ancien nom si impossible de récupérer
+
+                            # Mettre à jour la ligne si on a trouvé un nouveau nom
+                            if new_name != discoverer_name:
+                                row[3] = new_name
+                                updated_rows.append((i, row))
+                                corrections_count += 1
+                                logging.info(f"[CORRECTION] Nom corrigé: {discoverer_name} -> {new_name} pour {cat}/{name}")
+
+                        except (ValueError, IndexError):
+                            continue
+
+                # Appliquer les corrections par batch
+                if updated_rows:
+                    for row_num, row_data in updated_rows:
+                        # Mettre à jour la ligne complète
+                        range_name = f"A{row_num}:F{row_num}"
+                        self.sheet_discoveries.update(range_name, [row_data])
+
+                    # Rafraîchir le cache
+                    self.refresh_discoveries_cache()
+                    logging.info(f"[CORRECTION] {corrections_count} noms d'utilisateurs corrigés")
+
+                return corrections_count
+
+            except Exception as e:
+                logging.error(f"[CORRECTION] Erreur lors de la correction des noms: {e}")
+                return 0
+
+    @commands.command(name="corriger_noms_decouvreurs", help="Corrige les noms d'utilisateurs dans les découvertes")
+    @commands.has_permissions(administrator=True)
+    async def corriger_noms_decouvreurs(self, ctx: commands.Context):
+        """Commande pour corriger les noms d'utilisateurs dans les découvertes."""
+        await ctx.send("🔧 Correction des noms d'utilisateurs en cours...")
+
+        try:
+            corrections_count = await self.corriger_noms_utilisateurs()
+
+            if corrections_count > 0:
+                await ctx.send(f"✅ {corrections_count} noms d'utilisateurs corrigés avec succès!")
+            else:
+                await ctx.send("ℹ️ Aucune correction nécessaire.")
+
+        except Exception as e:
+            logging.error(f"[CORRECTION_CMD] Erreur: {e}")
+            await ctx.send(f"❌ Erreur lors de la correction: {e}")
+
     @commands.command(name="migrer_decouvertes", help="Migre les découvertes existantes vers le nouveau système")
     @commands.has_permissions(administrator=True)
     async def migrer_decouvertes(self, ctx: commands.Context, force: str = ""):
@@ -878,7 +965,7 @@ class Cards(commands.Cog):
                 self.sheet_discoveries.update("A1:F1", [headers])
 
             # Effectuer la migration
-            success = self.migrate_existing_discoveries(force=(force.lower() == "force"))
+            success = await self.migrate_existing_discoveries(force=(force.lower() == "force"))
 
             if success:
                 await ctx.send("✅ Migration des découvertes terminée avec succès!")
