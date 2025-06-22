@@ -2986,76 +2986,111 @@ class Cards(commands.Cog):
     @commands.command(name="reconstruire_mur", help="Reconstruit le forum des cartes dans l'ordre de première découverte")
     @commands.has_permissions(administrator=True)
     async def reconstruire_mur(self, ctx: commands.Context):
-        announce_channel = self.bot.get_channel(1360512727784882207)
-        if not announce_channel:
+        """Reconstruit complètement le forum des cartes avec toutes les découvertes."""
+        await self._rebuild_forum_wall(ctx)
+
+    @commands.command(name="nettoyer_ancien_mur", help="Nettoie l'ancien salon mur des cartes")
+    @commands.has_permissions(administrator=True)
+    async def nettoyer_ancien_mur(self, ctx: commands.Context):
+        """Nettoie l'ancien salon mur des cartes (ID: 1360512727784882207)."""
+        old_announce_channel = self.bot.get_channel(1360512727784882207)
+        if not old_announce_channel:
             await ctx.send("Salon d’annonce introuvable.")
             return
 
-        # Purge du salon
-        await ctx.send("🧼 Suppression de tous les messages du mur en cours…")
+
+        # Confirmation avant suppression
+        embed = discord.Embed(
+            title="⚠️ Confirmation de nettoyage",
+            description=(
+                f"Vous êtes sur le point de **supprimer tous les messages** de l'ancien salon mur des cartes :\n"
+                f"**{old_announce_channel.name}** (ID: {old_announce_channel.id})\n\n"
+                f"⚠️ **Cette action est irréversible !**\n\n"
+                f"Le nouveau système utilise maintenant le forum : <#{self.CARD_FORUM_CHANNEL_ID}>\n"
+                f"Utilisez `!reconstruire_mur` pour reconstruire le forum avec toutes les découvertes."
+            ),
+            color=0xff9900
+        )
+
+        view = CleanupConfirmationView(self, old_announce_channel)
+        await ctx.send(embed=embed, view=view)
+
+    @commands.command(name="statut_forum_cartes", help="Affiche le statut du forum des cartes")
+    @commands.has_permissions(administrator=True)
+    async def statut_forum_cartes(self, ctx: commands.Context):
+        """Affiche des informations sur le statut du forum des cartes."""
         try:
-            await announce_channel.purge(limit=None)
-        except Exception as e:
-            logging.warning(f"[RECONSTRUIRE_MUR] Impossible de tout purger : {e}")
+            # Vérifier que le canal forum existe
+            forum_channel = self.bot.get_channel(self.CARD_FORUM_CHANNEL_ID)
+            if not forum_channel:
+                forum_channel = await self.bot.fetch_channel(self.CARD_FORUM_CHANNEL_ID)
 
-        # Fusionner cartes normales et Full
-        all_files = {}
-        for category, files in self.cards_by_category.items():
-            all_files.setdefault(category, []).extend(files)
-        for category, files in self.upgrade_cards_by_category.items():
-            all_files.setdefault(category, []).extend(files)
+            if not isinstance(forum_channel, discord.ForumChannel):
+                await ctx.send(f"❌ Le canal {self.CARD_FORUM_CHANNEL_ID} n'est pas un canal forum.")
+                return
 
-        try:
-            # Utiliser la nouvelle feuille de découvertes triée par index de découverte
-            discovery_rows = self.sheet_discoveries.get_all_values()[1:]  # Skip header
-            # Trier par index de découverte (colonne 6)
-            discovery_rows.sort(key=lambda row: int(row[5]) if len(row) >= 6 and row[5].isdigit() else 0)
+            # Récupérer les statistiques
+            categories = self.get_all_card_categories()
+            discovered_cards = self.get_discovered_cards()
 
-            for row in discovery_rows:
-                if len(row) < 6:
-                    continue
+            # Compter les cartes par catégorie
+            cards_by_category = {}
+            for cat, name in discovered_cards:
+                if name.removesuffix('.png').endswith(' (Full)'):
+                    cards_by_category.setdefault("Full", []).append((cat, name))
+                else:
+                    cards_by_category.setdefault(cat, []).append((cat, name))
 
-                cat, name, discoverer_id_str, discoverer_name, timestamp, discovery_index = row
-                discovery_index = int(discovery_index)
+            embed = discord.Embed(
+                title="📊 Statut du Forum des Cartes",
+                description=f"**Forum :** <#{self.CARD_FORUM_CHANNEL_ID}>",
+                color=0x4E5D94
+            )
 
-                file_id = next(
-                    (f['id'] for f in all_files.get(cat, []) if f['name'].removesuffix(".png") == name),
-                    None
+            # Statistiques générales
+            total_discovered = len(discovered_cards)
+            total_discovered_excluding_full = len([
+                (cat, name) for cat, name in discovered_cards
+                if not name.removesuffix('.png').endswith(' (Full)')
+            ])
+
+            embed.add_field(
+                name="📈 Statistiques Générales",
+                value=(
+                    f"**Cartes découvertes :** {total_discovered}\n"
+                    f"**Hors Full :** {total_discovered_excluding_full}\n"
+                    f"**Catégories actives :** {len(categories)}"
+                ),
+                inline=False
+            )
+
+            # Détail par catégorie
+            category_details = []
+            for category in categories:
+                count = len(cards_by_category.get(category, []))
+                if count > 0:
+                    category_details.append(f"**{category} :** {count} cartes")
+
+            if category_details:
+                embed.add_field(
+                    name="📋 Répartition par Catégorie",
+                    value="\n".join(category_details[:10]),  # Limiter à 10 pour éviter la limite Discord
+                    inline=False
                 )
-                if not file_id:
-                    continue
 
-                file_bytes = self.download_drive_file(file_id)
-                embed, image_file = self.build_card_embed(cat, name, file_bytes)
-                embed.set_footer(text=(
-                    f"Découverte par : {discoverer_name}\n"
-                    f"→ {discovery_index}{'ère' if discovery_index == 1 else 'ème'} carte découverte"
-                ))
-
-                await announce_channel.send(embed=embed, file=image_file)
-                await asyncio.sleep(0.5)
-
-            total_cards = sum(len(lst) for lst in all_files.values())
-            total_cards_excluding_full = sum(len(lst) for lst in self.cards_by_category.values())
-
-            discovered = len(discovery_rows)
-            discovered_excluding_full = len([row for row in discovery_rows
-                                           if len(row) >= 2 and not row[1].removesuffix('.png').endswith(' (Full)')])
-
-            remaining = total_cards - discovered
-            remaining_excluding_full = total_cards_excluding_full - discovered_excluding_full
-
-            await announce_channel.send(
-                f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes) | "
-                f"Hors Full : {discovered_excluding_full}/{total_cards_excluding_full} ({remaining_excluding_full} restantes)"
+            # Informations sur les threads
+            thread_count = len([thread for thread in forum_channel.threads if not thread.archived])
+            embed.add_field(
+                name="🧵 Threads du Forum",
+                value=f"**Threads actifs :** {thread_count}",
+                inline=False
             )
 
-            await ctx.send(
-                f"✅ Mur reconstruit : {discovered}/{total_cards} cartes postées ({remaining} restantes)."
-            )
+            await ctx.send(embed=embed)
+
         except Exception as e:
-            logging.error(f"[RECONSTRUIRE_MUR] Erreur : {e}")
-            await ctx.send("❌ Une erreur est survenue lors de la reconstruction.")
+            await ctx.send(f"❌ Erreur lors de la récupération du statut: {e}")
+            logging.error(f"[FORUM_STATUS] Erreur: {e}")
 
     async def _rebuild_forum_wall(self, ctx: commands.Context):
         """Reconstruit le mur dans le système forum."""
@@ -5150,6 +5185,53 @@ class TradeResponseModal(discord.ui.Modal, title="Réponse à l’échange"):
             logging.warning("[TRADE] Impossible d’envoyer un DM au proposeur.")
 
 
+
+class CleanupConfirmationView(discord.ui.View):
+    def __init__(self, cog: Cards, old_channel: discord.TextChannel):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.old_channel = old_channel
+
+    @discord.ui.button(label="✅ Confirmer le nettoyage", style=discord.ButtonStyle.danger)
+    async def confirm_cleanup(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+
+        try:
+            await interaction.followup.send("🧼 Suppression de tous les messages de l'ancien salon en cours...")
+
+            # Purger l'ancien salon
+            deleted_count = 0
+            async for message in self.old_channel.history(limit=None):
+                try:
+                    await message.delete()
+                    deleted_count += 1
+                    if deleted_count % 50 == 0:  # Mise à jour tous les 50 messages
+                        await interaction.edit_original_response(
+                            content=f"🧼 Suppression en cours... {deleted_count} messages supprimés"
+                        )
+                except discord.NotFound:
+                    pass  # Message déjà supprimé
+                except discord.HTTPException as e:
+                    logging.warning(f"[CLEANUP] Impossible de supprimer un message: {e}")
+
+            await interaction.edit_original_response(
+                content=f"✅ Nettoyage terminé ! {deleted_count} messages supprimés de l'ancien salon.\n"
+                        f"Le nouveau système forum est maintenant actif : <#{self.cog.CARD_FORUM_CHANNEL_ID}>"
+            )
+
+        except Exception as e:
+            await interaction.edit_original_response(
+                content=f"❌ Erreur lors du nettoyage: {e}"
+            )
+            logging.error(f"[CLEANUP] Erreur: {e}")
+
+    @discord.ui.button(label="❌ Annuler", style=discord.ButtonStyle.secondary)
+    async def cancel_cleanup(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(
+            content="❌ Nettoyage annulé. L'ancien salon n'a pas été modifié.",
+            embed=None,
+            view=None
+        )
 
 async def setup(bot):
     cards = Cards(bot)
