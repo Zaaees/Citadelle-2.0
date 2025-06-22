@@ -2822,16 +2822,15 @@ class CardsMenuView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
 
         leaderboard = self.cog.get_leaderboard()
-        leaderboard_excluding_full = self.cog.get_leaderboard_excluding_full()
 
-        # Create a mapping for excluding full counts
-        excluding_full_counts = {uid: count for uid, count in leaderboard_excluding_full}
+        # Get the excluding full counts for ALL users, not just top 5
+        all_excluding_full_counts = self.cog.get_unique_card_counts_excluding_full()
 
         embed = discord.Embed(title="Top 5 des collectionneurs", color=0x4E5D94)
         for idx, (uid, count) in enumerate(leaderboard, start=1):
             user = self.cog.bot.get_user(uid)
             name = user.display_name if user else str(uid)
-            excluding_full_count = excluding_full_counts.get(uid, 0)
+            excluding_full_count = all_excluding_full_counts.get(uid, 0)
             embed.add_field(
                 name=f"#{idx} {name}",
                 value=f"{count} cartes différentes | Hors Full : {excluding_full_count}",
