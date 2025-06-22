@@ -1501,13 +1501,8 @@ class Cards(commands.Cog):
         return 0
 
     async def _handle_announce_and_wall(self, interaction: discord.Interaction, drawn_cards: list[tuple[str, str]]):
-        # Déterminer si on utilise le système forum ou l'ancien système
-        use_forum = self.CARD_FORUM_CHANNEL_ID is not None
-
-        if use_forum:
-            await self._handle_forum_posting(interaction, drawn_cards)
-        else:
-            await self._handle_legacy_wall_posting(interaction, drawn_cards)
+        # Le système forum est maintenant toujours activé
+        await self._handle_forum_posting(interaction, drawn_cards)
 
     async def _handle_forum_posting(self, interaction: discord.Interaction, drawn_cards: list[tuple[str, str]]):
         """Nouvelle méthode pour poster les cartes dans le système forum."""
@@ -1559,60 +1554,26 @@ class Cards(commands.Cog):
             logging.error(f"[FORUM] Erreur lors du posting forum: {e}")
 
     async def _update_progress_message(self, discovered_cards: set, new_draws: list):
-        """Met à jour le message de progression des découvertes."""
+        """Met à jour le message de progression des découvertes dans le forum."""
         try:
-            # Déterminer si on utilise le système forum ou legacy
-            use_forum = self.CARD_FORUM_CHANNEL_ID is not None
+            # Pour le système forum, mettre à jour les headers des threads
+            forum_channel = self.bot.get_channel(self.CARD_FORUM_CHANNEL_ID)
+            if forum_channel and isinstance(forum_channel, discord.ForumChannel):
+                # Mettre à jour les headers des threads concernés par les nouvelles cartes
+                updated_categories = set()
+                for cat, name in new_draws:
+                    # Déterminer la catégorie du thread
+                    if name.removesuffix('.png').endswith(' (Full)'):
+                        updated_categories.add("Full")
+                    else:
+                        updated_categories.add(cat)
 
-            if use_forum:
-                # Pour le système forum, mettre à jour les headers des threads
-                forum_channel = self.bot.get_channel(self.CARD_FORUM_CHANNEL_ID)
-                if forum_channel and isinstance(forum_channel, discord.ForumChannel):
-                    # Mettre à jour les headers des threads concernés par les nouvelles cartes
-                    updated_categories = set()
-                    for cat, name in new_draws:
-                        # Déterminer la catégorie du thread
-                        if name.removesuffix('.png').endswith(' (Full)'):
-                            updated_categories.add("Full")
-                        else:
-                            updated_categories.add(cat)
-
-                    # Mettre à jour les headers des catégories concernées
-                    for category in updated_categories:
-                        try:
-                            await self.update_category_thread_header(forum_channel, category)
-                        except Exception as e:
-                            logging.error(f"[FORUM] Erreur mise à jour header {category}: {e}")
-            else:
-                # Système legacy: poster le message de progression dans le canal d'annonce
-                announce_channel = self.bot.get_channel(1360512727784882207)
-                if not announce_channel:
-                    return
-
-                # Supprimer l'ancien message de progression
-                async for msg in announce_channel.history(limit=20):
-                    if msg.author == self.bot.user and msg.content.startswith("📝 Cartes découvertes"):
-                        await msg.delete()
-                        break
-
-                total_cards = sum(
-                    len(lst) for lst in (*self.cards_by_category.values(), *self.upgrade_cards_by_category.values())
-                )
-                total_cards_excluding_full = sum(len(lst) for lst in self.cards_by_category.values())
-
-                # Utiliser les cartes découvertes depuis la nouvelle feuille
-                all_discovered = discovered_cards | set(new_draws)
-                discovered = len(all_discovered)
-                discovered_excluding_full = len({(cat, name) for cat, name in all_discovered
-                                                if not name.removesuffix('.png').endswith(' (Full)')})
-
-                remaining = total_cards - discovered
-                remaining_excluding_full = total_cards_excluding_full - discovered_excluding_full
-
-                await announce_channel.send(
-                    f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes) | "
-                    f"Hors Full : {discovered_excluding_full}/{total_cards_excluding_full} ({remaining_excluding_full} restantes)"
-                )
+                # Mettre à jour les headers des catégories concernées
+                for category in updated_categories:
+                    try:
+                        await self.update_category_thread_header(forum_channel, category)
+                    except Exception as e:
+                        logging.error(f"[FORUM] Erreur mise à jour header {category}: {e}")
         except Exception as e:
             logging.error(f"[PROGRESS] Erreur lors de la mise à jour du message de progression: {e}")
 
@@ -3215,15 +3176,7 @@ class Cards(commands.Cog):
             await ctx.send(f"❌ Erreur lors de la population des threads: {e}")
             logging.error(f"[FORUM_REBUILD] Erreur: {e}")
 
-    async def _rebuild_legacy_wall(self, ctx: commands.Context):
-        """Reconstruit le mur dans le système legacy."""
-        # Déterminer si on utilise le système forum ou legacy
-        use_forum = self.CARD_FORUM_CHANNEL_ID is not None
 
-        if use_forum:
-            await self._rebuild_forum_wall(ctx)
-        else:
-            await self._rebuild_legacy_wall(ctx)
 
     @app_commands.command(
         name="reclamer_bonus",
@@ -3494,16 +3447,11 @@ class Cards(commands.Cog):
             await ctx.send(f"❌ Erreur critique lors de l'assignation des rôles: {e}")
             logging.error(f"[BULK_ROLE] Erreur critique: {e}")
 
-    @commands.command(name="verifier_mur", help="Vérifie et met à jour le mur des cartes")
+    @commands.command(name="verifier_mur", help="Vérifie et met à jour le forum des cartes")
     @commands.has_permissions(administrator=True)
     async def verifier_mur(self, ctx: commands.Context):
-        # Déterminer si on utilise le système forum ou legacy
-        use_forum = self.CARD_FORUM_CHANNEL_ID is not None
-
-        if use_forum:
-            await self._verify_forum_wall(ctx)
-        else:
-            await self._verify_legacy_wall(ctx)
+        # Le système forum est maintenant toujours activé
+        await self._verify_forum_wall(ctx)
 
     async def _verify_forum_wall(self, ctx: commands.Context):
         """Vérifie et met à jour le forum des cartes."""
@@ -3607,92 +3555,7 @@ class Cards(commands.Cog):
         except Exception as e:
             logging.error(f"[UPDATE_HEADERS] Erreur: {e}")
 
-    async def _verify_legacy_wall(self, ctx: commands.Context):
-        """Vérifie et met à jour le mur legacy."""
-        announce_channel = self.bot.get_channel(1360512727784882207)  # Remplace par ton ID si nécessaire
-        if not announce_channel:
-            await ctx.send("Salon d'annonce introuvable.")
-            return
 
-        await ctx.send("🔍 Vérification du mur des cartes en cours...")
-
-        # Récupérer les cartes découvertes depuis la nouvelle feuille
-        discovered_cards = self.get_discovered_cards()
-
-        # Fusionner cartes normales et Full
-        all_files = {}
-        for cat, files in self.cards_by_category.items():
-            all_files.setdefault(cat, []).extend(files)
-        for cat, files in self.upgrade_cards_by_category.items():
-            all_files.setdefault(cat, []).extend(files)
-
-        # Détecter les cartes manquantes sur le mur
-        missing_cards = []
-        for card in discovered_cards:
-            cat, name = card
-            message_exists = False
-            async for msg in announce_channel.history(limit=None):
-                if msg.embeds and msg.embeds[0].title == name:
-                    message_exists = True
-                    break
-            if not message_exists:
-                missing_cards.append((cat, name))
-
-        # Poster les cartes manquantes
-        for cat, name in missing_cards:
-            discovery_info = self.get_discovery_info(cat, name)
-            if discovery_info:
-                discoverer_name = discovery_info['discoverer_name']
-                discovery_index = discovery_info['discovery_index']
-            else:
-                discoverer_name = "Inconnu"
-                discovery_index = 0
-
-            file_id = next((f['id'] for f in all_files.get(cat, []) if f['name'].removesuffix(".png") == name), None)
-            if not file_id:
-                continue
-
-            file_bytes = self.download_drive_file(file_id)
-            safe_name = self.sanitize_filename(name)
-            image_file = discord.File(io.BytesIO(file_bytes), filename=f"{safe_name}.png")
-
-            embed = discord.Embed(
-                title=name,
-                description=f"Catégorie : **{cat}**",
-                color=0x4E5D94
-            )
-            embed.set_image(url=f"attachment://{safe_name}.png")
-            embed.set_footer(
-                text=(
-                    f"Découverte par : {discoverer_name}\n"
-                    f"→ {discovery_index}{'ère' if discovery_index == 1 else 'ème'} carte découverte"
-                )
-            )
-            await announce_channel.send(embed=embed, file=image_file)
-            await asyncio.sleep(1)
-
-        # Mise à jour du message de progression
-        async for msg in announce_channel.history(limit=50):
-            if msg.author == self.bot.user and msg.content.startswith("📝 Cartes découvertes"):
-                await msg.delete()
-                break
-
-        total_cards = sum(len(lst) for lst in all_files.values())
-        total_cards_excluding_full = sum(len(lst) for lst in self.cards_by_category.values())
-
-        discovered = len(discovered_cards)
-        discovered_excluding_full = len({(cat, name) for cat, name in discovered_cards
-                                        if not name.removesuffix('.png').endswith(' (Full)')})
-
-        remaining = total_cards - discovered
-        remaining_excluding_full = total_cards_excluding_full - discovered_excluding_full
-
-        await announce_channel.send(
-            f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes) | "
-            f"Hors Full : {discovered_excluding_full}/{total_cards_excluding_full} ({remaining_excluding_full} restantes)"
-        )
-
-        await ctx.send(f"✅ Mur vérifié : {len(missing_cards)} cartes ajoutées, progression mise à jour.")
 
     @commands.command(
         name="forcer_full",
