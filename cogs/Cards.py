@@ -873,8 +873,23 @@ class Cards(commands.Cog):
 
                     cat, name, discoverer_id_str, discoverer_name = row[0], row[1], row[2], row[3]
 
-                    # Vérifier si le nom est au format "User_XXXXX"
+                    # Vérifier si le nom est au format d'un ID utilisateur (plusieurs formats possibles)
+                    needs_correction = False
+
+                    # Format "User_XXXXX"
                     if discoverer_name.startswith("User_") and discoverer_name[5:].isdigit():
+                        needs_correction = True
+                    # Format "user_id" exact
+                    elif discoverer_name == "user_id":
+                        needs_correction = True
+                    # Format numérique pur (ID Discord)
+                    elif discoverer_name.isdigit() and len(discoverer_name) >= 15:  # IDs Discord font au moins 15 caractères
+                        needs_correction = True
+                    # Format avec préfixe "user" suivi d'un ID
+                    elif discoverer_name.lower().startswith("user") and any(char.isdigit() for char in discoverer_name):
+                        needs_correction = True
+
+                    if needs_correction:
                         try:
                             discoverer_id = int(discoverer_id_str)
 
@@ -916,6 +931,106 @@ class Cards(commands.Cog):
             except Exception as e:
                 logging.error(f"[CORRECTION] Erreur lors de la correction des noms: {e}")
                 return 0
+
+    @commands.command(name="diagnostiquer_noms_decouvreurs", help="Diagnostique les noms d'utilisateurs qui ont besoin d'être corrigés")
+    @commands.has_permissions(administrator=True)
+    async def diagnostiquer_noms_decouvreurs(self, ctx: commands.Context):
+        """Commande pour diagnostiquer les noms d'utilisateurs dans les découvertes."""
+        try:
+            # Récupérer toutes les découvertes
+            rows = self.sheet_discoveries.get_all_values()
+            if len(rows) <= 1:  # Pas de données à analyser
+                await ctx.send("ℹ️ Aucune découverte trouvée dans la base de données.")
+                return
+
+            problematic_names = []
+            total_entries = 0
+
+            # Analyser chaque ligne (skip header)
+            for i, row in enumerate(rows[1:], start=2):  # start=2 car ligne 1 = header
+                if len(row) < 4:
+                    continue
+
+                total_entries += 1
+                cat, name, discoverer_id_str, discoverer_name = row[0], row[1], row[2], row[3]
+
+                # Vérifier si le nom a besoin d'être corrigé (même logique que corriger_noms_utilisateurs)
+                needs_correction = False
+
+                # Format "User_XXXXX"
+                if discoverer_name.startswith("User_") and discoverer_name[5:].isdigit():
+                    needs_correction = True
+                # Format "user_id" exact
+                elif discoverer_name == "user_id":
+                    needs_correction = True
+                # Format numérique pur (ID Discord)
+                elif discoverer_name.isdigit() and len(discoverer_name) >= 15:  # IDs Discord font au moins 15 caractères
+                    needs_correction = True
+                # Format avec préfixe "user" suivi d'un ID
+                elif discoverer_name.lower().startswith("user") and any(char.isdigit() for char in discoverer_name):
+                    needs_correction = True
+
+                if needs_correction:
+                    problematic_names.append({
+                        'line': i,
+                        'card': f"{cat}/{name}",
+                        'current_name': discoverer_name,
+                        'discoverer_id': discoverer_id_str
+                    })
+
+            # Créer l'embed de diagnostic
+            embed = discord.Embed(
+                title="🔍 Diagnostic des Noms de Découvreurs",
+                color=0xff9900 if problematic_names else 0x00ff00
+            )
+
+            embed.add_field(
+                name="📊 Statistiques",
+                value=(
+                    f"**Total d'entrées :** {total_entries}\n"
+                    f"**Noms problématiques :** {len(problematic_names)}\n"
+                    f"**Noms corrects :** {total_entries - len(problematic_names)}"
+                ),
+                inline=False
+            )
+
+            if problematic_names:
+                # Afficher les premiers exemples problématiques
+                examples = problematic_names[:10]  # Limiter à 10 exemples
+                examples_text = []
+                for item in examples:
+                    examples_text.append(f"• **{item['card']}** : `{item['current_name']}` (ID: {item['discoverer_id']})")
+
+                embed.add_field(
+                    name="⚠️ Exemples de Noms Problématiques",
+                    value="\n".join(examples_text),
+                    inline=False
+                )
+
+                if len(problematic_names) > 10:
+                    embed.add_field(
+                        name="ℹ️ Note",
+                        value=f"... et {len(problematic_names) - 10} autres noms problématiques.",
+                        inline=False
+                    )
+
+                embed.add_field(
+                    name="🔧 Action Recommandée",
+                    value="Utilisez `!corriger_noms_decouvreurs` pour corriger automatiquement ces noms.",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="✅ Résultat",
+                    value="Tous les noms de découvreurs sont corrects !",
+                    inline=False
+                )
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            logging.error(f"[DIAGNOSTIC_CMD] Erreur: {e}")
+            await ctx.send(f"❌ Erreur lors du diagnostic: {e}")
 
     @commands.command(name="corriger_noms_decouvreurs", help="Corrige les noms d'utilisateurs dans les découvertes")
     @commands.has_permissions(administrator=True)
