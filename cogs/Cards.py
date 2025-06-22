@@ -2001,12 +2001,8 @@ class Cards(commands.Cog):
             logging.error(f"[FORUM_UPDATE] Erreur: {e}")
 
     async def _handle_legacy_wall_posting(self, interaction: discord.Interaction, drawn_cards: list[tuple[str, str]]):
-        """Méthode legacy pour poster les cartes dans l'ancien système de mur."""
-        announce_channel = self.bot.get_channel(1360512727784882207)
-        if not announce_channel:
-            return
-
-        try:
+        """Méthode legacy supprimée - forum uniquement."""
+        pass
                 # 1) Charger toutes les cartes déjà découvertes depuis la nouvelle feuille de découvertes
                 discovered_cards = self.get_discovered_cards()
 
