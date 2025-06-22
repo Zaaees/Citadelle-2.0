@@ -854,8 +854,12 @@ class Cards(commands.Cog):
                 logging.error(f"[MIGRATION] Erreur lors de la migration des découvertes: {e}")
                 return False
 
-    async def corriger_noms_utilisateurs(self):
-        """Corrige les noms d'utilisateurs dans la feuille de découvertes."""
+    async def corriger_noms_utilisateurs(self, force_fallback: bool = False):
+        """Corrige les noms d'utilisateurs dans la feuille de découvertes.
+
+        Args:
+            force_fallback: Si True, utilise un nom de fallback pour les utilisateurs introuvables
+        """
         with self._discoveries_lock:
             try:
                 # Récupérer toutes les découvertes
@@ -892,6 +896,7 @@ class Cards(commands.Cog):
                     if needs_correction:
                         try:
                             discoverer_id = int(discoverer_id_str)
+                            new_name = None
 
                             # Essayer de récupérer le vrai nom d'utilisateur
                             user = self.bot.get_user(discoverer_id)
@@ -903,10 +908,14 @@ class Cards(commands.Cog):
                                     user = await self.bot.fetch_user(discoverer_id)
                                     new_name = user.display_name
                                 except:
-                                    continue  # Garder l'ancien nom si impossible de récupérer
+                                    # Si force_fallback est activé, utiliser un nom générique
+                                    if force_fallback:
+                                        new_name = f"Utilisateur#{str(discoverer_id)[-4:]}"  # Derniers 4 chiffres de l'ID
+                                    else:
+                                        continue  # Garder l'ancien nom si impossible de récupérer
 
                             # Mettre à jour la ligne si on a trouvé un nouveau nom
-                            if new_name != discoverer_name:
+                            if new_name and new_name != discoverer_name:
                                 row[3] = new_name
                                 updated_rows.append((i, row))
                                 corrections_count += 1
@@ -1034,21 +1043,96 @@ class Cards(commands.Cog):
 
     @commands.command(name="corriger_noms_decouvreurs", help="Corrige les noms d'utilisateurs dans les découvertes")
     @commands.has_permissions(administrator=True)
-    async def corriger_noms_decouvreurs(self, ctx: commands.Context):
-        """Commande pour corriger les noms d'utilisateurs dans les découvertes."""
-        await ctx.send("🔧 Correction des noms d'utilisateurs en cours...")
+    async def corriger_noms_decouvreurs(self, ctx: commands.Context, force: str = ""):
+        """Commande pour corriger les noms d'utilisateurs dans les découvertes.
+
+        Args:
+            force: Utiliser 'force' pour forcer la correction avec des noms de fallback
+        """
+        force_fallback = force.lower() == "force"
+
+        if force_fallback:
+            await ctx.send("🔧 Correction **forcée** des noms d'utilisateurs en cours (avec noms de fallback)...")
+        else:
+            await ctx.send("🔧 Correction des noms d'utilisateurs en cours...")
 
         try:
-            corrections_count = await self.corriger_noms_utilisateurs()
+            corrections_count = await self.corriger_noms_utilisateurs(force_fallback=force_fallback)
 
             if corrections_count > 0:
-                await ctx.send(f"✅ {corrections_count} noms d'utilisateurs corrigés avec succès!")
+                if force_fallback:
+                    await ctx.send(f"✅ {corrections_count} noms d'utilisateurs corrigés avec succès (certains avec des noms de fallback)!")
+                else:
+                    await ctx.send(f"✅ {corrections_count} noms d'utilisateurs corrigés avec succès!")
             else:
                 await ctx.send("ℹ️ Aucune correction nécessaire.")
 
         except Exception as e:
             logging.error(f"[CORRECTION_CMD] Erreur: {e}")
             await ctx.send(f"❌ Erreur lors de la correction: {e}")
+
+    @commands.command(name="corriger_tout_noms_decouvreurs", help="Corrige TOUS les noms problématiques avec des fallbacks si nécessaire")
+    @commands.has_permissions(administrator=True)
+    async def corriger_tout_noms_decouvreurs(self, ctx: commands.Context):
+        """Commande pour corriger automatiquement TOUS les noms problématiques."""
+        embed = discord.Embed(
+            title="🔧 Correction Complète des Noms",
+            description=(
+                "Cette commande va corriger **tous** les noms problématiques :\n\n"
+                "✅ **Étape 1** : Correction normale (récupération des vrais noms)\n"
+                "✅ **Étape 2** : Correction forcée (noms de fallback pour les utilisateurs introuvables)\n\n"
+                "**Résultat** : Tous les noms seront lisibles et propres !"
+            ),
+            color=0x4E5D94
+        )
+
+        await ctx.send(embed=embed)
+
+        try:
+            # Étape 1: Correction normale
+            await ctx.send("🔄 **Étape 1/2** : Correction normale en cours...")
+            corrections_normal = await self.corriger_noms_utilisateurs(force_fallback=False)
+
+            # Étape 2: Correction forcée pour les restants
+            await ctx.send("🔄 **Étape 2/2** : Correction forcée pour les utilisateurs introuvables...")
+            corrections_force = await self.corriger_noms_utilisateurs(force_fallback=True)
+
+            total_corrections = corrections_normal + corrections_force
+
+            # Résultat final
+            result_embed = discord.Embed(
+                title="✅ Correction Terminée !",
+                color=0x00ff00
+            )
+
+            result_embed.add_field(
+                name="📊 Résultats",
+                value=(
+                    f"**Corrections normales :** {corrections_normal}\n"
+                    f"**Corrections forcées :** {corrections_force}\n"
+                    f"**Total corrigé :** {total_corrections}"
+                ),
+                inline=False
+            )
+
+            if total_corrections > 0:
+                result_embed.add_field(
+                    name="🎉 Succès",
+                    value="Tous les noms problématiques ont été corrigés ! Le mur des cartes affiche maintenant des noms lisibles.",
+                    inline=False
+                )
+            else:
+                result_embed.add_field(
+                    name="ℹ️ Information",
+                    value="Aucune correction n'était nécessaire. Tous les noms sont déjà corrects !",
+                    inline=False
+                )
+
+            await ctx.send(embed=result_embed)
+
+        except Exception as e:
+            logging.error(f"[CORRECTION_COMPLETE_CMD] Erreur: {e}")
+            await ctx.send(f"❌ Erreur lors de la correction complète: {e}")
 
     @commands.command(name="migrer_decouvertes", help="Migre les découvertes existantes vers le nouveau système")
     @commands.has_permissions(administrator=True)
