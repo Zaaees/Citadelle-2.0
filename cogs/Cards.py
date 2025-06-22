@@ -578,13 +578,47 @@ class Cards(commands.Cog):
             # Créer un nouveau thread si non trouvé
             logging.info(f"[FORUM] Création d'un nouveau thread pour la catégorie: {category}")
 
-            # Créer l'embed initial pour le thread
+            # Calculer les statistiques pour l'embed initial
+            cat_total, cat_discovered, cat_remaining = self.get_category_card_counts(category)
+            global_total, global_discovered, global_remaining, global_no_full_total, global_no_full_discovered, global_no_full_remaining = self.get_global_card_counts()
+
+            # Créer l'embed initial pour le thread avec statistiques
             embed = discord.Embed(
                 title=f"🎴 Cartes {category}",
-                description=f"Ce thread contient toutes les cartes découvertes de la catégorie **{category}**.\n"
-                           f"Les cartes sont affichées dans l'ordre chronologique de découverte.",
                 color=0x4E5D94
             )
+
+            # Description avec statistiques de la catégorie
+            if category == "Full":
+                description = (
+                    f"Ce thread contient toutes les cartes **Full** découvertes.\n"
+                    f"Les cartes sont affichées dans l'ordre chronologique de découverte.\n\n"
+                    f"📊 **Progression {category}** : {cat_discovered}/{cat_total} "
+                    f"({cat_remaining} restantes)"
+                )
+            else:
+                description = (
+                    f"Ce thread contient toutes les cartes découvertes de la catégorie **{category}**.\n"
+                    f"Les cartes sont affichées dans l'ordre chronologique de découverte.\n\n"
+                    f"📊 **Progression {category}** : {cat_discovered}/{cat_total} "
+                    f"({cat_remaining} restantes)"
+                )
+
+            embed.description = description
+
+            # Ajouter les statistiques globales
+            embed.add_field(
+                name="📈 Progression Globale",
+                value=(
+                    f"**Toutes cartes** : {global_discovered}/{global_total} ({global_remaining} restantes)\n"
+                    f"**Hors Full** : {global_no_full_discovered}/{global_no_full_total} ({global_no_full_remaining} restantes)"
+                ),
+                inline=False
+            )
+
+            # Ajouter un timestamp
+            embed.timestamp = discord.utils.utcnow()
+            embed.set_footer(text="Dernière mise à jour")
 
             # Créer le thread avec le message initial
             thread = await forum_channel.create_thread(
@@ -592,6 +626,15 @@ class Cards(commands.Cog):
                 embed=embed,
                 reason=f"Création automatique du thread pour les cartes {category}"
             )
+
+            # Épingler le message initial
+            try:
+                async for message in thread.history(limit=1, oldest_first=True):
+                    if message.author == self.bot.user and message.embeds:
+                        await message.pin()
+                        break
+            except Exception as e:
+                logging.warning(f"[FORUM] Impossible d'épingler le message initial pour {category}: {e}")
 
             logging.info(f"[FORUM] Thread créé avec succès: {thread_name} (ID: {thread.id})")
             return thread
@@ -660,6 +703,12 @@ class Cards(commands.Cog):
             # Poster la carte dans le thread
             await thread.send(embed=embed, file=image_file)
             logging.info(f"[FORUM] Carte postée avec succès: {name} dans {thread.name}")
+
+            # Mettre à jour le message initial avec les nouvelles statistiques
+            try:
+                await self.update_category_thread_header(forum_channel, thread_category)
+            except Exception as e:
+                logging.warning(f"[FORUM] Erreur lors de la mise à jour des statistiques pour {thread_category}: {e}")
 
             # Restaurer l'état original du thread si nécessaire
             if was_archived or was_locked:
@@ -1545,6 +1594,172 @@ class Cards(commands.Cog):
         except Exception as e:
             logging.error(f"[FORUM] Erreur lors de la mise à jour du message de progression: {e}")
 
+    def get_category_card_counts(self, category: str) -> tuple[int, int, int]:
+        """
+        Calcule les statistiques de cartes pour une catégorie donnée.
+
+        Args:
+            category: La catégorie à analyser
+
+        Returns:
+            tuple: (total_cards, discovered_cards, remaining_cards)
+        """
+        try:
+            # Cas spécial pour la catégorie Full
+            if category == "Full":
+                # Compter toutes les cartes Full de toutes les catégories
+                total_full_cards = 0
+                for cat_files in self.upgrade_cards_by_category.values():
+                    total_full_cards += len(cat_files)
+
+                # Compter les cartes Full découvertes
+                discovered_cards = self.get_discovered_cards()
+                discovered_full = len({(cat, name) for cat, name in discovered_cards
+                                     if name.removesuffix('.png').endswith(' (Full)')})
+
+                remaining = total_full_cards - discovered_full
+                return total_full_cards, discovered_full, remaining
+
+            # Cas normal pour les autres catégories
+            total_cards = len(self.cards_by_category.get(category, []))
+
+            # Compter les cartes découvertes de cette catégorie (hors Full)
+            discovered_cards = self.get_discovered_cards()
+            discovered_in_category = len({(cat, name) for cat, name in discovered_cards
+                                        if cat == category and not name.removesuffix('.png').endswith(' (Full)')})
+
+            remaining = total_cards - discovered_in_category
+            return total_cards, discovered_in_category, remaining
+
+        except Exception as e:
+            logging.error(f"[FORUM] Erreur lors du calcul des statistiques pour {category}: {e}")
+            return 0, 0, 0
+
+    def get_global_card_counts(self) -> tuple[int, int, int, int, int, int]:
+        """
+        Calcule les statistiques globales de cartes.
+
+        Returns:
+            tuple: (total_all, discovered_all, remaining_all, total_no_full, discovered_no_full, remaining_no_full)
+        """
+        try:
+            # Total de toutes les cartes (normales + Full)
+            total_all = sum(len(lst) for lst in (*self.cards_by_category.values(), *self.upgrade_cards_by_category.values()))
+
+            # Total hors Full
+            total_no_full = sum(len(lst) for lst in self.cards_by_category.values())
+
+            # Cartes découvertes
+            discovered_cards = self.get_discovered_cards()
+            discovered_all = len(discovered_cards)
+            discovered_no_full = len({(cat, name) for cat, name in discovered_cards
+                                    if not name.removesuffix('.png').endswith(' (Full)')})
+
+            remaining_all = total_all - discovered_all
+            remaining_no_full = total_no_full - discovered_no_full
+
+            return total_all, discovered_all, remaining_all, total_no_full, discovered_no_full, remaining_no_full
+
+        except Exception as e:
+            logging.error(f"[FORUM] Erreur lors du calcul des statistiques globales: {e}")
+            return 0, 0, 0, 0, 0, 0
+
+    async def update_category_thread_header(self, forum_channel: discord.ForumChannel, category: str) -> bool:
+        """
+        Met à jour le message initial d'un thread de catégorie avec les statistiques.
+
+        Args:
+            forum_channel: Le canal forum
+            category: La catégorie à mettre à jour
+
+        Returns:
+            True si la mise à jour a réussi, False sinon
+        """
+        try:
+            # Récupérer le thread pour cette catégorie
+            thread = await self.get_or_create_category_thread(forum_channel, category)
+            if not thread:
+                return False
+
+            # S'assurer que le thread est ouvert
+            success, _ = await self.ensure_thread_unarchived(thread)
+            if not success:
+                return False
+
+            # Calculer les statistiques
+            cat_total, cat_discovered, cat_remaining = self.get_category_card_counts(category)
+            global_total, global_discovered, global_remaining, global_no_full_total, global_no_full_discovered, global_no_full_remaining = self.get_global_card_counts()
+
+            # Créer l'embed mis à jour
+            embed = discord.Embed(
+                title=f"🎴 Cartes {category}",
+                color=0x4E5D94
+            )
+
+            # Description avec statistiques de la catégorie
+            if category == "Full":
+                description = (
+                    f"Ce thread contient toutes les cartes **Full** découvertes.\n"
+                    f"Les cartes sont affichées dans l'ordre chronologique de découverte.\n\n"
+                    f"📊 **Progression {category}** : {cat_discovered}/{cat_total} "
+                    f"({cat_remaining} restantes)"
+                )
+            else:
+                description = (
+                    f"Ce thread contient toutes les cartes découvertes de la catégorie **{category}**.\n"
+                    f"Les cartes sont affichées dans l'ordre chronologique de découverte.\n\n"
+                    f"📊 **Progression {category}** : {cat_discovered}/{cat_total} "
+                    f"({cat_remaining} restantes)"
+                )
+
+            embed.description = description
+
+            # Ajouter les statistiques globales
+            embed.add_field(
+                name="📈 Progression Globale",
+                value=(
+                    f"**Toutes cartes** : {global_discovered}/{global_total} ({global_remaining} restantes)\n"
+                    f"**Hors Full** : {global_no_full_discovered}/{global_no_full_total} ({global_no_full_remaining} restantes)"
+                ),
+                inline=False
+            )
+
+            # Ajouter un timestamp
+            embed.timestamp = discord.utils.utcnow()
+            embed.set_footer(text="Dernière mise à jour")
+
+            # Récupérer le premier message du thread (message initial)
+            try:
+                async for message in thread.history(limit=1, oldest_first=True):
+                    if message.author == self.bot.user and message.embeds:
+                        # Mettre à jour le message existant
+                        await message.edit(embed=embed)
+
+                        # Épingler le message s'il ne l'est pas déjà
+                        if not message.pinned:
+                            await message.pin()
+
+                        logging.info(f"[FORUM] Message initial mis à jour pour {category}")
+                        return True
+
+                # Si aucun message initial trouvé, en créer un nouveau
+                message = await thread.send(embed=embed)
+                await message.pin()
+                logging.info(f"[FORUM] Nouveau message initial créé pour {category}")
+                return True
+
+            except discord.NotFound:
+                # Thread supprimé, recréer
+                logging.warning(f"[FORUM] Thread {category} introuvable, recréation nécessaire")
+                return False
+            except discord.Forbidden:
+                logging.error(f"[FORUM] Permissions insuffisantes pour mettre à jour le thread {category}")
+                return False
+
+        except Exception as e:
+            logging.error(f"[FORUM] Erreur lors de la mise à jour du header pour {category}: {e}")
+            return False
+
     @commands.command(name="initialiser_forum_cartes", help="Initialise la structure forum pour les cartes")
     @commands.has_permissions(administrator=True)
     async def initialiser_forum_cartes(self, ctx: commands.Context, forum_channel_id: int):
@@ -1676,6 +1891,18 @@ class Cards(commands.Cog):
 
             await ctx.send(f"📊 Migration terminée: {posted_count} cartes postées, {error_count} erreurs")
 
+            # Mettre à jour tous les headers avec les statistiques finales
+            await ctx.send("🔄 Mise à jour des statistiques des threads...")
+            categories = self.get_all_card_categories()
+            for category in categories:
+                try:
+                    await self.update_category_thread_header(forum_channel, category)
+                    await asyncio.sleep(0.3)  # Pause pour éviter le rate limiting
+                except Exception as e:
+                    logging.error(f"[FORUM_POPULATE] Erreur mise à jour header {category}: {e}")
+
+            await ctx.send("✅ Statistiques des threads mises à jour!")
+
         except Exception as e:
             await ctx.send(f"❌ Erreur lors de la population des threads: {e}")
             logging.error(f"[FORUM_POPULATE] Erreur: {e}")
@@ -1753,6 +1980,56 @@ class Cards(commands.Cog):
             embed.add_field(name="Statut", value="❌ Désactivé", inline=True)
             embed.add_field(name="Mode", value="Mur legacy", inline=True)
             await ctx.send(embed=embed)
+
+    @commands.command(name="mettre_a_jour_forum_cartes", help="Met à jour les statistiques de tous les threads du forum")
+    @commands.has_permissions(administrator=True)
+    async def mettre_a_jour_forum_cartes(self, ctx: commands.Context):
+        """Met à jour les messages initiaux de tous les threads avec les statistiques actuelles."""
+        if not self.CARD_FORUM_CHANNEL_ID:
+            await ctx.send("❌ Le système de forum des cartes n'est pas configuré.")
+            return
+
+        try:
+            # Récupérer le canal forum
+            forum_channel = self.bot.get_channel(self.CARD_FORUM_CHANNEL_ID)
+            if not forum_channel:
+                forum_channel = await self.bot.fetch_channel(self.CARD_FORUM_CHANNEL_ID)
+
+            if not isinstance(forum_channel, discord.ForumChannel):
+                await ctx.send(f"❌ Le canal {self.CARD_FORUM_CHANNEL_ID} n'est pas un canal forum.")
+                return
+
+            await ctx.send("🔄 Mise à jour des statistiques des threads en cours...")
+
+            # Mettre à jour tous les threads de catégories
+            categories = self.get_all_card_categories()
+            updated_count = 0
+            error_count = 0
+
+            for category in categories:
+                try:
+                    success = await self.update_category_thread_header(forum_channel, category)
+                    if success:
+                        updated_count += 1
+                    else:
+                        error_count += 1
+
+                    # Petite pause pour éviter le rate limiting
+                    await asyncio.sleep(0.5)
+
+                except Exception as e:
+                    logging.error(f"[FORUM_UPDATE] Erreur pour {category}: {e}")
+                    error_count += 1
+
+            # Rapport final
+            if error_count == 0:
+                await ctx.send(f"✅ Mise à jour terminée avec succès! {updated_count} threads mis à jour.")
+            else:
+                await ctx.send(f"⚠️ Mise à jour terminée: {updated_count} threads mis à jour, {error_count} erreurs.")
+
+        except Exception as e:
+            await ctx.send(f"❌ Erreur lors de la mise à jour: {e}")
+            logging.error(f"[FORUM_UPDATE] Erreur: {e}")
 
     async def _handle_legacy_wall_posting(self, interaction: discord.Interaction, drawn_cards: list[tuple[str, str]]):
         """Méthode legacy pour poster les cartes dans l'ancien système de mur."""
