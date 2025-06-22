@@ -233,6 +233,11 @@ class Cards(commands.Cog):
         # Role assignment configuration
         self.CARD_COLLECTOR_ROLE_ID = 1386125369295245388
 
+        # Forum configuration for card wall
+        self.CARD_FORUM_CHANNEL_ID = None  # To be set via environment variable or command
+        self.category_threads = {}  # Cache for category thread IDs
+        self.thread_cache_time = 0
+
     async def assign_card_collector_role(self, user: discord.Member) -> bool:
         """
         Assigne automatiquement le rôle de collectionneur de cartes à un utilisateur.
@@ -481,6 +486,194 @@ class Cards(commands.Cog):
             None
         )
         return match
+
+    # ========== FORUM THREAD MANAGEMENT UTILITIES ==========
+
+    def get_all_card_categories(self) -> list[str]:
+        """Retourne la liste complète des catégories de cartes, incluant 'Full'."""
+        categories = list(self.FOLDER_IDS.keys())
+        categories.append("Full")  # Ajouter la catégorie Full
+        return categories
+
+    def get_thread_name_for_category(self, category: str) -> str:
+        """Génère le nom de thread pour une catégorie donnée."""
+        return f"Cartes {category}"
+
+    async def ensure_thread_unarchived(self, thread: discord.Thread) -> tuple[bool, tuple[bool, bool]]:
+        """
+        S'assure qu'un thread est désarchivé et déverrouillé.
+        Adapté de la méthode similaire dans souselement.py.
+
+        Returns:
+            tuple: (success, (was_archived, was_locked))
+        """
+        if not thread:
+            logging.error("[FORUM] Thread fourni est None")
+            return False, (False, False)
+
+        was_archived = thread.archived
+        was_locked = thread.locked
+
+        # Si le thread n'est ni archivé ni verrouillé, pas besoin de le modifier
+        if not was_archived and not was_locked:
+            logging.debug(f"[FORUM] Thread {thread.id} ({thread.name}) est déjà ouvert.")
+            return True, (was_archived, was_locked)
+
+        # Essayer de désarchiver/déverrouiller avec retry
+        for attempt in range(3):
+            try:
+                logging.info(f"[FORUM] Tentative #{attempt+1} de désarchivage du thread {thread.id} ({thread.name})")
+
+                await thread.edit(archived=False, locked=False)
+                await asyncio.sleep(2)  # Attendre que les changements prennent effet
+
+                # Rafraîchir le thread pour vérifier son état
+                try:
+                    reloaded_thread = await thread.guild.fetch_channel(thread.id)
+                    if not reloaded_thread.archived and not reloaded_thread.locked:
+                        logging.info(f"[FORUM] Thread {thread.id} désarchivé et déverrouillé avec succès")
+                        return True, (was_archived, was_locked)
+                    else:
+                        logging.warning(f"[FORUM] Le thread {thread.id} est toujours archivé ou verrouillé après édition")
+                except Exception as e:
+                    logging.error(f"[FORUM] Erreur lors de la vérification de l'état du thread {thread.id}: {e}")
+
+            except discord.Forbidden:
+                logging.error(f"[FORUM] Permissions insuffisantes pour modifier le thread {thread.id}")
+                return False, (was_archived, was_locked)
+            except Exception as e:
+                logging.error(f"[FORUM] Erreur lors de la tentative #{attempt+1} de modification du thread {thread.id}: {e}")
+                if attempt < 2:  # Si ce n'est pas la dernière tentative
+                    await asyncio.sleep(5)
+
+        logging.error(f"[FORUM] Échec du désarchivage du thread {thread.id} après 3 tentatives")
+        return False, (was_archived, was_locked)
+
+    async def get_or_create_category_thread(self, forum_channel: discord.ForumChannel, category: str) -> discord.Thread | None:
+        """
+        Récupère ou crée un thread pour une catégorie de cartes.
+
+        Args:
+            forum_channel: Le canal forum où créer/chercher le thread
+            category: La catégorie de cartes (ex: "Élèves", "Secrète", "Full")
+
+        Returns:
+            Le thread Discord ou None en cas d'erreur
+        """
+        thread_name = self.get_thread_name_for_category(category)
+
+        try:
+            # Chercher d'abord dans les threads actifs
+            for thread in forum_channel.threads:
+                if thread.name == thread_name:
+                    logging.debug(f"[FORUM] Thread trouvé dans les threads actifs: {thread_name}")
+                    return thread
+
+            # Chercher dans les threads archivés
+            async for thread in forum_channel.archived_threads():
+                if thread.name == thread_name:
+                    logging.debug(f"[FORUM] Thread trouvé dans les archives: {thread_name}")
+                    return thread
+
+            # Créer un nouveau thread si non trouvé
+            logging.info(f"[FORUM] Création d'un nouveau thread pour la catégorie: {category}")
+
+            # Créer l'embed initial pour le thread
+            embed = discord.Embed(
+                title=f"🎴 Cartes {category}",
+                description=f"Ce thread contient toutes les cartes découvertes de la catégorie **{category}**.\n"
+                           f"Les cartes sont affichées dans l'ordre chronologique de découverte.",
+                color=0x4E5D94
+            )
+
+            # Créer le thread avec le message initial
+            thread = await forum_channel.create_thread(
+                name=thread_name,
+                embed=embed,
+                reason=f"Création automatique du thread pour les cartes {category}"
+            )
+
+            logging.info(f"[FORUM] Thread créé avec succès: {thread_name} (ID: {thread.id})")
+            return thread
+
+        except discord.Forbidden:
+            logging.error(f"[FORUM] Permissions insuffisantes pour créer/accéder au thread {thread_name}")
+            return None
+        except Exception as e:
+            logging.error(f"[FORUM] Erreur lors de la création/récupération du thread {thread_name}: {e}")
+            return None
+
+    async def post_card_to_forum(self, category: str, name: str, file_bytes: bytes,
+                                discoverer_name: str, discovery_index: int) -> bool:
+        """
+        Poste une carte dans le thread approprié du forum.
+
+        Args:
+            category: Catégorie de la carte
+            name: Nom de la carte
+            file_bytes: Données binaires de l'image
+            discoverer_name: Nom du découvreur
+            discovery_index: Index de découverte
+
+        Returns:
+            True si le post a réussi, False sinon
+        """
+        if not self.CARD_FORUM_CHANNEL_ID:
+            logging.warning("[FORUM] ID du canal forum non configuré")
+            return False
+
+        try:
+            # Déterminer la catégorie de thread appropriée
+            # Si c'est une carte Full, utiliser la catégorie "Full"
+            thread_category = "Full" if name.removesuffix('.png').endswith(' (Full)') else category
+
+            # Récupérer le canal forum
+            forum_channel = self.bot.get_channel(self.CARD_FORUM_CHANNEL_ID)
+            if not forum_channel:
+                forum_channel = await self.bot.fetch_channel(self.CARD_FORUM_CHANNEL_ID)
+
+            if not isinstance(forum_channel, discord.ForumChannel):
+                logging.error(f"[FORUM] Le canal {self.CARD_FORUM_CHANNEL_ID} n'est pas un canal forum")
+                return False
+
+            # Récupérer ou créer le thread pour cette catégorie
+            thread = await self.get_or_create_category_thread(forum_channel, thread_category)
+            if not thread:
+                logging.error(f"[FORUM] Impossible de récupérer/créer le thread pour {thread_category}")
+                return False
+
+            # S'assurer que le thread est ouvert
+            success, original_state = await self.ensure_thread_unarchived(thread)
+            was_archived, was_locked = original_state
+
+            if not success:
+                logging.error(f"[FORUM] Impossible de désarchiver le thread pour {category}")
+                return False
+
+            # Créer l'embed et le fichier pour la carte
+            embed, image_file = self.build_card_embed(category, name, file_bytes)
+            embed.set_footer(text=(
+                f"Découverte par : {discoverer_name}\n"
+                f"→ {discovery_index}{'ère' if discovery_index == 1 else 'ème'} carte découverte"
+            ))
+
+            # Poster la carte dans le thread
+            await thread.send(embed=embed, file=image_file)
+            logging.info(f"[FORUM] Carte postée avec succès: {name} dans {thread.name}")
+
+            # Restaurer l'état original du thread si nécessaire
+            if was_archived or was_locked:
+                try:
+                    await thread.edit(archived=was_archived, locked=was_locked)
+                    logging.debug(f"[FORUM] État du thread restauré: archived={was_archived}, locked={was_locked}")
+                except Exception as e:
+                    logging.warning(f"[FORUM] Erreur lors de la restauration de l'état du thread: {e}")
+
+            return True
+
+        except Exception as e:
+            logging.error(f"[FORUM] Erreur lors du post de la carte {name} ({category}): {e}")
+            return False
 
     def log_discovery(self, category: str, name: str, discoverer_id: int, discoverer_name: str) -> int:
         """Enregistre une nouvelle découverte et retourne l'index de découverte."""
@@ -1259,11 +1452,315 @@ class Cards(commands.Cog):
         return 0
 
     async def _handle_announce_and_wall(self, interaction: discord.Interaction, drawn_cards: list[tuple[str, str]]):
+        # Déterminer si on utilise le système forum ou l'ancien système
+        use_forum = self.CARD_FORUM_CHANNEL_ID is not None
+
+        if use_forum:
+            await self._handle_forum_posting(interaction, drawn_cards)
+        else:
+            await self._handle_legacy_wall_posting(interaction, drawn_cards)
+
+    async def _handle_forum_posting(self, interaction: discord.Interaction, drawn_cards: list[tuple[str, str]]):
+        """Nouvelle méthode pour poster les cartes dans le système forum."""
+        try:
+            # 1) Charger toutes les cartes déjà découvertes
+            discovered_cards = self.get_discovered_cards()
+
+            # 2) Fusionner les fichiers "normaux" et "Full"
+            all_files = {}
+            for cat, files in self.cards_by_category.items():
+                all_files.setdefault(cat, []).extend(files)
+            for cat, files in self.upgrade_cards_by_category.items():
+                all_files.setdefault(cat, []).extend(files)
+
+            # 3) Identifier les nouvelles cartes (non découvertes)
+            new_draws = [card for card in drawn_cards if card not in discovered_cards]
+            if not new_draws:
+                return
+
+            # 4) Poster chaque nouvelle carte dans son thread de catégorie
+            for cat, name in new_draws:
+                file_id = next(
+                    (f['id'] for f in all_files.get(cat, [])
+                    if f['name'].removesuffix(".png") == name),
+                    None
+                )
+                if not file_id:
+                    continue
+
+                # Enregistrer la découverte et obtenir l'index
+                discovery_index = self.log_discovery(cat, name, interaction.user.id, interaction.user.display_name)
+
+                # Télécharger l'image
+                file_bytes = self.download_drive_file(file_id)
+
+                # Poster dans le forum (la méthode gère la création de thread si nécessaire)
+                success = await self.post_card_to_forum(
+                    cat, name, file_bytes,
+                    interaction.user.display_name, discovery_index
+                )
+
+                if not success:
+                    logging.error(f"[FORUM] Échec du post de la carte {name} ({cat}) dans le forum")
+
+            # 5) Mettre à jour le message de progression dans le canal principal
+            await self._update_progress_message(discovered_cards, new_draws)
+
+        except Exception as e:
+            logging.error(f"[FORUM] Erreur lors du posting forum: {e}")
+
+    async def _update_progress_message(self, discovered_cards: set, new_draws: list):
+        """Met à jour le message de progression des découvertes."""
+        try:
+            # Pour le système forum, on peut poster le message de progression dans un canal dédié
+            # ou dans le canal principal selon la configuration
             announce_channel = self.bot.get_channel(1360512727784882207)
             if not announce_channel:
                 return
 
+            # Supprimer l'ancien message de progression
+            async for msg in announce_channel.history(limit=20):
+                if msg.author == self.bot.user and msg.content.startswith("📝 Cartes découvertes"):
+                    await msg.delete()
+                    break
+
+            total_cards = sum(
+                len(lst) for lst in (*self.cards_by_category.values(), *self.upgrade_cards_by_category.values())
+            )
+            total_cards_excluding_full = sum(len(lst) for lst in self.cards_by_category.values())
+
+            # Utiliser les cartes découvertes depuis la nouvelle feuille
+            all_discovered = discovered_cards | set(new_draws)
+            discovered = len(all_discovered)
+            discovered_excluding_full = len({(cat, name) for cat, name in all_discovered
+                                            if not name.removesuffix('.png').endswith(' (Full)')})
+
+            remaining = total_cards - discovered
+            remaining_excluding_full = total_cards_excluding_full - discovered_excluding_full
+
+            await announce_channel.send(
+                f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes) | "
+                f"Hors Full : {discovered_excluding_full}/{total_cards_excluding_full} ({remaining_excluding_full} restantes)"
+            )
+        except Exception as e:
+            logging.error(f"[FORUM] Erreur lors de la mise à jour du message de progression: {e}")
+
+    @commands.command(name="initialiser_forum_cartes", help="Initialise la structure forum pour les cartes")
+    @commands.has_permissions(administrator=True)
+    async def initialiser_forum_cartes(self, ctx: commands.Context, forum_channel_id: int):
+        """
+        Commande pour initialiser la structure forum des cartes.
+
+        Args:
+            forum_channel_id: L'ID du canal forum où créer les threads
+        """
+        await ctx.send("🔧 Initialisation de la structure forum des cartes en cours...")
+
+        try:
+            # 1) Configurer l'ID du canal forum
+            self.CARD_FORUM_CHANNEL_ID = forum_channel_id
+
+            # 2) Vérifier que le canal existe et est bien un forum
+            forum_channel = self.bot.get_channel(forum_channel_id)
+            if not forum_channel:
+                forum_channel = await self.bot.fetch_channel(forum_channel_id)
+
+            if not isinstance(forum_channel, discord.ForumChannel):
+                await ctx.send(f"❌ Le canal {forum_channel_id} n'est pas un canal forum.")
+                return
+
+            await ctx.send(f"✅ Canal forum configuré: {forum_channel.name}")
+
+            # 3) Créer les threads pour chaque catégorie
+            categories = self.get_all_card_categories()
+            created_threads = []
+            existing_threads = []
+
+            for category in categories:
+                thread = await self.get_or_create_category_thread(forum_channel, category)
+                if thread:
+                    # Vérifier si le thread existait déjà
+                    thread_existed = any(t.name == self.get_thread_name_for_category(category)
+                                       for t in forum_channel.threads)
+                    if not thread_existed:
+                        # Vérifier dans les archives aussi
+                        async for archived_thread in forum_channel.archived_threads():
+                            if archived_thread.name == self.get_thread_name_for_category(category):
+                                thread_existed = True
+                                break
+
+                    if thread_existed:
+                        existing_threads.append(category)
+                    else:
+                        created_threads.append(category)
+                else:
+                    await ctx.send(f"❌ Échec de création du thread pour la catégorie: {category}")
+
+            # 4) Rapport de création des threads
+            if created_threads:
+                await ctx.send(f"✅ Threads créés: {', '.join(created_threads)}")
+            if existing_threads:
+                await ctx.send(f"ℹ️ Threads existants: {', '.join(existing_threads)}")
+
+            # 5) Peupler les threads avec les cartes découvertes
+            await ctx.send("📝 Population des threads avec les cartes découvertes...")
+            await self._populate_forum_threads(ctx, forum_channel)
+
+            await ctx.send("🎉 Initialisation du forum des cartes terminée avec succès!")
+
+        except Exception as e:
+            await ctx.send(f"❌ Erreur lors de l'initialisation: {e}")
+            logging.error(f"[FORUM_INIT] Erreur: {e}")
+
+    async def _populate_forum_threads(self, ctx: commands.Context, forum_channel: discord.ForumChannel):
+        """Peuple les threads du forum avec toutes les cartes découvertes."""
+        try:
+            # Récupérer toutes les découvertes triées par index chronologique
+            with self._discoveries_lock:
+                now = time.time()
+                if not self.discoveries_cache or now - self.discoveries_cache_time > 5:
+                    self.refresh_discoveries_cache()
+
+                if not self.discoveries_cache or len(self.discoveries_cache) <= 1:
+                    await ctx.send("ℹ️ Aucune découverte trouvée à migrer.")
+                    return
+
+                # Trier par index de découverte (chronologique)
+                discovery_rows = self.discoveries_cache[1:]  # Skip header
+                discovery_rows.sort(key=lambda row: int(row[5]) if len(row) >= 6 and row[5].isdigit() else 0)
+
+            # Fusionner les fichiers normaux et Full
+            all_files = {}
+            for cat, files in self.cards_by_category.items():
+                all_files.setdefault(cat, []).extend(files)
+            for cat, files in self.upgrade_cards_by_category.items():
+                all_files.setdefault(cat, []).extend(files)
+
+            posted_count = 0
+            error_count = 0
+
+            for row in discovery_rows:
+                if len(row) < 6:
+                    continue
+
+                cat, name, discoverer_id_str, discoverer_name, timestamp, discovery_index = row
+                discovery_index = int(discovery_index)
+
+                # Trouver le fichier de la carte
+                file_id = next(
+                    (f['id'] for f in all_files.get(cat, []) if f['name'].removesuffix(".png") == name),
+                    None
+                )
+                if not file_id:
+                    error_count += 1
+                    continue
+
+                # Télécharger l'image et poster dans le forum
+                try:
+                    file_bytes = self.download_drive_file(file_id)
+                    success = await self.post_card_to_forum(
+                        cat, name, file_bytes, discoverer_name, discovery_index
+                    )
+
+                    if success:
+                        posted_count += 1
+                    else:
+                        error_count += 1
+
+                    # Petite pause pour éviter le rate limiting
+                    await asyncio.sleep(0.5)
+
+                except Exception as e:
+                    logging.error(f"[FORUM_POPULATE] Erreur pour {cat}/{name}: {e}")
+                    error_count += 1
+
+            await ctx.send(f"📊 Migration terminée: {posted_count} cartes postées, {error_count} erreurs")
+
+        except Exception as e:
+            await ctx.send(f"❌ Erreur lors de la population des threads: {e}")
+            logging.error(f"[FORUM_POPULATE] Erreur: {e}")
+
+    @commands.command(name="configurer_forum_cartes", help="Configure le système de forum des cartes")
+    @commands.has_permissions(administrator=True)
+    async def configurer_forum_cartes(self, ctx: commands.Context, forum_channel_id: int = None):
+        """
+        Configure ou désactive le système de forum des cartes.
+
+        Args:
+            forum_channel_id: L'ID du canal forum (None pour désactiver)
+        """
+        if forum_channel_id is None:
+            # Désactiver le système forum
+            self.CARD_FORUM_CHANNEL_ID = None
+            await ctx.send("✅ Système de forum des cartes désactivé. Retour au système de mur legacy.")
+            return
+
+        try:
+            # Vérifier que le canal existe et est bien un forum
+            forum_channel = self.bot.get_channel(forum_channel_id)
+            if not forum_channel:
+                forum_channel = await self.bot.fetch_channel(forum_channel_id)
+
+            if not isinstance(forum_channel, discord.ForumChannel):
+                await ctx.send(f"❌ Le canal {forum_channel_id} n'est pas un canal forum.")
+                return
+
+            # Configurer le système forum
+            self.CARD_FORUM_CHANNEL_ID = forum_channel_id
+            await ctx.send(f"✅ Système de forum des cartes configuré sur: {forum_channel.name}")
+            await ctx.send("ℹ️ Utilisez `!initialiser_forum_cartes` pour créer les threads et migrer les cartes existantes.")
+
+        except Exception as e:
+            await ctx.send(f"❌ Erreur lors de la configuration: {e}")
+            logging.error(f"[FORUM_CONFIG] Erreur: {e}")
+
+    @commands.command(name="statut_forum_cartes", help="Affiche le statut du système de forum des cartes")
+    @commands.has_permissions(administrator=True)
+    async def statut_forum_cartes(self, ctx: commands.Context):
+        """Affiche le statut actuel du système de forum des cartes."""
+        if self.CARD_FORUM_CHANNEL_ID:
             try:
+                forum_channel = self.bot.get_channel(self.CARD_FORUM_CHANNEL_ID)
+                if not forum_channel:
+                    forum_channel = await self.bot.fetch_channel(self.CARD_FORUM_CHANNEL_ID)
+
+                embed = discord.Embed(
+                    title="📊 Statut du Forum des Cartes",
+                    color=discord.Color.green()
+                )
+                embed.add_field(name="Statut", value="✅ Activé", inline=True)
+                embed.add_field(name="Canal Forum", value=f"{forum_channel.name} ({forum_channel.id})", inline=True)
+
+                # Compter les threads existants
+                categories = self.get_all_card_categories()
+                existing_threads = 0
+                for category in categories:
+                    thread = await self.get_or_create_category_thread(forum_channel, category)
+                    if thread:
+                        existing_threads += 1
+
+                embed.add_field(name="Threads", value=f"{existing_threads}/{len(categories)} créés", inline=True)
+
+                await ctx.send(embed=embed)
+
+            except Exception as e:
+                await ctx.send(f"❌ Erreur lors de la vérification du statut: {e}")
+        else:
+            embed = discord.Embed(
+                title="📊 Statut du Forum des Cartes",
+                color=discord.Color.red()
+            )
+            embed.add_field(name="Statut", value="❌ Désactivé", inline=True)
+            embed.add_field(name="Mode", value="Mur legacy", inline=True)
+            await ctx.send(embed=embed)
+
+    async def _handle_legacy_wall_posting(self, interaction: discord.Interaction, drawn_cards: list[tuple[str, str]]):
+        """Méthode legacy pour poster les cartes dans l'ancien système de mur."""
+        announce_channel = self.bot.get_channel(1360512727784882207)
+        if not announce_channel:
+            return
+
+        try:
                 # 1) Charger toutes les cartes déjà découvertes depuis la nouvelle feuille de découvertes
                 discovered_cards = self.get_discovered_cards()
 
@@ -1326,8 +1823,8 @@ class Cards(commands.Cog):
                     f"📝 Cartes découvertes : {discovered}/{total_cards} ({remaining} restantes) | "
                     f"Hors Full : {discovered_excluding_full}/{total_cards_excluding_full} ({remaining_excluding_full} restantes)"
                 )
-            except Exception as e:
-                logging.error("Erreur lors de la mise à jour du mur :", e)
+        except Exception as e:
+            logging.error("Erreur lors de la mise à jour du mur :", e)
 
 
     @app_commands.command(name="carte_info", description="Obtenir des informations sur une carte par nom ou identifiant")
