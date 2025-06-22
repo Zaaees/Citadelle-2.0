@@ -233,8 +233,8 @@ class Cards(commands.Cog):
         # Role assignment configuration
         self.CARD_COLLECTOR_ROLE_ID = 1386125369295245388
 
-        # Forum configuration for card wall
-        self.CARD_FORUM_CHANNEL_ID = None  # To be set via environment variable or command
+        # Forum configuration for card wall (ID fixe)
+        self.CARD_FORUM_CHANNEL_ID = 1386299170406531123
         self.category_threads = {}  # Cache for category thread IDs
         self.thread_cache_time = 0
 
@@ -1822,26 +1822,21 @@ class Cards(commands.Cog):
 
     @commands.command(name="initialiser_forum_cartes", help="Initialise la structure forum pour les cartes")
     @commands.has_permissions(administrator=True)
-    async def initialiser_forum_cartes(self, ctx: commands.Context, forum_channel_id: int):
+    async def initialiser_forum_cartes(self, ctx: commands.Context):
         """
         Commande pour initialiser la structure forum des cartes.
-
-        Args:
-            forum_channel_id: L'ID du canal forum où créer les threads
+        Utilise l'ID de forum configuré dans le code.
         """
         await ctx.send("🔧 Initialisation de la structure forum des cartes en cours...")
 
         try:
-            # 1) Configurer l'ID du canal forum
-            self.CARD_FORUM_CHANNEL_ID = forum_channel_id
-
-            # 2) Vérifier que le canal existe et est bien un forum
-            forum_channel = self.bot.get_channel(forum_channel_id)
+            # Vérifier que le canal existe et est bien un forum
+            forum_channel = self.bot.get_channel(self.CARD_FORUM_CHANNEL_ID)
             if not forum_channel:
-                forum_channel = await self.bot.fetch_channel(forum_channel_id)
+                forum_channel = await self.bot.fetch_channel(self.CARD_FORUM_CHANNEL_ID)
 
             if not isinstance(forum_channel, discord.ForumChannel):
-                await ctx.send(f"❌ Le canal {forum_channel_id} n'est pas un canal forum.")
+                await ctx.send(f"❌ Le canal {self.CARD_FORUM_CHANNEL_ID} n'est pas un canal forum.")
                 return
 
             await ctx.send(f"✅ Canal forum configuré: {forum_channel.name}")
@@ -1967,88 +1962,41 @@ class Cards(commands.Cog):
             await ctx.send(f"❌ Erreur lors de la population des threads: {e}")
             logging.error(f"[FORUM_POPULATE] Erreur: {e}")
 
-    @commands.command(name="configurer_forum_cartes", help="Configure le système de forum des cartes")
-    @commands.has_permissions(administrator=True)
-    async def configurer_forum_cartes(self, ctx: commands.Context, forum_channel_id: int = None):
-        """
-        Configure ou désactive le système de forum des cartes.
-
-        Args:
-            forum_channel_id: L'ID du canal forum (None pour désactiver)
-        """
-        if forum_channel_id is None:
-            # Désactiver le système forum
-            self.CARD_FORUM_CHANNEL_ID = None
-            await ctx.send("✅ Système de forum des cartes désactivé. Retour au système de mur legacy.")
-            return
-
-        try:
-            # Vérifier que le canal existe et est bien un forum
-            forum_channel = self.bot.get_channel(forum_channel_id)
-            if not forum_channel:
-                forum_channel = await self.bot.fetch_channel(forum_channel_id)
-
-            if not isinstance(forum_channel, discord.ForumChannel):
-                await ctx.send(f"❌ Le canal {forum_channel_id} n'est pas un canal forum.")
-                return
-
-            # Configurer le système forum
-            self.CARD_FORUM_CHANNEL_ID = forum_channel_id
-            await ctx.send(f"✅ Système de forum des cartes configuré sur: {forum_channel.name}")
-            await ctx.send("ℹ️ Utilisez `!initialiser_forum_cartes` pour créer les threads et migrer les cartes existantes.")
-
-        except Exception as e:
-            await ctx.send(f"❌ Erreur lors de la configuration: {e}")
-            logging.error(f"[FORUM_CONFIG] Erreur: {e}")
-
     @commands.command(name="statut_forum_cartes", help="Affiche le statut du système de forum des cartes")
     @commands.has_permissions(administrator=True)
     async def statut_forum_cartes(self, ctx: commands.Context):
         """Affiche le statut actuel du système de forum des cartes."""
-        if self.CARD_FORUM_CHANNEL_ID:
-            try:
-                forum_channel = self.bot.get_channel(self.CARD_FORUM_CHANNEL_ID)
-                if not forum_channel:
-                    forum_channel = await self.bot.fetch_channel(self.CARD_FORUM_CHANNEL_ID)
+        try:
+            forum_channel = self.bot.get_channel(self.CARD_FORUM_CHANNEL_ID)
+            if not forum_channel:
+                forum_channel = await self.bot.fetch_channel(self.CARD_FORUM_CHANNEL_ID)
 
-                embed = discord.Embed(
-                    title="📊 Statut du Forum des Cartes",
-                    color=discord.Color.green()
-                )
-                embed.add_field(name="Statut", value="✅ Activé", inline=True)
-                embed.add_field(name="Canal Forum", value=f"{forum_channel.name} ({forum_channel.id})", inline=True)
-
-                # Compter les threads existants
-                categories = self.get_all_card_categories()
-                existing_threads = 0
-                for category in categories:
-                    thread = await self.get_or_create_category_thread(forum_channel, category)
-                    if thread:
-                        existing_threads += 1
-
-                embed.add_field(name="Threads", value=f"{existing_threads}/{len(categories)} créés", inline=True)
-
-                await ctx.send(embed=embed)
-
-            except Exception as e:
-                await ctx.send(f"❌ Erreur lors de la vérification du statut: {e}")
-        else:
             embed = discord.Embed(
                 title="📊 Statut du Forum des Cartes",
-                color=discord.Color.red()
+                color=discord.Color.green()
             )
-            embed.add_field(name="Statut", value="❌ Désactivé", inline=True)
-            embed.add_field(name="Mode", value="Mur legacy", inline=True)
+            embed.add_field(name="Statut", value="✅ Activé", inline=True)
+            embed.add_field(name="Canal Forum", value=f"{forum_channel.name} ({forum_channel.id})", inline=True)
+
+            # Compter les threads existants
+            categories = self.get_all_card_categories()
+            existing_threads = 0
+            for category in categories:
+                thread = await self.get_or_create_category_thread(forum_channel, category)
+                if thread:
+                    existing_threads += 1
+
+            embed.add_field(name="Threads", value=f"{existing_threads}/{len(categories)} créés", inline=True)
+
             await ctx.send(embed=embed)
+
+        except Exception as e:
+            await ctx.send(f"❌ Erreur lors de la vérification du statut: {e}")
 
     @commands.command(name="mettre_a_jour_forum_cartes", help="Met à jour les statistiques de tous les threads du forum")
     @commands.has_permissions(administrator=True)
     async def mettre_a_jour_forum_cartes(self, ctx: commands.Context):
         """Met à jour les messages initiaux de tous les threads avec les statistiques actuelles."""
-        if not self.CARD_FORUM_CHANNEL_ID:
-            await ctx.send("❌ Le système de forum des cartes n'est pas configuré.")
-            return
-
         try:
             # Récupérer le canal forum
             forum_channel = self.bot.get_channel(self.CARD_FORUM_CHANNEL_ID)
@@ -3056,7 +3004,7 @@ class Cards(commands.Cog):
         # Annonces publiques et mur
         await self._handle_announce_and_wall(interaction, drawn_cards)
 
-    @commands.command(name="reconstruire_mur", help="Reconstruit le mur dans l'ordre de première découverte")
+    @commands.command(name="reconstruire_mur", help="Reconstruit le forum des cartes dans l'ordre de première découverte")
     @commands.has_permissions(administrator=True)
     async def reconstruire_mur(self, ctx: commands.Context):
         announce_channel = self.bot.get_channel(1360512727784882207)
