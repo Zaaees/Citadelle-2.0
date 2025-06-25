@@ -686,64 +686,197 @@ class Cards(commands.Cog):
         rank_text = f"#{rank}" if rank else "Non classé"
         rank_text_excluding_full = f"#{rank_excluding_full}" if rank_excluding_full else "Non classé"
 
-        # Calcul des médailles et tirages (placeholder pour l'instant)
-        medals_used = 0
-        bonus_tirages = 0
-        remaining_clicks = 0
+        # Vérifier si le tirage journalier est disponible
+        can_draw_today = self.drawing_manager.can_perform_daily_draw(interaction.user.id)
+        tirage_status = "✅ Disponible" if can_draw_today else "❌ Déjà effectué"
 
-        # Créer l'embed principal avec le format original
+        # Créer l'embed principal simplifié
         embed = discord.Embed(
             title="🎴 Menu des Cartes",
             description=(
-                f"**Menu des Cartes :**\n"
-                f"🏅 Médailles comptées : **{medals_used}**\n"
-                f"➕ Bonus de tirages : **{bonus_tirages}** (via personnages supplémentaires)\n"
-                f"🎴 Tirages restants : **{remaining_clicks}**\n"
-                f"📈 Cartes différentes : **{unique_count}/{total_unique}** | Hors Full : **{unique_count_excluding_full}/{total_unique_excluding_full}**\n"
-                f"🥇 Classement : **{rank_text}** | Hors Full : **{rank_text_excluding_full}**"
+                f"**Bienvenue {interaction.user.display_name} !**\n\n"
+                f"🌅 **Tirage journalier :** {tirage_status}\n"
+                f"📈 **Cartes différentes :** {unique_count}/{total_unique} | Hors Full : {unique_count_excluding_full}/{total_unique_excluding_full}\n"
+                f"🥇 **Classement :** {rank_text} | Hors Full : {rank_text_excluding_full}\n"
+                f"🎴 **Total possédé :** {drawn_count} cartes"
             ),
             color=0x3498db
         )
 
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
-    @app_commands.command(name="tirage_journalier", description="Effectuer votre tirage journalier gratuit")
-    async def tirage_journalier(self, interaction: discord.Interaction):
-        """Commande pour le tirage journalier."""
+# Commande /tirage_journalier supprimée - intégrée dans le bouton "Tirer une carte" du menu /cartes
+
+# Commande /tirage_sacrificiel supprimée - intégrée dans le bouton du menu /cartes
+
+    @app_commands.command(name="carte_info", description="Obtenir des informations sur une carte par nom ou identifiant")
+    async def carte_info(self, interaction: discord.Interaction, carte: str):
+        """Affiche les informations d'une carte par nom ou identifiant."""
         await interaction.response.defer(ephemeral=True)
 
-        # Vérifier si l'utilisateur peut effectuer son tirage journalier
-        if not self.drawing_manager.can_perform_daily_draw(interaction.user.id):
-            await interaction.followup.send(
-                "🚫 Vous avez déjà effectué votre tirage journalier aujourd'hui.",
-                ephemeral=True
-            )
-            return
+        # Assigner automatiquement le rôle de collectionneur de cartes
+        await self.ensure_card_collector_role(interaction)
+
+        carte = carte.strip()
 
         try:
-            # Effectuer le tirage
-            drawn_cards = self.drawing_manager.draw_cards(3)
+            # Vérifier si c'est un identifiant (C1, C2, etc.)
+            if carte.upper().startswith('C') and carte[1:].isdigit():
+                # Recherche par identifiant
+                discovery_index = int(carte[1:])
+                discoveries_cache = self.discovery_manager.storage.get_discoveries_cache()
+
+                if discoveries_cache:
+                    for row in discoveries_cache[1:]:  # Skip header
+                        if len(row) >= 6 and int(row[5]) == discovery_index:
+                            category, name = row[0], row[1]
+                            break
+                    else:
+                        await interaction.followup.send(
+                            f"❌ Aucune carte trouvée avec l'identifiant '{carte.upper()}'.",
+                            ephemeral=True
+                        )
+                        return
+                else:
+                    await interaction.followup.send(
+                        "❌ Système de découvertes non disponible.",
+                        ephemeral=True
+                    )
+                    return
+            else:
+                # Recherche par nom
+                card_info = self.find_card_by_name(carte)
+                if not card_info:
+                    await interaction.followup.send(
+                        f"❌ Aucune carte trouvée avec le nom '{carte}'.",
+                        ephemeral=True
+                    )
+                    return
+                category, name, file_id = card_info
+
+            # Récupérer les informations de découverte
+            discovery_info = self.discovery_manager.get_discovery_info(category, name)
+
+            # Créer l'embed d'information
+            embed = discord.Embed(
+                title=f"🎴 {name.removesuffix('.png')}",
+                color=0x3498db
+            )
+
+            embed.add_field(name="📂 Catégorie", value=category, inline=True)
+
+            if discovery_info:
+                embed.add_field(
+                    name="🔍 Identifiant",
+                    value=f"C{discovery_info['discovery_index']}",
+                    inline=True
+                )
+                embed.add_field(
+                    name="👤 Découvreur",
+                    value=discovery_info['discoverer_name'],
+                    inline=True
+                )
+                embed.add_field(
+                    name="📅 Date de découverte",
+                    value=discovery_info['timestamp'],
+                    inline=False
+                )
+            else:
+                embed.add_field(name="🔍 Statut", value="Non découverte", inline=True)
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except Exception as e:
+            logging.error(f"[CARTE_INFO] Erreur: {e}")
+            await interaction.followup.send(
+                "❌ Une erreur est survenue lors de la recherche.",
+                ephemeral=True
+            )
+
+# Commande /decouvertes_recentes supprimée selon demande utilisateur
+
+    @app_commands.command(name="reclamer_bonus", description="Récupérez vos tirages bonus non réclamés")
+    async def reclamer_bonus(self, interaction: discord.Interaction):
+        """Permet de récupérer les tirages bonus accordés par les administrateurs."""
+        # Assigner automatiquement le rôle de collectionneur de cartes
+        await self.ensure_card_collector_role(interaction)
+
+        await interaction.response.defer(ephemeral=True)
+
+        user_id_str = str(interaction.user.id)
+
+        try:
+            # Lecture des bonus
+            all_rows = self.storage.sheet_bonus.get_all_values()[1:]  # skip header
+
+            user_bonus = 0
+            bonus_sources = []
+
+            for row in all_rows:
+                if len(row) >= 3 and row[0] == user_id_str:
+                    try:
+                        count = int(row[1])
+                        source = row[2] if len(row) > 2 else "Non spécifié"
+                        user_bonus += count
+                        bonus_sources.append(f"• {count} tirage(s) - {source}")
+                    except ValueError:
+                        continue
+
+            if user_bonus <= 0:
+                await interaction.followup.send(
+                    "❌ Vous n'avez aucun tirage bonus à réclamer.",
+                    ephemeral=True
+                )
+                return
+
+            # Effectuer les tirages bonus
+            drawn_cards = self.drawing_manager.draw_cards(user_bonus)
 
             # Ajouter les cartes à l'inventaire
             for cat, name in drawn_cards:
                 self.add_card_to_user(interaction.user.id, cat, name)
 
-            # Enregistrer le tirage journalier
-            self.drawing_manager.record_daily_draw(interaction.user.id)
+            # Supprimer les bonus réclamés
+            # Récupérer toutes les lignes et filtrer
+            all_data = self.storage.sheet_bonus.get_all_values()
+            header = all_data[0] if all_data else ["user_id", "count", "source"]
+            filtered_data = [header]
+
+            for i, row in enumerate(all_data[1:], start=1):
+                if len(row) >= 1 and row[0] != user_id_str:
+                    filtered_data.append(row)
+
+            # Réécrire la feuille
+            self.storage.sheet_bonus.clear()
+            if filtered_data:
+                self.storage.sheet_bonus.update('A1', filtered_data)
 
             # Créer l'embed de résultat
             embed = discord.Embed(
-                title="🌅 Tirage journalier !",
-                description="Vous avez reçu 3 cartes gratuites !",
-                color=0xf1c40f
+                title="🎁 Tirages bonus réclamés !",
+                description=f"Vous avez réclamé **{user_bonus}** tirage(s) bonus !",
+                color=0xffd700
             )
 
-            for i, (cat, name) in enumerate(drawn_cards, 1):
-                display_name = name.removesuffix('.png')
+            # Afficher les sources des bonus
+            if bonus_sources:
                 embed.add_field(
-                    name=f"Carte {i}",
-                    value=f"**{display_name}**\n*{cat}*",
-                    inline=True
+                    name="📋 Sources des bonus",
+                    value="\n".join(bonus_sources),
+                    inline=False
+                )
+
+            # Afficher les cartes tirées
+            if drawn_cards:
+                cards_text = []
+                for i, (cat, name) in enumerate(drawn_cards, 1):
+                    display_name = name.removesuffix('.png')
+                    cards_text.append(f"{i}. **{display_name}** ({cat})")
+
+                embed.add_field(
+                    name="🎴 Cartes obtenues",
+                    value="\n".join(cards_text),
+                    inline=False
                 )
 
             await interaction.followup.send(embed=embed, ephemeral=True)
@@ -752,9 +885,9 @@ class Cards(commands.Cog):
             await self._handle_announce_and_wall(interaction, drawn_cards)
 
         except Exception as e:
-            logging.error(f"[DAILY_DRAW] Erreur lors du tirage journalier: {e}")
+            logging.error(f"[BONUS] Erreur lors de la réclamation des bonus: {e}")
             await interaction.followup.send(
-                "❌ Une erreur est survenue lors du tirage journalier.",
+                "❌ Une erreur est survenue lors de la réclamation des bonus.",
                 ephemeral=True
             )
 
@@ -803,6 +936,151 @@ class Cards(commands.Cog):
         except Exception as e:
             logging.error(f"[ADMIN_GALLERY] Erreur: {e}")
             await ctx.send("❌ Une erreur est survenue lors de l'affichage de la galerie.")
+
+    @commands.command(name="give_bonus")
+    @commands.has_permissions(administrator=True)
+    async def give_bonus(self, ctx: commands.Context, member: discord.Member, count: int = 1, *, source: str):
+        """
+        Donne un nombre de bonus de tirage à un joueur.
+        Usage : !give_bonus @joueur [nombre] raison du bonus
+        """
+        try:
+            # Ajouter le bonus à la feuille
+            self.storage.sheet_bonus.append_row([str(member.id), str(count), source])
+
+            embed = discord.Embed(
+                title="🎁 Bonus accordé",
+                description=f"**{count}** tirage(s) bonus accordé(s) à {member.mention}",
+                color=0x00ff00
+            )
+            embed.add_field(name="Raison", value=source, inline=False)
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            logging.error(f"[GIVE_BONUS] Erreur: {e}")
+            await ctx.send(f"❌ Erreur lors de l'attribution du bonus: {e}")
+
+    @commands.command(name="verifier_integrite", help="Vérifie l'intégrité des données des cartes")
+    @commands.has_permissions(administrator=True)
+    async def verifier_integrite(self, ctx: commands.Context):
+        """Commande d'administration pour vérifier l'intégrité des données."""
+        await ctx.send("🔍 Vérification de l'intégrité des données en cours...")
+
+        try:
+            report = {
+                "total_cards_checked": 0,
+                "total_vault_checked": 0,
+                "corrupted_cards": [],
+                "corrupted_vault": [],
+                "invalid_users": [],
+                "error": None
+            }
+
+            # Vérification des cartes principales
+            cards_cache = self.storage.get_cards_cache()
+            if cards_cache:
+                for i, row in enumerate(cards_cache[1:], start=2):  # Skip header
+                    if len(row) < 3:
+                        continue
+
+                    report["total_cards_checked"] += 1
+
+                    for j, cell in enumerate(row[2:], start=3):
+                        if not cell:
+                            continue
+                        if ":" not in cell:
+                            report["corrupted_cards"].append(f"Ligne {i}, Col {j}: Format invalide ({cell})")
+                            continue
+                        try:
+                            uid, count = cell.split(":", 1)
+                            uid = int(uid.strip())
+                            count = int(count.strip())
+                            if uid <= 0 or count <= 0:
+                                report["invalid_users"].append(f"Ligne {i}, Col {j}: Valeurs invalides ({cell})")
+                        except (ValueError, IndexError):
+                            report["corrupted_cards"].append(f"Ligne {i}, Col {j}: Format invalide ({cell})")
+
+            # Vérification du vault
+            vault_cache = self.storage.get_vault_cache()
+            if vault_cache:
+                for i, row in enumerate(vault_cache[1:], start=2):  # Skip header
+                    if len(row) < 3:
+                        continue
+
+                    report["total_vault_checked"] += 1
+
+                    for j, cell in enumerate(row[2:], start=3):
+                        if not cell:
+                            continue
+                        if ":" not in cell:
+                            report["corrupted_vault"].append(f"Ligne {i}, Col {j}: Format invalide dans vault ({cell})")
+                            continue
+                        try:
+                            uid, count = cell.split(":", 1)
+                            uid = int(uid.strip())
+                            count = int(count.strip())
+                            if uid <= 0 or count <= 0:
+                                report["invalid_users"].append(f"Ligne {i}, Col {j}: Valeurs invalides dans vault ({cell})")
+                        except (ValueError, IndexError):
+                            report["corrupted_vault"].append(f"Ligne {i}, Col {j}: Format invalide dans vault ({cell})")
+
+            # Créer l'embed de rapport
+            embed = discord.Embed(
+                title="🔍 Rapport d'intégrité",
+                color=discord.Color.green() if not any([
+                    report["corrupted_cards"], report["corrupted_vault"], report["invalid_users"]
+                ]) else discord.Color.red()
+            )
+
+            embed.add_field(
+                name="📈 Statistiques",
+                value=f"Cartes vérifiées: {report['total_cards_checked']}\nVault vérifié: {report['total_vault_checked']}",
+                inline=False
+            )
+
+            if report["corrupted_cards"]:
+                corrupted_text = "\n".join(report["corrupted_cards"][:10])
+                if len(report["corrupted_cards"]) > 10:
+                    corrupted_text += f"\n... et {len(report['corrupted_cards']) - 10} autres"
+                embed.add_field(
+                    name="❌ Cartes corrompues",
+                    value=corrupted_text,
+                    inline=False
+                )
+
+            if report["corrupted_vault"]:
+                vault_text = "\n".join(report["corrupted_vault"][:10])
+                if len(report["corrupted_vault"]) > 10:
+                    vault_text += f"\n... et {len(report['corrupted_vault']) - 10} autres"
+                embed.add_field(
+                    name="❌ Vault corrompu",
+                    value=vault_text,
+                    inline=False
+                )
+
+            if report["invalid_users"]:
+                users_text = "\n".join(report["invalid_users"][:10])
+                if len(report["invalid_users"]) > 10:
+                    users_text += f"\n... et {len(report['invalid_users']) - 10} autres"
+                embed.add_field(
+                    name="⚠️ Utilisateurs invalides",
+                    value=users_text,
+                    inline=False
+                )
+
+            if not any([report["corrupted_cards"], report["corrupted_vault"], report["invalid_users"]]):
+                embed.add_field(
+                    name="✅ Résultat",
+                    value="Aucun problème détecté !",
+                    inline=False
+                )
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            logging.error(f"[INTEGRITY] Erreur lors de la vérification: {e}")
+            await ctx.send(f"❌ Erreur lors de la vérification: {e}")
 
 
 async def setup(bot):

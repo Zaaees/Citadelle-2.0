@@ -87,6 +87,16 @@ class CardsStorage:
             )
             # Initialiser l'en-tête
             self.sheet_weekly_exchanges.append_row(["user_id", "week", "count"])
+
+        # Feuille des bonus
+        try:
+            self.sheet_bonus = self.spreadsheet.worksheet("Bonus")
+        except gspread.exceptions.WorksheetNotFound:
+            self.sheet_bonus = self.spreadsheet.add_worksheet(
+                title="Bonus", rows="1000", cols="3"
+            )
+            # Initialiser l'en-tête
+            self.sheet_bonus.append_row(["user_id", "count", "source"])
     
     def refresh_cards_cache(self):
         """Rafraîchit le cache des cartes."""

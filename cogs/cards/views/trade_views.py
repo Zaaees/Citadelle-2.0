@@ -440,3 +440,142 @@ class FullVaultTradeConfirmationView(discord.ui.View):
             embed=None,
             view=self
         )
+
+
+class TradeConfirmView(discord.ui.View):
+    """Vue de confirmation pour un échange de carte individuelle."""
+
+    def __init__(self, cog: "Cards", offerer: discord.User, target: discord.User, card_category: str, card_name: str):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.offerer = offerer
+        self.target = target
+        self.card_category = card_category
+        self.card_name = card_name
+
+    @discord.ui.button(label="Accepter", style=discord.ButtonStyle.success)
+    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Accepte la proposition d'échange."""
+        if interaction.user.id != self.target.id:
+            await interaction.response.send_message("Vous n'êtes pas l'utilisateur visé par cet échange.", ephemeral=True)
+            return
+
+        # Importer ici pour éviter les imports circulaires
+        from .modal_views import TradeResponseModal
+
+        modal = TradeResponseModal(self.cog, self.offerer, self.target, self.card_category, self.card_name)
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="Refuser", style=discord.ButtonStyle.danger)
+    async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Refuse la proposition d'échange."""
+        if interaction.user.id != self.target.id:
+            await interaction.response.send_message("Vous n'êtes pas le destinataire de cette proposition.", ephemeral=True)
+            return
+
+        # Désactiver tous les boutons
+        for child in self.children:
+            child.disabled = True
+
+        await interaction.response.edit_message(
+            content="❌ Échange refusé.",
+            embed=None,
+            view=self
+        )
+
+
+class TradeFinalConfirmView(discord.ui.View):
+    """Vue de confirmation finale pour un échange de cartes individuelles."""
+
+    def __init__(self, cog: "Cards", offerer: discord.User, target: discord.User,
+                 offer_cat: str, offer_name: str, return_cat: str, return_name: str):
+        super().__init__(timeout=60)
+        self.cog = cog
+        self.offerer = offerer
+        self.target = target
+        self.offer_cat = offer_cat
+        self.offer_name = offer_name
+        self.return_cat = return_cat
+        self.return_name = return_name
+        self.confirmed_by_offer = False
+        self.confirmed_by_target = False
+
+    @discord.ui.button(label="Confirmer (destinataire)", style=discord.ButtonStyle.success)
+    async def confirm_target(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Confirmation par le destinataire."""
+        if interaction.user.id != self.target.id:
+            await interaction.response.send_message("Vous n'êtes pas le destinataire de l'échange.", ephemeral=True)
+            return
+
+        self.confirmed_by_target = True
+        await interaction.response.send_message("✅ Vous avez confirmé. En attente du proposeur.", ephemeral=True)
+
+        if self.confirmed_by_offer:
+            await self.finalize_exchange(interaction)
+
+    @discord.ui.button(label="Confirmer (proposeur)", style=discord.ButtonStyle.success)
+    async def confirm_offer(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Confirmation par le proposeur."""
+        if interaction.user.id != self.offerer.id:
+            await interaction.response.send_message("Vous n'êtes pas le proposeur de l'échange.", ephemeral=True)
+            return
+
+        self.confirmed_by_offer = True
+        await interaction.response.send_message("✅ Vous avez confirmé. En attente du destinataire.", ephemeral=True)
+
+        if self.confirmed_by_target:
+            await self.finalize_exchange(interaction)
+
+    async def finalize_exchange(self, interaction: discord.Interaction):
+        """Finalise l'échange entre les deux utilisateurs."""
+        try:
+            success = self.cog.trading_manager.safe_exchange(
+                self.offerer.id, self.target.id,
+                self.offer_cat, self.offer_name,
+                self.return_cat, self.return_name
+            )
+
+            if success:
+                # Désactiver tous les boutons
+                for child in self.children:
+                    child.disabled = True
+
+                # Créer l'embed de succès
+                embed = discord.Embed(
+                    title="✅ Échange réussi !",
+                    description=f"Échange terminé entre {self.offerer.display_name} et {self.target.display_name}",
+                    color=0x00ff00
+                )
+
+                offer_display = self.offer_name.removesuffix('.png')
+                return_display = self.return_name.removesuffix('.png')
+
+                offer_id = self.cog.get_card_identifier(self.offer_cat, self.offer_name)
+                return_id = self.cog.get_card_identifier(self.return_cat, self.return_name)
+
+                if offer_id:
+                    offer_display += f" ({offer_id})"
+                if return_id:
+                    return_display += f" ({return_id})"
+
+                embed.add_field(
+                    name=f"📤 {self.offerer.display_name} a donné",
+                    value=f"**{offer_display}** ({self.offer_cat})",
+                    inline=True
+                )
+
+                embed.add_field(
+                    name=f"📥 {self.target.display_name} a donné",
+                    value=f"**{return_display}** ({self.return_cat})",
+                    inline=True
+                )
+
+                await interaction.edit_original_response(embed=embed, view=self)
+
+                logging.info(f"[TRADE] Échange individuel réussi: {self.offerer.id} <-> {self.target.id}")
+            else:
+                await interaction.followup.send("❌ Échec de l'échange. Vérifiez que vous possédez encore vos cartes.", ephemeral=True)
+
+        except Exception as e:
+            logging.error(f"[TRADE] Erreur lors de la finalisation: {e}")
+            await interaction.followup.send("❌ Une erreur est survenue lors de l'échange.", ephemeral=True)

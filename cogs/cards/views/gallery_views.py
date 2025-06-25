@@ -124,17 +124,17 @@ class PaginatedGalleryView(discord.ui.View):
                 ephemeral=True
             )
     
-    @discord.ui.button(label="🔍 Afficher une carte", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="🔍 Voir carte", style=discord.ButtonStyle.primary)
     async def show_card(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Bouton pour afficher une carte spécifique."""
+        """Bouton pour afficher une carte spécifique avec ses informations."""
         if interaction.user.id != self.user.id:
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
-        
+
         # Importer ici pour éviter les imports circulaires
-        from .modal_views import CardNameModal
-        
-        modal = CardNameModal(self.cog, self.user)
+        from .modal_views import CardInfoModal
+
+        modal = CardInfoModal(self.cog, self.user)
         await interaction.response.send_modal(modal)
 
 

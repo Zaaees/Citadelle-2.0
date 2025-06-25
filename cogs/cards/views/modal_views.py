@@ -451,3 +451,210 @@ class TradeResponseModal(discord.ui.Modal, title="Réponse à l'échange"):
                 "❌ Une erreur est survenue lors de la réponse à l'échange.",
                 ephemeral=True
             )
+
+
+class TradeOfferCardModal(discord.ui.Modal, title="Proposer un échange"):
+    """Modal pour proposer un échange de carte individuelle."""
+
+    card_name = discord.ui.TextInput(
+        label="Carte à échanger (nom ou identifiant)",
+        placeholder="Ex : Alex (Variante) ou C42",
+        required=True
+    )
+
+    def __init__(self, cog: "Cards", user: discord.User):
+        super().__init__()
+        self.cog = cog
+        self.user = user
+
+    async def on_submit(self, interaction: discord.Interaction):
+        """Traite la proposition d'échange."""
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            input_text = self.card_name.value.strip()
+
+            # Rechercher la carte dans l'inventaire de l'utilisateur
+            card_match = self.cog.find_user_card_by_input(self.user.id, input_text)
+
+            if not card_match:
+                await interaction.followup.send(
+                    f"❌ Carte non trouvée dans votre inventaire : **{input_text}**",
+                    ephemeral=True
+                )
+                return
+
+            category, name = card_match
+
+            # Créer l'embed de proposition
+            display_name = name.removesuffix('.png')
+            card_id = self.cog.get_card_identifier(category, name)
+            display_text = f"{display_name} ({card_id})" if card_id else display_name
+
+            embed = discord.Embed(
+                title="🔄 Proposition d'échange",
+                description=f"{self.user.display_name} propose d'échanger :",
+                color=0x3498db
+            )
+
+            embed.add_field(
+                name="Carte proposée",
+                value=f"**{display_text}** ({category})",
+                inline=False
+            )
+
+            embed.add_field(
+                name="Instructions",
+                value="Répondez avec le nom ou l'identifiant de la carte que vous souhaitez échanger.",
+                inline=False
+            )
+
+            # Importer ici pour éviter les imports circulaires
+            from .trade_views import TradeConfirmView
+
+            # Pour l'instant, on crée une vue simple - dans une vraie implémentation,
+            # il faudrait d'abord sélectionner l'utilisateur cible
+            await interaction.followup.send(
+                "✅ Proposition d'échange créée ! (Fonctionnalité en cours de développement)",
+                embed=embed,
+                ephemeral=True
+            )
+
+        except Exception as e:
+            logging.error(f"[TRADE_OFFER] Erreur lors de la proposition: {e}")
+            await interaction.followup.send(
+                "❌ Une erreur est survenue lors de la proposition d'échange.",
+                ephemeral=True
+            )
+
+
+class CardInfoModal(discord.ui.Modal, title="Voir carte et informations"):
+    """Modal pour afficher une carte avec ses informations complètes."""
+
+    card_name = discord.ui.TextInput(
+        label="Carte à afficher (nom ou identifiant)",
+        placeholder="Ex : Alex (Variante) ou C42",
+        required=True,
+        max_length=100
+    )
+
+    def __init__(self, cog: "Cards", user: discord.User):
+        super().__init__()
+        self.cog = cog
+        self.user = user
+
+    async def on_submit(self, interaction: discord.Interaction):
+        """Traite l'affichage de carte avec informations complètes."""
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            input_text = self.card_name.value.strip()
+
+            # Vérifier si c'est un identifiant (C1, C2, etc.)
+            if input_text.upper().startswith('C') and input_text[1:].isdigit():
+                # Recherche par identifiant
+                discovery_index = int(input_text[1:])
+                discoveries_cache = self.cog.discovery_manager.storage.get_discoveries_cache()
+
+                if discoveries_cache:
+                    for row in discoveries_cache[1:]:  # Skip header
+                        if len(row) >= 6 and int(row[5]) == discovery_index:
+                            category, name = row[0], row[1]
+                            break
+                    else:
+                        await interaction.followup.send(
+                            f"❌ Aucune carte trouvée avec l'identifiant '{input_text.upper()}'.",
+                            ephemeral=True
+                        )
+                        return
+                else:
+                    await interaction.followup.send(
+                        "❌ Système de découvertes non disponible.",
+                        ephemeral=True
+                    )
+                    return
+            else:
+                # Recherche par nom dans l'inventaire de l'utilisateur
+                card_match = self.cog.find_user_card_by_input(self.user.id, input_text)
+
+                if not card_match:
+                    await interaction.followup.send(
+                        f"❌ Carte non trouvée dans votre inventaire : **{input_text}**",
+                        ephemeral=True
+                    )
+                    return
+
+                category, name = card_match
+
+            # Rechercher le fichier de la carte
+            card_info = self.cog.find_card_by_name(name)
+            if not card_info:
+                await interaction.followup.send(
+                    f"❌ Fichier de carte non trouvé : **{name}**",
+                    ephemeral=True
+                )
+                return
+
+            file_category, file_name, file_id = card_info
+
+            # Télécharger l'image
+            file_bytes = self.cog.download_drive_file(file_id)
+            if not file_bytes:
+                await interaction.followup.send(
+                    "❌ Erreur lors du téléchargement de l'image.",
+                    ephemeral=True
+                )
+                return
+
+            # Récupérer les informations de découverte
+            discovery_info = self.cog.discovery_manager.get_discovery_info(category, name)
+
+            # Créer l'embed avec toutes les informations
+            display_name = name.removesuffix('.png')
+            embed = discord.Embed(
+                title=f"🎴 {display_name}",
+                color=0x3498db
+            )
+
+            embed.add_field(name="📂 Catégorie", value=category, inline=True)
+
+            # Compter les exemplaires dans l'inventaire
+            user_cards = self.cog.get_user_cards(self.user.id)
+            count = user_cards.count((category, name))
+            embed.add_field(name="📦 Quantité possédée", value=f"x{count}", inline=True)
+
+            if discovery_info:
+                embed.add_field(
+                    name="🔍 Identifiant",
+                    value=f"C{discovery_info['discovery_index']}",
+                    inline=True
+                )
+                embed.add_field(
+                    name="👤 Découvreur",
+                    value=discovery_info['discoverer_name'],
+                    inline=True
+                )
+                embed.add_field(
+                    name="📅 Date de découverte",
+                    value=discovery_info['timestamp'],
+                    inline=True
+                )
+            else:
+                embed.add_field(name="🔍 Statut", value="Non découverte", inline=True)
+
+            # Créer le fichier Discord
+            file = discord.File(
+                fp=discord.utils._BytesIOProxy(file_bytes),
+                filename=f"{name}.png" if not name.endswith('.png') else name
+            )
+
+            embed.set_image(url=f"attachment://{file.filename}")
+
+            await interaction.followup.send(embed=embed, file=file, ephemeral=True)
+
+        except Exception as e:
+            logging.error(f"[CARD_INFO] Erreur lors de l'affichage: {e}")
+            await interaction.followup.send(
+                "❌ Une erreur est survenue lors de l'affichage de la carte.",
+                ephemeral=True
+            )

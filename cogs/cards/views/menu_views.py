@@ -27,24 +27,33 @@ class CardsMenuView(discord.ui.View):
             return
         
         await interaction.response.defer(ephemeral=True)
-        
+
         try:
-            # Effectuer le tirage
-            drawn_cards = await self.perform_draw(interaction)
-            
-            if not drawn_cards:
+            # Vérifier si l'utilisateur peut effectuer son tirage journalier
+            if not self.cog.drawing_manager.can_perform_daily_draw(self.user.id):
                 await interaction.followup.send(
-                    "❌ Vous avez atteint votre limite de tirages ou vous n'avez pas de personnage.",
+                    "🚫 Vous avez déjà effectué votre tirage journalier aujourd'hui. Revenez demain !",
                     ephemeral=True
                 )
                 return
-            
+
+            # Effectuer le tirage journalier
+            drawn_cards = await self.perform_draw(interaction)
+
+            if not drawn_cards:
+                await interaction.followup.send(
+                    "❌ Une erreur est survenue lors du tirage.",
+                    ephemeral=True
+                )
+                return
+
             # Créer l'embed de résultat
             embed = discord.Embed(
-                title="🎴 Cartes tirées !",
-                color=0x00ff00
+                title="🌅 Tirage journalier !",
+                description="Vous avez reçu 3 cartes gratuites !",
+                color=0xf1c40f
             )
-            
+
             for i, (cat, name) in enumerate(drawn_cards, 1):
                 display_name = name.removesuffix('.png')
                 embed.add_field(
@@ -52,10 +61,10 @@ class CardsMenuView(discord.ui.View):
                     value=f"**{display_name}**\n*{cat}*",
                     inline=True
                 )
-            
+
             await interaction.followup.send(embed=embed, ephemeral=True)
-            
-            # Annonce publique si carte rare ou variante
+
+            # Annonce publique si nouvelles cartes
             await self.cog._handle_announce_and_wall(interaction, drawn_cards)
             
         except Exception as e:
@@ -67,45 +76,22 @@ class CardsMenuView(discord.ui.View):
     
     async def perform_draw(self, interaction: discord.Interaction) -> list[tuple[str, str]]:
         """
-        Tire jusqu'à 3 cartes pour l'utilisateur, met à jour les données,
-        et retourne la liste des cartes tirées sous forme (catégorie, nom).
+        Effectue le tirage journalier de 3 cartes pour l'utilisateur.
         """
-        # ✅ Exception : /tirage_journalier donne 3 cartes même sans personnage
-        if interaction.command and interaction.command.name == "tirage_journalier":
-            drawn_cards = self.cog.drawing_manager.draw_cards(3)
-            for cat, name in drawn_cards:
-                self.cog.add_card_to_user(self.user.id, cat, name)
-            return drawn_cards
-        
-        # Vérifier les personnages et calculer les tirages disponibles
-        inventory_cog = interaction.client.get_cog("Inventory")
-        if inventory_cog is None:
-            return []
-        
-        students = inventory_cog.load_students()
-        owned_chars = [data for data in students.values() if data.get("user_id") == self.user.id]
-        user_character_names = {name for name, data in students.items() if data.get("user_id") == self.user.id}
-        
-        total_medals = self.cog.compute_total_medals(self.user.id, students, user_character_names)
-        if owned_chars:
-            most_medals = max(char.get("medals", 0) for char in owned_chars)
-            bonus_draws = (len(owned_chars) - 1) * 5
-            total_medals = most_medals + bonus_draws
-        
-        draw_limit = total_medals * 3
-        user_cards = self.cog.get_user_cards(self.user.id)
-        drawn_count = len(user_cards)
-        remaining_draws = max(draw_limit - drawn_count, 0)
-        draw_count = int(min(3, remaining_draws))
-        
-        if draw_count == 0:
-            return []
-        
-        # Effectuer le tirage
-        drawn_cards = self.cog.drawing_manager.draw_cards(draw_count)
+        # Vérifier si l'utilisateur peut effectuer son tirage journalier
+        if not self.cog.drawing_manager.can_perform_daily_draw(self.user.id):
+            return []  # Pas de tirage disponible
+
+        # Effectuer le tirage journalier de 3 cartes
+        drawn_cards = self.cog.drawing_manager.draw_cards(3)
+
+        # Ajouter les cartes à l'inventaire
         for cat, name in drawn_cards:
             self.cog.add_card_to_user(self.user.id, cat, name)
-        
+
+        # Enregistrer le tirage journalier
+        self.cog.drawing_manager.record_daily_draw(self.user.id)
+
         return drawn_cards
     
     @discord.ui.button(label="Ma galerie", style=discord.ButtonStyle.secondary)
