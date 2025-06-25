@@ -421,161 +421,192 @@ class Cards(commands.Cog):
             return f"C{discovery_info['discovery_index']}"
         return None
 
-    def generate_paginated_gallery_embeds(self, user: discord.abc.User, page: int = 0) -> tuple[discord.Embed, discord.Embed, dict] | None:
+    def generate_paginated_gallery_embeds(self, user: discord.abc.User, page: int = 0) -> tuple[discord.Embed, discord.Embed | None, dict] | None:
         """Construit les embeds de galerie paginés pour l'utilisateur donné (format original)."""
-        user_cards = self.get_user_cards(user.id)
-        if not user_cards:
+        try:
+            user_cards = self.get_user_cards(user.id)
+            if not user_cards:
+                return None
+
+            # Configuration de la pagination
+            CARDS_PER_PAGE = 15  # Nombre de cartes par catégorie par page
+
+            rarity_order = {
+                "Secrète": 0,
+                "Fondateur": 1,
+                "Historique": 2,
+                "Maître": 3,
+                "Black Hole": 4,
+                "Architectes": 5,
+                "Professeurs": 6,
+                "Autre": 7,
+                "Élèves": 8,
+            }
+            user_cards.sort(key=lambda c: rarity_order.get(c[0], 9))
+
+            cards_by_cat: dict[str, list[str]] = {}
+            for cat, name in user_cards:
+                cards_by_cat.setdefault(cat, []).append(name)
+
+            # Calculer le nombre total de pages nécessaires
+            max_pages_needed = 0
+            for cat in rarity_order:
+                noms = cards_by_cat.get(cat, [])
+                normales = [n for n in noms if not n.endswith(" (Full)")]
+                fulls = [n for n in noms if n.endswith(" (Full)")]
+
+                if normales:
+                    counts = {}
+                    for n in normales:
+                        counts[n] = counts.get(n, 0) + 1
+                    pages_for_cat = (len(counts) + CARDS_PER_PAGE - 1) // CARDS_PER_PAGE
+                    max_pages_needed = max(max_pages_needed, pages_for_cat)
+
+                if fulls:
+                    counts = {}
+                    for n in fulls:
+                        counts[n] = counts.get(n, 0) + 1
+                    pages_for_cat = (len(counts) + CARDS_PER_PAGE - 1) // CARDS_PER_PAGE
+                    max_pages_needed = max(max_pages_needed, pages_for_cat)
+
+            total_pages = max(1, max_pages_needed)
+            current_page = max(0, min(page, total_pages - 1))
+
+            embed_normales = discord.Embed(
+                title=f"Galerie de {user.display_name} (Page {current_page + 1}/{total_pages})",
+                color=discord.Color.blue(),
+            )
+            embed_full = discord.Embed(
+                title=f"Cartes Full de {user.display_name} (Page {current_page + 1}/{total_pages})",
+                color=discord.Color.gold(),
+            )
+
+            has_normal_cards = False
+            has_full_cards = False
+
+            for cat in rarity_order:
+                noms = cards_by_cat.get(cat, [])
+
+                normales = [n for n in noms if not n.endswith(" (Full)")]
+                if normales:
+                    counts: dict[str, int] = {}
+                    for n in normales:
+                        counts[n] = counts.get(n, 0) + 1
+                    # Sort cards alphabetically within the category (accent-insensitive)
+                    sorted_cards = sorted(counts.items(), key=lambda x: normalize_name(x[0].removesuffix('.png')))
+
+                    # Pagination logic for normal cards
+                    start_idx = current_page * CARDS_PER_PAGE
+                    end_idx = start_idx + CARDS_PER_PAGE
+                    page_cards = sorted_cards[start_idx:end_idx]
+
+                    if page_cards:  # Only show category if there are cards on this page
+                        has_normal_cards = True
+                        lines = []
+                        for n, c in page_cards:
+                            try:
+                                card_name = n.removesuffix('.png')
+                                # Get card identifier if available
+                                identifier = self.get_card_identifier(cat, n)
+                                identifier_text = f" ({identifier})" if identifier else ""
+                                count_text = f' (x{c})' if c > 1 else ''
+                                lines.append(f"- **{card_name}**{identifier_text}{count_text}")
+                            except Exception as e:
+                                logging.error(f"[GALLERY] Erreur lors du traitement de la carte {n}: {e}")
+                                continue
+
+                        if lines:  # Only add field if we have valid lines
+                            field_value = "\n".join(lines)
+
+                            # Add pagination info if there are more cards
+                            total_cards_in_cat = len(sorted_cards)
+                            if total_cards_in_cat > CARDS_PER_PAGE:
+                                showing_start = start_idx + 1
+                                showing_end = min(end_idx, total_cards_in_cat)
+                                field_value += f"\n\n*Affichage {showing_start}-{showing_end} sur {total_cards_in_cat}*"
+
+                            try:
+                                total_available = len({
+                                    f['name'].removesuffix('.png')
+                                    for f in self.cards_by_category.get(cat, [])
+                                })
+                                owned_unique = len(counts)
+
+                                embed_normales.add_field(
+                                    name=f"{cat} : {owned_unique}/{total_available}",
+                                    value=field_value,
+                                    inline=False,
+                                )
+                            except Exception as e:
+                                logging.error(f"[GALLERY] Erreur lors de l'ajout du champ pour {cat}: {e}")
+                                continue
+
+                fulls = [n for n in noms if n.endswith(" (Full)")]
+                if fulls:
+                    counts: dict[str, int] = {}
+                    for n in fulls:
+                        counts[n] = counts.get(n, 0) + 1
+                    # Sort cards alphabetically within the category (accent-insensitive)
+                    sorted_cards = sorted(counts.items(), key=lambda x: normalize_name(x[0].removesuffix('.png')))
+
+                    # Pagination logic for full cards
+                    start_idx = current_page * CARDS_PER_PAGE
+                    end_idx = start_idx + CARDS_PER_PAGE
+                    page_cards = sorted_cards[start_idx:end_idx]
+
+                    if page_cards:  # Only show category if there are cards on this page
+                        has_full_cards = True
+                        lines = []
+                        for n, c in page_cards:
+                            try:
+                                card_name = n.removesuffix('.png')
+                                count_text = f' (x{c})' if c > 1 else ''
+                                lines.append(f"- **{card_name}**{count_text}")
+                            except Exception as e:
+                                logging.error(f"[GALLERY] Erreur lors du traitement de la carte Full {n}: {e}")
+                                continue
+
+                        if lines:  # Only add field if we have valid lines
+                            field_value = "\n".join(lines)
+
+                            # Add pagination info if there are more cards
+                            total_cards_in_cat = len(sorted_cards)
+                            if total_cards_in_cat > CARDS_PER_PAGE:
+                                showing_start = start_idx + 1
+                                showing_end = min(end_idx, total_cards_in_cat)
+                                field_value += f"\n\n*Affichage {showing_start}-{showing_end} sur {total_cards_in_cat}*"
+
+                            try:
+                                total_full = len({
+                                    f['name'].removesuffix('.png')
+                                    for f in self.upgrade_cards_by_category.get(cat, [])
+                                })
+                                owned_full = len(counts)
+
+                                embed_full.add_field(
+                                    name=f"{cat} (Full) : {owned_full}/{total_full}",
+                                    value=field_value,
+                                    inline=False,
+                                )
+                            except Exception as e:
+                                logging.error(f"[GALLERY] Erreur lors de l'ajout du champ Full pour {cat}: {e}")
+                                continue
+
+            # Prepare pagination info
+            pagination_info = {
+                'current_page': current_page,
+                'total_pages': total_pages,
+                'has_previous': current_page > 0,
+                'has_next': current_page < total_pages - 1
+            }
+
+            # Return only the embeds that have content
+            final_embed_full = embed_full if has_full_cards else None
+            return embed_normales, final_embed_full, pagination_info
+
+        except Exception as e:
+            logging.error(f"[GALLERY] Erreur dans generate_paginated_gallery_embeds: {e}")
             return None
-
-        # Configuration de la pagination
-        CARDS_PER_PAGE = 15  # Nombre de cartes par catégorie par page
-
-        rarity_order = {
-            "Secrète": 0,
-            "Fondateur": 1,
-            "Historique": 2,
-            "Maître": 3,
-            "Black Hole": 4,
-            "Architectes": 5,
-            "Professeurs": 6,
-            "Autre": 7,
-            "Élèves": 8,
-        }
-        user_cards.sort(key=lambda c: rarity_order.get(c[0], 9))
-
-        cards_by_cat: dict[str, list[str]] = {}
-        for cat, name in user_cards:
-            cards_by_cat.setdefault(cat, []).append(name)
-
-        # Calculer le nombre total de pages nécessaires
-        max_pages_needed = 0
-        for cat in rarity_order:
-            noms = cards_by_cat.get(cat, [])
-            normales = [n for n in noms if not n.endswith(" (Full)")]
-            fulls = [n for n in noms if n.endswith(" (Full)")]
-
-            if normales:
-                counts = {}
-                for n in normales:
-                    counts[n] = counts.get(n, 0) + 1
-                pages_for_cat = (len(counts) + CARDS_PER_PAGE - 1) // CARDS_PER_PAGE
-                max_pages_needed = max(max_pages_needed, pages_for_cat)
-
-            if fulls:
-                counts = {}
-                for n in fulls:
-                    counts[n] = counts.get(n, 0) + 1
-                pages_for_cat = (len(counts) + CARDS_PER_PAGE - 1) // CARDS_PER_PAGE
-                max_pages_needed = max(max_pages_needed, pages_for_cat)
-
-        total_pages = max(1, max_pages_needed)
-        current_page = max(0, min(page, total_pages - 1))
-
-        embed_normales = discord.Embed(
-            title=f"Galerie de {user.display_name} (Page {current_page + 1}/{total_pages})",
-            color=discord.Color.blue(),
-        )
-        embed_full = discord.Embed(
-            title=f"Cartes Full de {user.display_name} (Page {current_page + 1}/{total_pages})",
-            color=discord.Color.gold(),
-        )
-
-        for cat in rarity_order:
-            noms = cards_by_cat.get(cat, [])
-
-            normales = [n for n in noms if not n.endswith(" (Full)")]
-            if normales:
-                counts: dict[str, int] = {}
-                for n in normales:
-                    counts[n] = counts.get(n, 0) + 1
-                # Sort cards alphabetically within the category (accent-insensitive)
-                sorted_cards = sorted(counts.items(), key=lambda x: normalize_name(x[0].removesuffix('.png')))
-
-                # Pagination logic for normal cards
-                start_idx = current_page * CARDS_PER_PAGE
-                end_idx = start_idx + CARDS_PER_PAGE
-                page_cards = sorted_cards[start_idx:end_idx]
-
-                if page_cards:  # Only show category if there are cards on this page
-                    lines = []
-                    for n, c in page_cards:
-                        card_name = n.removesuffix('.png')
-                        # Get card identifier if available
-                        identifier = self.get_card_identifier(cat, n)
-                        identifier_text = f" ({identifier})" if identifier else ""
-                        count_text = f' (x{c})' if c > 1 else ''
-                        lines.append(f"- **{card_name}**{identifier_text}{count_text}")
-
-                    field_value = "\n".join(lines)
-
-                    # Add pagination info if there are more cards
-                    total_cards_in_cat = len(sorted_cards)
-                    if total_cards_in_cat > CARDS_PER_PAGE:
-                        showing_start = start_idx + 1
-                        showing_end = min(end_idx, total_cards_in_cat)
-                        field_value += f"\n\n*Affichage {showing_start}-{showing_end} sur {total_cards_in_cat}*"
-
-                    total_available = len({
-                        f['name'].removesuffix('.png')
-                        for f in self.cards_by_category.get(cat, [])
-                    })
-                    owned_unique = len(counts)
-
-                    embed_normales.add_field(
-                        name=f"{cat} : {owned_unique}/{total_available}",
-                        value=field_value,
-                        inline=False,
-                    )
-
-            fulls = [n for n in noms if n.endswith(" (Full)")]
-            if fulls:
-                counts: dict[str, int] = {}
-                for n in fulls:
-                    counts[n] = counts.get(n, 0) + 1
-                # Sort cards alphabetically within the category (accent-insensitive)
-                sorted_cards = sorted(counts.items(), key=lambda x: normalize_name(x[0].removesuffix('.png')))
-
-                # Pagination logic for full cards
-                start_idx = current_page * CARDS_PER_PAGE
-                end_idx = start_idx + CARDS_PER_PAGE
-                page_cards = sorted_cards[start_idx:end_idx]
-
-                if page_cards:  # Only show category if there are cards on this page
-                    lines = [
-                        f"- **{n.removesuffix('.png')}**{' (x'+str(c)+')' if c>1 else ''}"
-                        for n, c in page_cards
-                    ]
-
-                    field_value = "\n".join(lines)
-
-                    # Add pagination info if there are more cards
-                    total_cards_in_cat = len(sorted_cards)
-                    if total_cards_in_cat > CARDS_PER_PAGE:
-                        showing_start = start_idx + 1
-                        showing_end = min(end_idx, total_cards_in_cat)
-                        field_value += f"\n\n*Affichage {showing_start}-{showing_end} sur {total_cards_in_cat}*"
-
-                    total_full = len({
-                        f['name'].removesuffix('.png')
-                        for f in self.upgrade_cards_by_category.get(cat, [])
-                    })
-                    owned_full = len(counts)
-
-                    embed_full.add_field(
-                        name=f"{cat} (Full) : {owned_full}/{total_full}",
-                        value=field_value,
-                        inline=False,
-                    )
-
-        # Prepare pagination info
-        pagination_info = {
-            'current_page': current_page,
-            'total_pages': total_pages,
-            'has_previous': current_page > 0,
-            'has_next': current_page < total_pages - 1
-        }
-
-        return embed_normales, embed_full, pagination_info
 
     def get_all_card_categories(self) -> list[str]:
         """Retourne la liste complète des catégories de cartes."""
@@ -927,7 +958,9 @@ class Cards(commands.Cog):
                 return
 
             embed_normales, embed_full, pagination_info = result
-            embeds = [embed_normales, embed_full] if embed_full else [embed_normales]
+            embeds = [embed_normales]
+            if embed_full:
+                embeds.append(embed_full)
 
             # Créer la vue de galerie admin
             gallery_view = AdminPaginatedGalleryView(self, member)
