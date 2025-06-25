@@ -247,6 +247,41 @@ class CardsMenuView(discord.ui.View):
                 ephemeral=True
             )
 
+    @discord.ui.button(label="🏆 Classement", style=discord.ButtonStyle.secondary)
+    async def show_leaderboard(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Bouton pour afficher le classement."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            leaderboard = self.cog.get_leaderboard()
+
+            # Get the excluding full counts for ALL users, not just top 5
+            all_excluding_full_counts = self.cog.get_unique_card_counts_excluding_full()
+
+            embed = discord.Embed(title="🏆 Top 5 des collectionneurs", color=0x4E5D94)
+            for idx, (uid, count) in enumerate(leaderboard, start=1):
+                user = self.cog.bot.get_user(uid)
+                name = user.display_name if user else str(uid)
+                excluding_full_count = all_excluding_full_counts.get(uid, 0)
+                embed.add_field(
+                    name=f"#{idx} {name}",
+                    value=f"{count} cartes différentes | Hors Full : {excluding_full_count}",
+                    inline=False
+                )
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except Exception as e:
+            logging.error(f"[LEADERBOARD] Erreur lors de l'affichage du classement: {e}")
+            await interaction.followup.send(
+                "❌ Une erreur est survenue lors de l'affichage du classement.",
+                ephemeral=True
+            )
+
 
 class SacrificialDrawConfirmationView(discord.ui.View):
     """Vue de confirmation pour le tirage sacrificiel."""

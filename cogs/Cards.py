@@ -246,6 +246,111 @@ class Cards(commands.Cog):
         user_cards = self.get_user_cards(user_id)
         return (category, name) in user_cards
 
+    # ========== MÉTHODES DE CLASSEMENT ==========
+
+    def get_unique_card_counts(self) -> dict[int, int]:
+        """Retourne un dictionnaire {user_id: nombre de cartes différentes}."""
+        cards_cache = self.storage.get_cards_cache()
+        if not cards_cache:
+            return {}
+
+        rows = cards_cache[1:]
+        user_sets: dict[int, set[tuple[str, str]]] = {}
+        for row in rows:
+            if len(row) < 3:
+                continue
+            cat, name = row[0], row[1]
+            card_key = (cat, name)
+            for cell in row[2:]:
+                cell = cell.strip()
+                if not cell or ":" not in cell:
+                    continue
+                uid_str, _ = cell.split(":", 1)
+                try:
+                    uid = int(uid_str)
+                except ValueError:
+                    continue
+                user_sets.setdefault(uid, set()).add(card_key)
+
+        return {uid: len(cards) for uid, cards in user_sets.items()}
+
+    def get_unique_card_counts_excluding_full(self) -> dict[int, int]:
+        """Retourne un dictionnaire {user_id: nombre de cartes différentes} en excluant les cartes Full."""
+        cards_cache = self.storage.get_cards_cache()
+        if not cards_cache:
+            return {}
+
+        rows = cards_cache[1:]
+        user_sets: dict[int, set[tuple[str, str]]] = {}
+        for row in rows:
+            if len(row) < 3:
+                continue
+            cat, name = row[0], row[1]
+            # Skip full cards
+            if name.removesuffix('.png').endswith(' (Full)'):
+                continue
+            card_key = (cat, name)
+            for cell in row[2:]:
+                cell = cell.strip()
+                if not cell or ":" not in cell:
+                    continue
+                uid_str, _ = cell.split(":", 1)
+                try:
+                    uid = int(uid_str)
+                except ValueError:
+                    continue
+                user_sets.setdefault(uid, set()).add(card_key)
+
+        return {uid: len(cards) for uid, cards in user_sets.items()}
+
+    def get_leaderboard(self, top_n: int = 5) -> list[tuple[int, int]]:
+        """Renvoie la liste triée des (user_id, compte unique) pour les `top_n` meilleurs."""
+        counts = self.get_unique_card_counts()
+        leaderboard = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+        return leaderboard[:top_n]
+
+    def get_leaderboard_excluding_full(self, top_n: int = 5) -> list[tuple[int, int]]:
+        """Renvoie la liste triée des (user_id, compte unique hors Full) pour les `top_n` meilleurs."""
+        counts = self.get_unique_card_counts_excluding_full()
+        leaderboard = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+        return leaderboard[:top_n]
+
+    def get_user_rank(self, user_id: int) -> tuple[int | None, int]:
+        """Renvoie (rang, nombre de cartes uniques) de l'utilisateur."""
+        counts = self.get_unique_card_counts()
+        sorted_counts = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+        rank = None
+        for idx, (uid, _) in enumerate(sorted_counts, start=1):
+            if uid == user_id:
+                rank = idx
+                break
+        return rank, counts.get(user_id, 0)
+
+    def get_user_rank_excluding_full(self, user_id: int) -> tuple[int | None, int]:
+        """Renvoie (rang, nombre de cartes uniques hors Full) de l'utilisateur."""
+        counts = self.get_unique_card_counts_excluding_full()
+        sorted_counts = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+        rank = None
+        for idx, (uid, _) in enumerate(sorted_counts, start=1):
+            if uid == user_id:
+                rank = idx
+                break
+        return rank, counts.get(user_id, 0)
+
+    def total_unique_cards_available(self) -> int:
+        """Nombre total de cartes différentes existantes."""
+        total = 0
+        for lst in (*self.cards_by_category.values(), *self.upgrade_cards_by_category.values()):
+            total += len(lst)
+        return total
+
+    def total_unique_cards_available_excluding_full(self) -> int:
+        """Nombre total de cartes différentes existantes (hors Full)."""
+        total = 0
+        for lst in self.cards_by_category.values():
+            total += len(lst)
+        return total
+
     # ========== MÉTHODES UTILITAIRES ==========
 
     def find_user_card_by_input(self, user_id: int, input_text: str) -> tuple[str, str] | None:
@@ -562,27 +667,42 @@ class Cards(commands.Cog):
 
         view = CardsMenuView(self, interaction.user)
 
-        # Calcul des tirages restants
+        # Calcul des statistiques de l'utilisateur
         user_cards = self.get_user_cards(interaction.user.id)
         drawn_count = len(user_cards)
 
-        # Créer l'embed principal
+        # Statistiques de cartes uniques
+        unique_count = len(set(user_cards))
+        unique_count_excluding_full = len(set([(cat, name) for cat, name in user_cards if not "(Full)" in name]))
+
+        # Totaux disponibles
+        total_unique = self.total_unique_cards_available()
+        total_unique_excluding_full = self.total_unique_cards_available_excluding_full()
+
+        # Classements
+        rank, _ = self.get_user_rank(interaction.user.id)
+        rank_excluding_full, _ = self.get_user_rank_excluding_full(interaction.user.id)
+
+        rank_text = f"#{rank}" if rank else "Non classé"
+        rank_text_excluding_full = f"#{rank_excluding_full}" if rank_excluding_full else "Non classé"
+
+        # Calcul des médailles et tirages (placeholder pour l'instant)
+        medals_used = 0
+        bonus_tirages = 0
+        remaining_clicks = 0
+
+        # Créer l'embed principal avec le format original
         embed = discord.Embed(
-            title="🎴 Système de cartes à collectionner",
-            description=f"Bienvenue {interaction.user.display_name} !",
+            title="🎴 Menu des Cartes",
+            description=(
+                f"**Menu des Cartes :**\n"
+                f"🏅 Médailles comptées : **{medals_used}**\n"
+                f"➕ Bonus de tirages : **{bonus_tirages}** (via personnages supplémentaires)\n"
+                f"🎴 Tirages restants : **{remaining_clicks}**\n"
+                f"📈 Cartes différentes : **{unique_count}/{total_unique}** | Hors Full : **{unique_count_excluding_full}/{total_unique_excluding_full}**\n"
+                f"🥇 Classement : **{rank_text}** | Hors Full : **{rank_text_excluding_full}**"
+            ),
             color=0x3498db
-        )
-
-        embed.add_field(
-            name="📊 Vos statistiques",
-            value=f"Cartes possédées : **{drawn_count}**",
-            inline=True
-        )
-
-        embed.add_field(
-            name="🎯 Actions disponibles",
-            value="Utilisez les boutons ci-dessous pour interagir avec vos cartes.",
-            inline=False
         )
 
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)

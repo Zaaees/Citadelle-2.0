@@ -102,6 +102,67 @@ class TradeMenuView(discord.ui.View):
         modal = InitiateTradeModal(self.cog, self.user)
         await interaction.response.send_modal(modal)
 
+    @discord.ui.button(label="👀 Voir mon coffre", style=discord.ButtonStyle.secondary)
+    async def view_vault(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Bouton pour voir le contenu du coffre."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            vault_cards = self.cog.vault_manager.get_user_vault_cards(self.user.id)
+            if not vault_cards:
+                await interaction.followup.send("📦 Votre coffre est vide.", ephemeral=True)
+                return
+
+            # Grouper les cartes par catégorie et compter
+            cards_by_cat = {}
+            for cat, name in vault_cards:
+                cards_by_cat.setdefault(cat, []).append(name)
+
+            embed = discord.Embed(
+                title=f"📦 Coffre de {self.user.display_name}",
+                color=0x8B4513
+            )
+
+            # Trier les catégories selon l'ordre de rareté
+            rarity_order = ["Secrète", "Fondateur", "Historique", "Maître", "Black Hole",
+                           "Architectes", "Professeurs", "Autre", "Élèves"]
+
+            for cat in rarity_order:
+                if cat in cards_by_cat:
+                    names = cards_by_cat[cat]
+                    # Compter les occurrences
+                    counts = {}
+                    for name in names:
+                        counts[name] = counts.get(name, 0) + 1
+
+                    # Créer la liste formatée
+                    card_list = []
+                    for name, count in sorted(counts.items()):
+                        display_name = name.removesuffix('.png')
+                        card_id = self.cog.get_card_identifier(cat, name)
+                        identifier_text = f" ({card_id})" if card_id else ""
+                        count_text = f' (x{count})' if count > 1 else ''
+                        card_list.append(f"• **{display_name}**{identifier_text}{count_text}")
+
+                    embed.add_field(
+                        name=f"📂 {cat}",
+                        value="\n".join(card_list),
+                        inline=False
+                    )
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except Exception as e:
+            logging.error(f"[VAULT_VIEW] Erreur lors de l'affichage du coffre: {e}")
+            await interaction.followup.send(
+                "❌ Une erreur est survenue lors de l'affichage du coffre.",
+                ephemeral=True
+            )
+
 
 class WithdrawVaultConfirmationView(discord.ui.View):
     """Vue de confirmation pour retirer les cartes du vault."""
