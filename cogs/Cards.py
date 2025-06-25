@@ -355,11 +355,23 @@ class Cards(commands.Cog):
 
     def find_user_card_by_input(self, user_id: int, input_text: str) -> tuple[str, str] | None:
         """Recherche une carte dans l'inventaire d'un utilisateur par nom ou ID."""
-        normalized_input, is_card_id = parse_card_input(input_text)
+        input_text = input_text.strip()
 
-        if is_card_id:
-            # Recherche par ID de carte
-            # Cette fonctionnalité sera implémentée avec le système d'ID
+        # Vérifier si c'est un identifiant (C1, C2, etc.)
+        if input_text.upper().startswith('C') and input_text[1:].isdigit():
+            # Recherche par identifiant
+            discovery_index = int(input_text[1:])
+            discoveries_cache = self.discovery_manager.storage.get_discoveries_cache()
+
+            if discoveries_cache:
+                for row in discoveries_cache[1:]:  # Skip header
+                    if len(row) >= 6 and int(row[5]) == discovery_index:
+                        category, name = row[0], row[1]
+                        # Vérifier que l'utilisateur possède cette carte
+                        owned_cards = self.get_user_cards(user_id)
+                        if any(cat == category and n == name for cat, n in owned_cards):
+                            return (category, name)
+                        return None
             return None
 
         # Recherche par nom
@@ -376,10 +388,17 @@ class Cards(commands.Cog):
         )
         return match
 
+    def get_card_identifier(self, category: str, name: str) -> str | None:
+        """Récupère l'identifiant d'une carte (C1, C2, etc.)."""
+        discovery_info = self.discovery_manager.get_discovery_info(category, name)
+        if discovery_info:
+            return f"C{discovery_info['discovery_index']}"
+        return None
+
     def find_card_by_name(self, input_name: str) -> tuple[str, str, str] | None:
         """
         Recherche une carte par nom dans toutes les catégories.
-        Retourne (catégorie, nom exact, file_id) ou None.
+        Retourne (catégorie, nom exact avec extension, file_id) ou None.
         """
         normalized_input = normalize_name(input_name.removesuffix(".png"))
 
@@ -395,7 +414,8 @@ class Cards(commands.Cog):
                 file_name = file_info['name']
                 normalized_file = normalize_name(file_name.removesuffix(".png"))
                 if normalized_file == normalized_input:
-                    return category, file_name.removesuffix('.png'), file_info['id']
+                    # Retourner le nom avec extension pour correspondre au format de l'inventaire
+                    return category, file_name, file_info['id']
 
         return None
 
