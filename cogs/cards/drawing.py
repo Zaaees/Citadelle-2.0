@@ -1,0 +1,206 @@
+"""
+Logique de tirage des cartes.
+Gère les tirages aléatoires, sacrificiels, et journaliers.
+"""
+
+import random
+import hashlib
+import logging
+from datetime import datetime
+import pytz
+from typing import List, Tuple, Dict, Any
+
+from .config import RARITY_WEIGHTS, ALL_CATEGORIES, DAILY_SACRIFICIAL_CARDS_COUNT
+from .storage import CardsStorage
+
+
+class DrawingManager:
+    """Gestionnaire des tirages de cartes."""
+    
+    def __init__(self, storage: CardsStorage, cards_by_category: Dict[str, List[Dict]], 
+                 upgrade_cards_by_category: Dict[str, List[Dict]]):
+        self.storage = storage
+        self.cards_by_category = cards_by_category
+        self.upgrade_cards_by_category = upgrade_cards_by_category
+    
+    def draw_cards(self, number: int) -> List[Tuple[str, str]]:
+        """
+        Effectue un tirage aléatoire de `number` cartes avec rareté adaptative.
+        
+        Args:
+            number: Nombre de cartes à tirer
+        
+        Returns:
+            List[Tuple[str, str]]: Liste des cartes tirées (category, name)
+        """
+        drawn = []
+        
+        for _ in range(number):
+            # Sélection de la catégorie selon les poids de rareté
+            category = random.choices(ALL_CATEGORIES, weights=[RARITY_WEIGHTS[cat] for cat in ALL_CATEGORIES])[0]
+            
+            # Sélection aléatoire d'une carte dans la catégorie
+            available_cards = self.cards_by_category.get(category, [])
+            if not available_cards:
+                continue
+            
+            selected_card = random.choice(available_cards)
+            card_name = selected_card['name'].removesuffix('.png')
+            
+            # Vérifier s'il y a une variante Full disponible
+            full_cards = self.upgrade_cards_by_category.get(category, [])
+            full_variant = next(
+                (f for f in full_cards 
+                 if f['name'].removesuffix('.png').removesuffix(' (Full)') == card_name),
+                None
+            )
+            
+            # Logique de tirage de variante
+            if full_variant:
+                # Probabilité de tirer la variante Full
+                variant_chance = self._calculate_variant_chance(category)
+                if random.random() < variant_chance:
+                    drawn.append((category, full_variant['name'].removesuffix('.png')))
+                else:
+                    drawn.append((category, card_name))
+            else:
+                drawn.append((category, card_name))
+        
+        return drawn
+    
+    def _calculate_variant_chance(self, category: str) -> float:
+        """
+        Calcule la probabilité de tirer une variante Full selon la rareté.
+        
+        Args:
+            category: Catégorie de la carte
+        
+        Returns:
+            float: Probabilité entre 0 et 1
+        """
+        variant_chances = {
+            "Secrète": 0.50,
+            "Fondateur": 0.40,
+            "Historique": 0.30,
+            "Maître": 0.25,
+            "Black Hole": 0.25,
+            "Architectes": 0.20,
+            "Professeurs": 0.15,
+            "Autre": 0.10,
+            "Élèves": 0.05
+        }
+        return variant_chances.get(category, 0.05)
+    
+    def select_daily_sacrificial_cards(self, user_id: int, eligible_cards: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
+        """
+        Sélectionne 5 cartes de manière déterministe basée sur le jour actuel et l'ID utilisateur.
+        La sélection reste la même pour un utilisateur donné pendant toute la journée.
+        Gère intelligemment les doublons pour éviter de sélectionner plus de cartes d'un type que l'utilisateur n'en possède.
+        
+        Args:
+            user_id: ID de l'utilisateur
+            eligible_cards: Liste des cartes éligibles (category, name)
+        
+        Returns:
+            List[Tuple[str, str]]: Liste des cartes sélectionnées
+        """
+        # Obtenir la date actuelle en timezone Paris
+        paris_tz = pytz.timezone("Europe/Paris")
+        today = datetime.now(paris_tz).strftime("%Y-%m-%d")
+        
+        # Créer une seed déterministe basée sur l'utilisateur et le jour
+        seed_string = f"{user_id}-{today}"
+        seed = int(hashlib.md5(seed_string.encode()).hexdigest(), 16) % (2**32)
+        
+        # Utiliser cette seed pour la sélection
+        rng = random.Random(seed)
+        
+        # Compter les occurrences de chaque carte unique
+        card_counts = {}
+        for card in eligible_cards:
+            card_counts[card] = card_counts.get(card, 0) + 1
+        
+        # Créer une liste pondérée où chaque carte apparaît selon son nombre d'exemplaires
+        weighted_cards = []
+        for card, count in card_counts.items():
+            weighted_cards.extend([card] * count)
+        
+        # Sélectionner jusqu'à 5 cartes uniques
+        selected = []
+        selected_set = set()
+        attempts = 0
+        max_attempts = len(weighted_cards) * 2  # Éviter les boucles infinies
+        
+        while len(selected) < DAILY_SACRIFICIAL_CARDS_COUNT and attempts < max_attempts:
+            if not weighted_cards:
+                break
+            
+            card = rng.choice(weighted_cards)
+            if card not in selected_set:
+                selected.append(card)
+                selected_set.add(card)
+            
+            attempts += 1
+        
+        return selected
+    
+    def can_perform_daily_draw(self, user_id: int) -> bool:
+        """
+        Vérifie si un utilisateur peut effectuer son tirage journalier.
+        
+        Args:
+            user_id: ID de l'utilisateur
+        
+        Returns:
+            bool: True si le tirage est autorisé
+        """
+        try:
+            paris_tz = pytz.timezone("Europe/Paris")
+            today = datetime.now(paris_tz).strftime("%Y-%m-%d")
+            user_id_str = str(user_id)
+            
+            # Vérifier dans la feuille des tirages journaliers
+            all_rows = self.storage.sheet_daily_draw.get_all_values()
+            row_idx = next((i for i, r in enumerate(all_rows) if r and r[0] == user_id_str), None)
+            
+            if row_idx is not None and len(all_rows[row_idx]) > 1 and all_rows[row_idx][1] == today:
+                return False  # Déjà tiré aujourd'hui
+            
+            return True
+            
+        except Exception as e:
+            logging.error(f"[DRAWING] Erreur lors de la vérification du tirage journalier: {e}")
+            return False
+    
+    def record_daily_draw(self, user_id: int) -> bool:
+        """
+        Enregistre qu'un utilisateur a effectué son tirage journalier.
+        
+        Args:
+            user_id: ID de l'utilisateur
+        
+        Returns:
+            bool: True si l'enregistrement a réussi
+        """
+        try:
+            paris_tz = pytz.timezone("Europe/Paris")
+            today = datetime.now(paris_tz).strftime("%Y-%m-%d")
+            user_id_str = str(user_id)
+            
+            # Mettre à jour ou ajouter l'entrée
+            all_rows = self.storage.sheet_daily_draw.get_all_values()
+            row_idx = next((i for i, r in enumerate(all_rows) if r and r[0] == user_id_str), None)
+            
+            if row_idx is not None:
+                # Mettre à jour la ligne existante
+                self.storage.sheet_daily_draw.update(f"B{row_idx + 1}", today)
+            else:
+                # Ajouter une nouvelle ligne
+                self.storage.sheet_daily_draw.append_row([user_id_str, today])
+            
+            logging.info(f"[DRAWING] Tirage journalier enregistré pour l'utilisateur {user_id}")
+            return True
+            
+        except Exception as e:
+            logging.error(f"[DRAWING] Erreur lors de l'enregistrement du tirage journalier: {e}")
+            return False
