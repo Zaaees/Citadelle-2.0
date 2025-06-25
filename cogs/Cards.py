@@ -2682,21 +2682,81 @@ class Cards(commands.Cog):
             color=0xff6b35
         )
 
-        # Ajouter les cartes sélectionnées à l'embed avec leurs identifiants
+        # Compter les cartes possédées par type pour l'affichage
+        user_card_counts = {}
+        for cat, name in eligible_cards:
+            key = (cat, name)
+            user_card_counts[key] = user_card_counts.get(key, 0) + 1
+
+        # Ajouter les cartes sélectionnées à l'embed avec leurs identifiants et quantités
         card_list = []
         for i, (cat, name) in enumerate(selected_cards, 1):
             # Essayer de trouver l'identifiant de la carte
             card_id = self.get_card_identifier(cat, name)
+
+            # Compter combien l'utilisateur possède de cette carte
+            key = (cat, name)
+            owned_count = user_card_counts.get(key, 0)
+
+            # Construire la ligne d'affichage
             if card_id:
-                card_list.append(f"{i}. **{name}** (*{cat}*) - `{card_id}`")
+                card_display = f"{i}. **{name}** (*{cat}*) - `{card_id}` - Possédées: **{owned_count}**"
             else:
-                card_list.append(f"{i}. **{name}** (*{cat}*)")
+                card_display = f"{i}. **{name}** (*{cat}*) - Possédées: **{owned_count}**"
+
+            # Ajouter un indicateur si c'est la dernière carte de ce type
+            if owned_count == 1:
+                card_display += " ⚠️ *Dernière*"
+
+            card_list.append(card_display)
 
         embed.add_field(
             name="Cartes à sacrifier",
             value="\n".join(card_list),
             inline=False
         )
+
+        # Ajouter un récapitulatif des cartes par catégorie
+        category_summary = {}
+        last_cards_info = []
+
+        for cat, name in selected_cards:
+            key = (cat, name)
+            owned_count = user_card_counts.get(key, 0)
+
+            # Compter par catégorie
+            if cat not in category_summary:
+                category_summary[cat] = 0
+            category_summary[cat] += 1
+
+            # Identifier les dernières cartes
+            if owned_count == 1:
+                last_cards_info.append(f"**{name}** (*{cat}*)")
+
+        # Créer le texte du récapitulatif
+        summary_lines = []
+        for cat, count in category_summary.items():
+            summary_lines.append(f"• **{cat}** : {count} carte(s)")
+
+        embed.add_field(
+            name="📊 Récapitulatif par catégorie",
+            value="\n".join(summary_lines),
+            inline=True
+        )
+
+        # Ajouter les informations sur les dernières cartes si applicable
+        if last_cards_info:
+            embed.add_field(
+                name="⚠️ Dernières cartes",
+                value="Vous sacrifiez vos derniers exemplaires de :\n" + "\n".join(f"• {card}" for card in last_cards_info),
+                inline=True
+            )
+        else:
+            embed.add_field(
+                name="✅ Sécurité",
+                value="Aucune dernière carte dans cette sélection",
+                inline=True
+            )
 
         embed.add_field(
             name="⚠️ Attention",
