@@ -19,8 +19,8 @@ class CardsMenuView(discord.ui.View):
         self.user = user
         self.user_id = user.id
     
-    @discord.ui.button(label="Tirer une carte", style=discord.ButtonStyle.primary)
-    async def draw_card(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="🌅 Tirage journalier", style=discord.ButtonStyle.primary)
+    async def daily_draw(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Bouton pour tirer une carte."""
         if interaction.user.id != self.user.id:
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
@@ -93,8 +93,76 @@ class CardsMenuView(discord.ui.View):
         self.cog.drawing_manager.record_daily_draw(self.user.id)
 
         return drawn_cards
-    
-    @discord.ui.button(label="Ma galerie", style=discord.ButtonStyle.secondary)
+
+    @discord.ui.button(label="⚔️ Tirage sacrificiel", style=discord.ButtonStyle.danger)
+    async def sacrificial_draw(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Bouton pour le tirage sacrificiel."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            # Récupérer les cartes éligibles (non-Full)
+            user_cards = self.cog.get_user_cards(interaction.user.id)
+            eligible_cards = [(cat, name) for cat, name in user_cards if not "(Full)" in name]
+
+            if len(eligible_cards) < 5:
+                await interaction.followup.send(
+                    f"❌ Vous devez avoir au moins 5 cartes (non-Full) pour effectuer un tirage sacrificiel. "
+                    f"Vous en avez {len(eligible_cards)}.",
+                    ephemeral=True
+                )
+                return
+
+            # Sélectionner les cartes sacrificielles du jour
+            selected_cards = self.cog.drawing_manager.select_daily_sacrificial_cards(
+                interaction.user.id, eligible_cards
+            )
+
+            if not selected_cards:
+                await interaction.followup.send(
+                    "❌ Aucune carte disponible pour le tirage sacrificiel aujourd'hui.",
+                    ephemeral=True
+                )
+                return
+
+            # Créer la vue de confirmation
+            confirmation_view = SacrificialDrawConfirmationView(self.cog, interaction.user, selected_cards)
+
+            # Créer l'embed de confirmation
+            embed = discord.Embed(
+                title="⚔️ Tirage sacrificiel",
+                description="Cartes sélectionnées pour le sacrifice d'aujourd'hui :",
+                color=0xe74c3c
+            )
+
+            for i, (cat, name) in enumerate(selected_cards, 1):
+                display_name = name.removesuffix('.png')
+                user_count = user_cards.count((cat, name))
+                embed.add_field(
+                    name=f"Carte {i}",
+                    value=f"**{display_name}** ({cat})\n*Vous en possédez: {user_count}*",
+                    inline=True
+                )
+
+            embed.add_field(
+                name="⚠️ Attention",
+                value="Ces cartes seront **définitivement perdues** en échange d'une carte rare !",
+                inline=False
+            )
+
+            await interaction.followup.send(embed=embed, view=confirmation_view, ephemeral=True)
+
+        except Exception as e:
+            logging.error(f"[SACRIFICIAL_DRAW] Erreur: {e}")
+            await interaction.followup.send(
+                "❌ Une erreur est survenue lors du tirage sacrificiel.",
+                ephemeral=True
+            )
+
+    @discord.ui.button(label="📚 Ma galerie", style=discord.ButtonStyle.secondary)
     async def view_gallery(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Bouton pour voir la galerie de cartes."""
         if interaction.user.id != self.user.id:
@@ -162,76 +230,7 @@ class CardsMenuView(discord.ui.View):
                 ephemeral=True
             )
     
-    @discord.ui.button(label="Tirage sacrificiel", style=discord.ButtonStyle.danger)
-    async def sacrificial_draw(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Bouton pour le tirage sacrificiel."""
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
-            return
-        
-        await interaction.response.defer(ephemeral=True)
-        
-        try:
-            # Récupérer les cartes éligibles (non-Full)
-            user_cards = self.cog.get_user_cards(self.user.id)
-            eligible_cards = [(cat, name) for cat, name in user_cards if not "(Full)" in name]
-            
-            if len(eligible_cards) < 5:
-                await interaction.followup.send(
-                    f"❌ Vous devez avoir au moins 5 cartes (non-Full) pour effectuer un tirage sacrificiel. "
-                    f"Vous en avez {len(eligible_cards)}.",
-                    ephemeral=True
-                )
-                return
-            
-            # Sélectionner les cartes sacrificielles du jour
-            selected_cards = self.cog.drawing_manager.select_daily_sacrificial_cards(
-                self.user.id, eligible_cards
-            )
-            
-            if not selected_cards:
-                await interaction.followup.send(
-                    "❌ Aucune carte disponible pour le tirage sacrificiel aujourd'hui.",
-                    ephemeral=True
-                )
-                return
-            
-            # Importer ici pour éviter les imports circulaires
-            from .menu_views import SacrificialDrawConfirmationView
-            
-            # Créer la vue de confirmation
-            confirmation_view = SacrificialDrawConfirmationView(self.cog, self.user, selected_cards)
-            
-            # Créer l'embed de confirmation
-            embed = discord.Embed(
-                title="⚔️ Tirage sacrificiel",
-                description="Cartes sélectionnées pour le sacrifice d'aujourd'hui :",
-                color=0xe74c3c
-            )
-            
-            for i, (cat, name) in enumerate(selected_cards, 1):
-                display_name = name.removesuffix('.png')
-                user_count = user_cards.count((cat, name))
-                embed.add_field(
-                    name=f"Carte {i}",
-                    value=f"**{display_name}** ({cat})\n*Vous en possédez: {user_count}*",
-                    inline=True
-                )
-            
-            embed.add_field(
-                name="⚠️ Attention",
-                value="Ces cartes seront **définitivement perdues** en échange d'une carte rare !",
-                inline=False
-            )
-            
-            await interaction.followup.send(embed=embed, view=confirmation_view, ephemeral=True)
-            
-        except Exception as e:
-            logging.error(f"[MENU] Erreur lors du tirage sacrificiel: {e}")
-            await interaction.followup.send(
-                "❌ Une erreur est survenue lors du tirage sacrificiel.",
-                ephemeral=True
-            )
+# Ancien bouton tirage sacrificiel supprimé - maintenant placé après le tirage journalier
 
     @discord.ui.button(label="🏆 Classement", style=discord.ButtonStyle.secondary)
     async def show_leaderboard(self, interaction: discord.Interaction, button: discord.ui.Button):

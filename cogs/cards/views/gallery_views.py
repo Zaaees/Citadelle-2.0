@@ -132,9 +132,9 @@ class PaginatedGalleryView(discord.ui.View):
             return
 
         # Importer ici pour éviter les imports circulaires
-        from .modal_views import CardInfoModal
+        from .modal_views import CardNameModal
 
-        modal = CardInfoModal(self.cog, self.user)
+        modal = CardNameModal(self.cog, self.user)
         await interaction.response.send_modal(modal)
 
 
