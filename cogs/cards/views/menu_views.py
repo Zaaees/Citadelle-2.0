@@ -183,7 +183,9 @@ class CardsMenuView(discord.ui.View):
                 return
 
             embed_normales, embed_full, pagination_info = result
-            embeds = [embed_normales, embed_full] if embed_full else [embed_normales]
+            embeds = [embed_normales]
+            if embed_full:
+                embeds.append(embed_full)
 
             # Importer ici pour éviter les imports circulaires
             from .gallery_views import PaginatedGalleryView
