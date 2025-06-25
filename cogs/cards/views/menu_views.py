@@ -118,23 +118,24 @@ class CardsMenuView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         
         try:
-            # Importer ici pour éviter les imports circulaires
-            from .gallery_views import PaginatedGalleryView
-            
-            # Créer la vue de galerie paginée
-            gallery_view = PaginatedGalleryView(self.cog, self.user)
-            result = await gallery_view.get_gallery_page(0)
-            
+            # Utiliser la méthode originale du cog
+            result = self.cog.generate_paginated_gallery_embeds(self.user, 0)
+
             if not result:
                 await interaction.followup.send(
                     "❌ Vous n'avez aucune carte dans votre collection.",
                     ephemeral=True
                 )
                 return
-            
+
             embed_normales, embed_full, pagination_info = result
             embeds = [embed_normales, embed_full] if embed_full else [embed_normales]
-            
+
+            # Importer ici pour éviter les imports circulaires
+            from .gallery_views import PaginatedGalleryView
+
+            # Créer la vue de galerie paginée
+            gallery_view = PaginatedGalleryView(self.cog, self.user)
             await interaction.followup.send(embeds=embeds, view=gallery_view, ephemeral=True)
             
         except Exception as e:
