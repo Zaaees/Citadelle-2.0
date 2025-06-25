@@ -76,7 +76,7 @@ class CardsMenuView(discord.ui.View):
     
     async def perform_draw(self, interaction: discord.Interaction) -> list[tuple[str, str]]:
         """
-        Effectue le tirage journalier de 3 cartes pour l'utilisateur.
+        Effectue le tirage journalier de 3 cartes pour l'utilisateur avec affichage original.
         """
         # Vérifier si l'utilisateur peut effectuer son tirage journalier
         if not self.cog.drawing_manager.can_perform_daily_draw(self.user.id):
@@ -85,9 +85,38 @@ class CardsMenuView(discord.ui.View):
         # Effectuer le tirage journalier de 3 cartes
         drawn_cards = self.cog.drawing_manager.draw_cards(3)
 
+        # Annonce publique si nouvelles cartes
+        discovered_cards = self.cog.discovery_manager.get_discovered_cards()
+        new_cards = [c for c in drawn_cards if c not in discovered_cards]
+        if new_cards:
+            await self.cog._handle_announce_and_wall(interaction, new_cards)
+
+        # Affichage des cartes avec embeds/images (style original)
+        embed_msgs = []
+        for cat, name in drawn_cards:
+            # Recherche du fichier image (inclut cartes Full)
+            file_id = next(
+                (f["id"] for f in (self.cog.cards_by_category.get(cat, []) + self.cog.upgrade_cards_by_category.get(cat, []))
+                if f["name"].removesuffix(".png") == name),
+                None,
+            )
+            if file_id:
+                file_bytes = self.cog.download_drive_file(file_id)
+                embed, image_file = self.cog.build_card_embed(cat, name, file_bytes)
+                embed_msgs.append((embed, image_file))
+
+        if embed_msgs:
+            first_embed, first_file = embed_msgs[0]
+            await interaction.edit_original_response(content=None, embed=first_embed, attachments=[first_file])
+            for em, f in embed_msgs[1:]:
+                await interaction.followup.send(embed=em, file=f, ephemeral=False)
+
         # Ajouter les cartes à l'inventaire
         for cat, name in drawn_cards:
             self.cog.add_card_to_user(self.user.id, cat, name)
+
+        # Maintenant que l'inventaire est à jour, on gère les upgrades
+        await self.cog.check_for_upgrades(interaction, self.user.id, drawn_cards)
 
         # Enregistrer le tirage journalier
         self.cog.drawing_manager.record_daily_draw(self.user.id)
@@ -104,7 +133,15 @@ class CardsMenuView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
 
         try:
-            # Récupérer les cartes éligibles (non-Full)
+            # Vérifier si l'utilisateur peut effectuer son tirage sacrificiel
+            if not self.cog.drawing_manager.can_perform_sacrificial_draw(interaction.user.id):
+                await interaction.followup.send(
+                    "🚫 Vous avez déjà effectué votre tirage sacrificiel aujourd'hui. Revenez demain !",
+                    ephemeral=True
+                )
+                return
+
+            # Récupérer les cartes éligibles (non-Full) avec cache optimisé
             user_cards = self.cog.get_user_cards(interaction.user.id)
             eligible_cards = [(cat, name) for cat, name in user_cards if not "(Full)" in name]
 
@@ -149,7 +186,7 @@ class CardsMenuView(discord.ui.View):
 
             embed.add_field(
                 name="⚠️ Attention",
-                value="Ces cartes seront **définitivement perdues** en échange d'une carte rare !",
+                value="Ces cartes seront **définitivement perdues** en échange d'une carte rare avec chance de Full !",
                 inline=False
             )
 
@@ -298,38 +335,63 @@ class SacrificialDrawConfirmationView(discord.ui.View):
                         ephemeral=True
                     )
                     return
-            
-            # Retirer les cartes sacrifiées
-            for cat, name in self.selected_cards:
-                if not self.cog.remove_card_from_user(self.user.id, cat, name):
-                    await interaction.followup.send(
-                        "❌ Erreur lors du retrait des cartes sacrifiées.",
-                        ephemeral=True
-                    )
-                    return
-            
-            # Effectuer le tirage rare (catégories rares uniquement)
-            rare_categories = ["Secrète", "Fondateur", "Historique", "Maître", "Black Hole"]
-            drawn_cards = []
-            
-            for _ in range(1):  # Un seul tirage rare
-                category = self.cog.drawing_manager.random.choice(rare_categories)
-                available_cards = self.cog.cards_by_category.get(category, [])
-                if available_cards:
-                    selected_card = self.cog.drawing_manager.random.choice(available_cards)
-                    card_name = selected_card['name'].removesuffix('.png')
-                    drawn_cards.append((category, card_name))
-                    self.cog.add_card_to_user(self.user.id, category, card_name)
+
+            # Utiliser les opérations batch optimisées pour retirer les cartes
+            if not self.cog.batch_remove_cards_from_user(self.user.id, self.selected_cards):
+                await interaction.followup.send(
+                    "❌ Erreur lors du retrait des cartes sacrifiées.",
+                    ephemeral=True
+                )
+                return
+
+            # Effectuer le tirage rare avec attribution des Full cards
+            drawn_cards = self.cog.drawing_manager.draw_cards(1, rare_only=True)
+
+            if drawn_cards:
+                # Ajouter la carte tirée à l'inventaire
+                cat, name = drawn_cards[0]
+                self.cog.add_card_to_user(self.user.id, cat, name)
+
+                # Enregistrer le tirage sacrificiel
+                self.cog.drawing_manager.record_sacrificial_draw(self.user.id)
             
             if drawn_cards:
                 cat, name = drawn_cards[0]
+                display_name = name.removesuffix('.png')
+                is_full = "(Full)" in name
+
                 embed = discord.Embed(
                     title="⚔️ Sacrifice accompli !",
-                    description=f"Vous avez obtenu : **{name}** ({cat})",
+                    description=f"Vous avez obtenu : **{display_name}** ({cat})",
                     color=0x27ae60
                 )
-                
-                # Annonce publique
+
+                if is_full:
+                    embed.add_field(
+                        name="✨ Variante Full !",
+                        value="Félicitations ! Vous avez obtenu une variante Full rare !",
+                        inline=False
+                    )
+
+                # Affichage des cartes avec embeds/images (style original)
+                embed_msgs = []
+                for cat, name in drawn_cards:
+                    # Recherche du fichier image (inclut cartes Full)
+                    file_id = next(
+                        (f["id"] for f in (self.cog.cards_by_category.get(cat, []) + self.cog.upgrade_cards_by_category.get(cat, []))
+                        if f["name"].removesuffix(".png") == name),
+                        None,
+                    )
+                    if file_id:
+                        file_bytes = self.cog.download_drive_file(file_id)
+                        embed, image_file = self.cog.build_card_embed(cat, name, file_bytes)
+                        embed_msgs.append((embed, image_file))
+
+                if embed_msgs:
+                    for embed, image_file in embed_msgs:
+                        await interaction.followup.send(embed=embed, file=image_file, ephemeral=False)
+
+                # Annonce publique et mur des cartes
                 await self.cog._handle_announce_and_wall(interaction, drawn_cards)
             else:
                 embed = discord.Embed(

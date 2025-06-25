@@ -23,38 +23,47 @@ class DrawingManager:
         self.cards_by_category = cards_by_category
         self.upgrade_cards_by_category = upgrade_cards_by_category
     
-    def draw_cards(self, number: int) -> List[Tuple[str, str]]:
+    def draw_cards(self, number: int, rare_only: bool = False) -> List[Tuple[str, str]]:
         """
         Effectue un tirage aléatoire de `number` cartes avec rareté adaptative.
-        
+
         Args:
             number: Nombre de cartes à tirer
-        
+            rare_only: Si True, tire uniquement dans les catégories rares
+
         Returns:
             List[Tuple[str, str]]: Liste des cartes tirées (category, name)
         """
         drawn = []
-        
+
+        # Définir les catégories disponibles
+        if rare_only:
+            available_categories = ["Secrète", "Fondateur", "Historique", "Maître", "Black Hole"]
+            category_weights = [RARITY_WEIGHTS[cat] for cat in available_categories]
+        else:
+            available_categories = ALL_CATEGORIES
+            category_weights = [RARITY_WEIGHTS[cat] for cat in available_categories]
+
         for _ in range(number):
             # Sélection de la catégorie selon les poids de rareté
-            category = random.choices(ALL_CATEGORIES, weights=[RARITY_WEIGHTS[cat] for cat in ALL_CATEGORIES])[0]
-            
+            category = random.choices(available_categories, weights=category_weights)[0]
+
             # Sélection aléatoire d'une carte dans la catégorie
             available_cards = self.cards_by_category.get(category, [])
             if not available_cards:
                 continue
-            
+
             selected_card = random.choice(available_cards)
             card_name = selected_card['name'].removesuffix('.png')
-            
+
             # Vérifier s'il y a une variante Full disponible
             full_cards = self.upgrade_cards_by_category.get(category, [])
             full_variant = next(
-                (f for f in full_cards 
+                (f for f in full_cards
                  if f['name'].removesuffix('.png').removesuffix(' (Full)') == card_name),
                 None
             )
-            
+
             # Logique de tirage de variante
             if full_variant:
                 # Probabilité de tirer la variante Full
@@ -65,7 +74,7 @@ class DrawingManager:
                     drawn.append((category, card_name))
             else:
                 drawn.append((category, card_name))
-        
+
         return drawn
     
     def _calculate_variant_chance(self, category: str) -> float:
@@ -147,10 +156,11 @@ class DrawingManager:
     def can_perform_daily_draw(self, user_id: int) -> bool:
         """
         Vérifie si un utilisateur peut effectuer son tirage journalier.
-        
+        Optimisé avec cache pour réduire les appels Google Sheets.
+
         Args:
             user_id: ID de l'utilisateur
-        
+
         Returns:
             bool: True si le tirage est autorisé
         """
@@ -158,16 +168,27 @@ class DrawingManager:
             paris_tz = pytz.timezone("Europe/Paris")
             today = datetime.now(paris_tz).strftime("%Y-%m-%d")
             user_id_str = str(user_id)
-            
+
+            # Utiliser le cache pour éviter les appels répétés
+            cache_key = f"daily_draw_{user_id}_{today}"
+            if hasattr(self, '_daily_draw_cache'):
+                if cache_key in self._daily_draw_cache:
+                    return self._daily_draw_cache[cache_key]
+            else:
+                self._daily_draw_cache = {}
+
             # Vérifier dans la feuille des tirages journaliers
             all_rows = self.storage.sheet_daily_draw.get_all_values()
             row_idx = next((i for i, r in enumerate(all_rows) if r and r[0] == user_id_str), None)
-            
+
+            can_draw = True
             if row_idx is not None and len(all_rows[row_idx]) > 1 and all_rows[row_idx][1] == today:
-                return False  # Déjà tiré aujourd'hui
-            
-            return True
-            
+                can_draw = False  # Déjà tiré aujourd'hui
+
+            # Mettre en cache le résultat
+            self._daily_draw_cache[cache_key] = can_draw
+            return can_draw
+
         except Exception as e:
             logging.error(f"[DRAWING] Erreur lors de la vérification du tirage journalier: {e}")
             return False
@@ -175,10 +196,11 @@ class DrawingManager:
     def record_daily_draw(self, user_id: int) -> bool:
         """
         Enregistre qu'un utilisateur a effectué son tirage journalier.
-        
+        Optimisé avec invalidation du cache.
+
         Args:
             user_id: ID de l'utilisateur
-        
+
         Returns:
             bool: True si l'enregistrement a réussi
         """
@@ -186,21 +208,105 @@ class DrawingManager:
             paris_tz = pytz.timezone("Europe/Paris")
             today = datetime.now(paris_tz).strftime("%Y-%m-%d")
             user_id_str = str(user_id)
-            
+
             # Mettre à jour ou ajouter l'entrée
             all_rows = self.storage.sheet_daily_draw.get_all_values()
             row_idx = next((i for i, r in enumerate(all_rows) if r and r[0] == user_id_str), None)
-            
+
             if row_idx is not None:
                 # Mettre à jour la ligne existante
                 self.storage.sheet_daily_draw.update(f"B{row_idx + 1}", today)
             else:
                 # Ajouter une nouvelle ligne
                 self.storage.sheet_daily_draw.append_row([user_id_str, today])
-            
+
+            # Invalider le cache pour cet utilisateur
+            if hasattr(self, '_daily_draw_cache'):
+                cache_key = f"daily_draw_{user_id}_{today}"
+                self._daily_draw_cache[cache_key] = False
+
             logging.info(f"[DRAWING] Tirage journalier enregistré pour l'utilisateur {user_id}")
             return True
-            
+
         except Exception as e:
             logging.error(f"[DRAWING] Erreur lors de l'enregistrement du tirage journalier: {e}")
+            return False
+
+    def can_perform_sacrificial_draw(self, user_id: int) -> bool:
+        """
+        Vérifie si un utilisateur peut effectuer son tirage sacrificiel.
+        Optimisé avec cache pour réduire les appels Google Sheets.
+
+        Args:
+            user_id: ID de l'utilisateur
+
+        Returns:
+            bool: True si le tirage est autorisé
+        """
+        try:
+            paris_tz = pytz.timezone("Europe/Paris")
+            today = datetime.now(paris_tz).strftime("%Y-%m-%d")
+            user_id_str = str(user_id)
+
+            # Utiliser le cache pour éviter les appels répétés
+            cache_key = f"sacrificial_draw_{user_id}_{today}"
+            if hasattr(self, '_sacrificial_draw_cache'):
+                if cache_key in self._sacrificial_draw_cache:
+                    return self._sacrificial_draw_cache[cache_key]
+            else:
+                self._sacrificial_draw_cache = {}
+
+            # Vérifier dans la feuille des tirages sacrificiels
+            all_rows = self.storage.sheet_sacrificial_draw.get_all_values()
+            row_idx = next((i for i, r in enumerate(all_rows) if r and r[0] == user_id_str), None)
+
+            can_draw = True
+            if row_idx is not None and len(all_rows[row_idx]) > 1 and all_rows[row_idx][1] == today:
+                can_draw = False  # Déjà tiré aujourd'hui
+
+            # Mettre en cache le résultat
+            self._sacrificial_draw_cache[cache_key] = can_draw
+            return can_draw
+
+        except Exception as e:
+            logging.error(f"[DRAWING] Erreur lors de la vérification du tirage sacrificiel: {e}")
+            return False
+
+    def record_sacrificial_draw(self, user_id: int) -> bool:
+        """
+        Enregistre qu'un utilisateur a effectué son tirage sacrificiel.
+        Optimisé avec invalidation du cache.
+
+        Args:
+            user_id: ID de l'utilisateur
+
+        Returns:
+            bool: True si l'enregistrement a réussi
+        """
+        try:
+            paris_tz = pytz.timezone("Europe/Paris")
+            today = datetime.now(paris_tz).strftime("%Y-%m-%d")
+            user_id_str = str(user_id)
+
+            # Mettre à jour ou ajouter l'entrée
+            all_rows = self.storage.sheet_sacrificial_draw.get_all_values()
+            row_idx = next((i for i, r in enumerate(all_rows) if r and r[0] == user_id_str), None)
+
+            if row_idx is not None:
+                # Mettre à jour la ligne existante
+                self.storage.sheet_sacrificial_draw.update(f"B{row_idx + 1}", today)
+            else:
+                # Ajouter une nouvelle ligne
+                self.storage.sheet_sacrificial_draw.append_row([user_id_str, today])
+
+            # Invalider le cache pour cet utilisateur
+            if hasattr(self, '_sacrificial_draw_cache'):
+                cache_key = f"sacrificial_draw_{user_id}_{today}"
+                self._sacrificial_draw_cache[cache_key] = False
+
+            logging.info(f"[DRAWING] Tirage sacrificiel enregistré pour l'utilisateur {user_id}")
+            return True
+
+        except Exception as e:
+            logging.error(f"[DRAWING] Erreur lors de l'enregistrement du tirage sacrificiel: {e}")
             return False
