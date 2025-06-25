@@ -2956,6 +2956,191 @@ class Cards(commands.Cog):
                 logging.error(f"[SECURITY] Erreur lors de la suppression de la carte dans Google Sheets: {e}")
                 return False
 
+    def batch_remove_cards_from_user(self, user_id: int, cards_to_remove: list[tuple[str, str]]) -> bool:
+        """
+        Supprime plusieurs cartes pour un utilisateur en une seule opération batch.
+        OPTIMISÉ pour le tirage sacrificiel.
+
+        Args:
+            user_id: ID de l'utilisateur
+            cards_to_remove: Liste de tuples (category, name) des cartes à supprimer
+
+        Returns:
+            bool: True si toutes les suppressions ont réussi, False sinon
+        """
+        with self._cards_lock:
+            try:
+                # Validation des paramètres d'entrée
+                if user_id <= 0 or not cards_to_remove:
+                    logging.error(f"[SECURITY] Paramètres invalides pour batch_remove_cards_from_user: user_id={user_id}, cards={len(cards_to_remove)}")
+                    return False
+
+                # Compter les cartes à supprimer
+                from collections import Counter
+                cards_counter = Counter(cards_to_remove)
+
+                # Vérifier que l'utilisateur possède toutes ces cartes
+                user_cards = self.get_user_cards(user_id)
+                user_cards_counter = Counter(user_cards)
+
+                for (cat, name), count_needed in cards_counter.items():
+                    if user_cards_counter.get((cat, name), 0) < count_needed:
+                        logging.error(f"[SECURITY] Tentative de suppression batch d'une carte non possédée en quantité suffisante: user_id={user_id}, carte=({cat}, {name}), besoin={count_needed}, possédé={user_cards_counter.get((cat, name), 0)}")
+                        return False
+
+                # Effectuer les suppressions en batch
+                rows = self.sheet_cards.get_all_values()
+                updates_to_make = []  # Liste des mises à jour à effectuer
+
+                for i, row in enumerate(rows):
+                    if len(row) < 2:
+                        continue
+
+                    card_key = (row[0], row[1])
+                    if card_key in cards_counter:
+                        cards_to_remove_count = cards_counter[card_key]
+                        original_len = len(row)
+                        row_modified = False
+
+                        for j in range(2, len(row)):
+                            cell = row[j].strip()
+                            if cell.startswith(f"{user_id}:"):
+                                try:
+                                    uid, count = cell.split(":", 1)
+                                    uid = uid.strip()
+                                    current_count = int(count)
+                                    new_count = current_count - cards_to_remove_count
+
+                                    if new_count > 0:
+                                        row[j] = f"{uid}:{new_count}"
+                                    else:
+                                        row[j] = ""
+
+                                    row_modified = True
+                                    break
+                                except (ValueError, IndexError) as e:
+                                    logging.error(f"[SECURITY] Données corrompues dans batch_remove_cards_from_user: {cell}, erreur: {e}")
+                                    return False
+
+                        if row_modified:
+                            cleaned_row = _merge_cells(row)
+                            pad = max(original_len, len(cleaned_row)) - len(cleaned_row)
+                            cleaned_row += [""] * pad
+                            updates_to_make.append((i+1, cleaned_row))
+
+                # Effectuer toutes les mises à jour
+                for row_num, cleaned_row in updates_to_make:
+                    self.sheet_cards.update(f"A{row_num}", [cleaned_row])
+
+                # Rafraîchir le cache une seule fois à la fin
+                self.refresh_cards_cache()
+
+                logging.info(f"[CARDS] Suppression batch réussie: user_id={user_id}, {len(cards_to_remove)} cartes supprimées")
+                return True
+
+            except Exception as e:
+                logging.error(f"[SECURITY] Erreur lors de la suppression batch dans Google Sheets: {e}")
+                return False
+
+    def batch_add_cards_to_user(self, user_id: int, cards_to_add: list[tuple[str, str]]) -> bool:
+        """
+        Ajoute plusieurs cartes pour un utilisateur en une seule opération batch.
+        OPTIMISÉ pour le tirage sacrificiel.
+
+        Args:
+            user_id: ID de l'utilisateur
+            cards_to_add: Liste de tuples (category, name) des cartes à ajouter
+
+        Returns:
+            bool: True si tous les ajouts ont réussi, False sinon
+        """
+        with self._cards_lock:
+            try:
+                # Validation des paramètres d'entrée
+                if user_id <= 0 or not cards_to_add:
+                    logging.error(f"[SECURITY] Paramètres invalides pour batch_add_cards_to_user: user_id={user_id}, cards={len(cards_to_add)}")
+                    return False
+
+                # Vérifier que toutes les cartes existent
+                all_files = {}
+                for cat, files in self.cards_by_category.items():
+                    all_files.setdefault(cat, []).extend(files)
+                for cat, files in self.upgrade_cards_by_category.items():
+                    all_files.setdefault(cat, []).extend(files)
+
+                for category, name in cards_to_add:
+                    card_exists = any(
+                        f['name'].removesuffix('.png') == name
+                        for f in all_files.get(category, [])
+                    )
+                    if not card_exists:
+                        logging.error(f"[SECURITY] Tentative d'ajout batch d'une carte inexistante: user_id={user_id}, carte=({category}, {name})")
+                        return False
+
+                # Compter les cartes à ajouter
+                from collections import Counter
+                cards_counter = Counter(cards_to_add)
+
+                # Effectuer les ajouts en batch
+                rows = self.sheet_cards.get_all_values()
+                updates_to_make = []  # Liste des mises à jour à effectuer
+                new_rows_to_add = []  # Liste des nouvelles lignes à ajouter
+
+                for (category, name), count_to_add in cards_counter.items():
+                    found = False
+
+                    for i, row in enumerate(rows):
+                        if len(row) < 2:
+                            continue
+                        if row[0] == category and row[1] == name:
+                            original_len = len(row)
+                            user_found = False
+
+                            for j in range(2, len(row)):
+                                cell = row[j].strip()
+                                if cell.startswith(f"{user_id}:"):
+                                    try:
+                                        uid, count = cell.split(":", 1)
+                                        uid = uid.strip()
+                                        new_count = int(count) + count_to_add
+                                        row[j] = f"{uid}:{new_count}"
+                                        user_found = True
+                                        break
+                                    except (ValueError, IndexError) as e:
+                                        logging.error(f"[SECURITY] Données corrompues dans batch_add_cards_to_user: {cell}, erreur: {e}")
+                                        return False
+
+                            if not user_found:
+                                row.append(f"{user_id}:{count_to_add}")
+
+                            cleaned_row = _merge_cells(row)
+                            pad = max(original_len + (0 if user_found else 1), len(cleaned_row)) - len(cleaned_row)
+                            cleaned_row += [""] * pad
+                            updates_to_make.append((i+1, cleaned_row))
+                            found = True
+                            break
+
+                    if not found:
+                        new_rows_to_add.append([category, name, f"{user_id}:{count_to_add}"])
+
+                # Effectuer toutes les mises à jour
+                for row_num, cleaned_row in updates_to_make:
+                    self.sheet_cards.update(f"A{row_num}", [cleaned_row])
+
+                # Ajouter les nouvelles lignes
+                for new_row in new_rows_to_add:
+                    self.sheet_cards.append_row(new_row)
+
+                # Rafraîchir le cache une seule fois à la fin
+                self.refresh_cards_cache()
+
+                logging.info(f"[CARDS] Ajout batch réussi: user_id={user_id}, {len(cards_to_add)} cartes ajoutées")
+                return True
+
+            except Exception as e:
+                logging.error(f"[SECURITY] Erreur lors de l'ajout batch dans Google Sheets: {e}")
+                return False
+
     def verify_data_integrity(self) -> dict:
         """Vérifie l'intégrité des données et retourne un rapport."""
         with self._cache_lock:
@@ -4396,10 +4581,9 @@ class SacrificialDrawConfirmationView(discord.ui.View):
     async def execute_sacrificial_draw(self, interaction: discord.Interaction) -> bool:
         """
         Exécute la transaction atomique : retire les 5 cartes et effectue le tirage.
+        OPTIMISÉ avec opérations batch pour réduire les appels Google Sheets.
         Retourne True en cas de succès, False en cas d'échec.
         """
-        removed_cards = []  # Pour le rollback en cas d'erreur
-
         try:
             # Étape 1: Vérifier que l'utilisateur possède encore toutes les cartes sélectionnées
             user_cards = self.cog.get_user_cards(self.user.id)
@@ -4423,42 +4607,35 @@ class SacrificialDrawConfirmationView(discord.ui.View):
                     return False
                 user_card_counts[key] -= 1
 
-            # Étape 2: Retirer les cartes sélectionnées
-            for cat, name in self.selected_cards:
-                if self.cog.remove_card_from_user(self.user.id, cat, name):
-                    removed_cards.append((cat, name))
-                else:
-                    # Rollback: remettre les cartes déjà retirées
-                    for rollback_cat, rollback_name in removed_cards:
-                        self.cog.add_card_to_user(self.user.id, rollback_cat, rollback_name)
-                    logging.error(f"[SACRIFICIAL_DRAW] Échec du retrait de carte pour {self.user.id}: {cat}/{name}")
-                    try:
-                        await interaction.followup.send(
-                            "❌ Erreur lors du retrait des cartes. Aucune modification n'a été apportée.",
-                            ephemeral=True
-                        )
-                    except Exception as e:
-                        logging.error(f"[SACRIFICIAL_DRAW] Erreur lors de l'envoi du message d'erreur: {e}")
-                    return False
+            # Étape 2: Retirer les cartes sélectionnées (OPTIMISÉ: opération batch)
+            if not self.cog.batch_remove_cards_from_user(self.user.id, self.selected_cards):
+                logging.error(f"[SACRIFICIAL_DRAW] Échec du retrait batch des cartes pour {self.user.id}")
+                try:
+                    await interaction.followup.send(
+                        "❌ Erreur lors du retrait des cartes. Aucune modification n'a été apportée.",
+                        ephemeral=True
+                    )
+                except Exception as e:
+                    logging.error(f"[SACRIFICIAL_DRAW] Erreur lors de l'envoi du message d'erreur: {e}")
+                return False
 
             # Étape 3: Effectuer le tirage de 3 cartes
             drawn_cards = self.cog.draw_cards(3)
 
-            # Étape 4: Ajouter les cartes tirées à l'inventaire
-            for cat, name in drawn_cards:
-                if not self.cog.add_card_to_user(self.user.id, cat, name):
-                    # Rollback complet: remettre les cartes sacrifiées
-                    for rollback_cat, rollback_name in removed_cards:
-                        self.cog.add_card_to_user(self.user.id, rollback_cat, rollback_name)
-                    logging.error(f"[SACRIFICIAL_DRAW] Échec de l'ajout de carte tirée pour {self.user.id}: {cat}/{name}")
-                    try:
-                        await interaction.followup.send(
-                            "❌ Erreur lors de l'ajout des cartes tirées. Vos cartes sacrifiées ont été restaurées.",
-                            ephemeral=True
-                        )
-                    except Exception as e:
-                        logging.error(f"[SACRIFICIAL_DRAW] Erreur lors de l'envoi du message d'erreur: {e}")
-                    return False
+            # Étape 4: Ajouter les cartes tirées à l'inventaire (OPTIMISÉ: opération batch)
+            if not self.cog.batch_add_cards_to_user(self.user.id, drawn_cards):
+                # Rollback: remettre les cartes sacrifiées (batch)
+                if not self.cog.batch_add_cards_to_user(self.user.id, self.selected_cards):
+                    logging.critical(f"[SACRIFICIAL_DRAW] ÉCHEC CRITIQUE du rollback pour {self.user.id} - cartes perdues!")
+                logging.error(f"[SACRIFICIAL_DRAW] Échec de l'ajout batch des cartes tirées pour {self.user.id}")
+                try:
+                    await interaction.followup.send(
+                        "❌ Erreur lors de l'ajout des cartes tirées. Vos cartes sacrifiées ont été restaurées.",
+                        ephemeral=True
+                    )
+                except Exception as e:
+                    logging.error(f"[SACRIFICIAL_DRAW] Erreur lors de l'envoi du message d'erreur: {e}")
+                return False
 
             # Étape 5: Gérer les annonces et le mur pour les nouvelles cartes
             try:
@@ -4488,18 +4665,17 @@ class SacrificialDrawConfirmationView(discord.ui.View):
             # CRITIQUE: Cette étape ne doit se faire qu'après que tout le reste ait réussi
             await self.record_daily_usage(interaction)
 
-            logging.info(f"[SACRIFICIAL_DRAW] Succès pour {self.user.id}: sacrifié {len(removed_cards)} cartes, tiré {len(drawn_cards)} cartes")
+            logging.info(f"[SACRIFICIAL_DRAW] Succès pour {self.user.id}: sacrifié {len(self.selected_cards)} cartes, tiré {len(drawn_cards)} cartes")
             return True
 
         except Exception as e:
-            # Rollback complet en cas d'erreur inattendue
-            if removed_cards:
-                logging.warning(f"[SACRIFICIAL_DRAW] Rollback des cartes pour {self.user.id}: {removed_cards}")
-                for rollback_cat, rollback_name in removed_cards:
-                    try:
-                        self.cog.add_card_to_user(self.user.id, rollback_cat, rollback_name)
-                    except Exception as rollback_error:
-                        logging.error(f"[SACRIFICIAL_DRAW] Erreur lors du rollback: {rollback_error}")
+            # En cas d'erreur inattendue, tenter un rollback des cartes sacrifiées
+            logging.warning(f"[SACRIFICIAL_DRAW] Tentative de rollback pour {self.user.id} après erreur: {e}")
+            try:
+                # Tenter de remettre les cartes sacrifiées (au cas où elles auraient été retirées)
+                self.cog.batch_add_cards_to_user(self.user.id, self.selected_cards)
+            except Exception as rollback_error:
+                logging.error(f"[SACRIFICIAL_DRAW] Erreur lors du rollback: {rollback_error}")
 
             logging.error(f"[SACRIFICIAL_DRAW] Erreur inattendue pour {self.user.id}: {e}")
             try:
