@@ -2665,15 +2665,13 @@ class Cards(commands.Cog):
             logging.error(f"[SACRIFICIAL_DRAW] Erreur de sélection pour {interaction.user.id}: {len(selected_cards)} cartes sélectionnées au lieu de 5")
             return
 
-        # Stocker les informations pour la transaction
-        self._sacrificial_draw_data = {
+        # Créer la vue de confirmation avec les données de transaction
+        transaction_data = {
             'user_id_str': user_id_str,
             'today': today,
             'row_idx': row_idx
         }
-
-        # Créer la vue de confirmation
-        view = SacrificialDrawConfirmationView(self, interaction.user, selected_cards)
+        view = SacrificialDrawConfirmationView(self, interaction.user, selected_cards, transaction_data)
 
         # Créer l'embed d'affichage
         embed = discord.Embed(
@@ -4269,11 +4267,12 @@ class CardsMenuView(discord.ui.View):
 class SacrificialDrawConfirmationView(discord.ui.View):
     """Vue de confirmation pour le tirage sacrificiel."""
 
-    def __init__(self, cog: Cards, user: discord.User, selected_cards: list[tuple[str, str]]):
+    def __init__(self, cog: Cards, user: discord.User, selected_cards: list[tuple[str, str]], transaction_data: dict):
         super().__init__(timeout=300)  # 5 minutes timeout
         self.cog = cog
         self.user = user
         self.selected_cards = selected_cards
+        self.transaction_data = transaction_data  # Données pour la transaction
         self.confirmed = False  # Pour éviter les clics multiples
 
     @discord.ui.button(label="✅ Confirmer", style=discord.ButtonStyle.success)
@@ -4288,32 +4287,79 @@ class SacrificialDrawConfirmationView(discord.ui.View):
             await interaction.response.send_message("⚠️ Vous avez déjà confirmé ce tirage.", ephemeral=True)
             return
 
+        # Defer l'interaction immédiatement pour éviter le timeout
+        try:
+            await interaction.response.defer()
+        except discord.errors.NotFound:
+            # L'interaction a expiré, informer l'utilisateur
+            logging.error(f"[SACRIFICIAL_DRAW] Interaction expirée pour {self.user.id}")
+            try:
+                await interaction.followup.send(
+                    "❌ L'interaction a expiré. Veuillez relancer la commande `/tirage_sacrificiel`.",
+                    ephemeral=True
+                )
+            except:
+                # Si même le followup échoue, on ne peut rien faire
+                pass
+            return
+        except Exception as e:
+            # Autres erreurs d'interaction
+            logging.error(f"[SACRIFICIAL_DRAW] Erreur d'interaction pour {self.user.id}: {e}")
+            try:
+                await interaction.response.send_message(
+                    "❌ Erreur de communication. Veuillez relancer la commande `/tirage_sacrificiel`.",
+                    ephemeral=True
+                )
+            except:
+                # Si la réponse échoue aussi, essayer followup
+                try:
+                    await interaction.followup.send(
+                        "❌ Erreur de communication. Veuillez relancer la commande `/tirage_sacrificiel`.",
+                        ephemeral=True
+                    )
+                except:
+                    pass
+            return
+
         self.confirmed = True
 
         # Désactiver tous les boutons immédiatement
         for child in self.children:
             child.disabled = True
 
-        await interaction.response.defer()
-
         # Exécuter la transaction atomique
         success = await self.execute_sacrificial_draw(interaction)
 
         if success:
-            await interaction.edit_original_response(
-                content="✅ Tirage sacrificiel terminé avec succès !",
-                embed=None,
-                view=self
-            )
+            try:
+                await interaction.edit_original_response(
+                    content="✅ Tirage sacrificiel terminé avec succès !",
+                    embed=None,
+                    view=self
+                )
+            except Exception as e:
+                logging.error(f"[SACRIFICIAL_DRAW] Erreur lors de la mise à jour du message de succès: {e}")
+                # Le tirage a réussi même si on ne peut pas mettre à jour le message
         else:
             # Réactiver les boutons en cas d'échec
             self.confirmed = False
             for child in self.children:
                 child.disabled = False
-            await interaction.edit_original_response(
-                content="❌ Échec du tirage sacrificiel. Veuillez réessayer.",
-                view=self
-            )
+            try:
+                await interaction.edit_original_response(
+                    content="❌ Échec du tirage sacrificiel. Veuillez réessayer.",
+                    view=self
+                )
+            except Exception as e:
+                logging.error(f"[SACRIFICIAL_DRAW] Erreur lors de la mise à jour du message d'échec: {e}")
+                # Essayer d'informer l'utilisateur via followup
+                try:
+                    await interaction.followup.send(
+                        "❌ Échec du tirage sacrificiel. Veuillez relancer la commande `/tirage_sacrificiel`.",
+                        ephemeral=True
+                    )
+                except:
+                    pass
 
     @discord.ui.button(label="❌ Refuser", style=discord.ButtonStyle.danger)
     async def refuse_sacrifice(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -4339,11 +4385,21 @@ class SacrificialDrawConfirmationView(discord.ui.View):
             view=self
         )
 
+    async def on_timeout(self):
+        """Appelé quand la vue expire."""
+        logging.info(f"[SACRIFICIAL_DRAW] Vue expirée pour {self.user.id}")
+        # Désactiver tous les boutons
+        for child in self.children:
+            child.disabled = True
+        # Note: on ne peut pas modifier le message ici car on n'a pas accès à l'interaction
+
     async def execute_sacrificial_draw(self, interaction: discord.Interaction) -> bool:
         """
         Exécute la transaction atomique : retire les 5 cartes et effectue le tirage.
         Retourne True en cas de succès, False en cas d'échec.
         """
+        removed_cards = []  # Pour le rollback en cas d'erreur
+
         try:
             # Étape 1: Vérifier que l'utilisateur possède encore toutes les cartes sélectionnées
             user_cards = self.cog.get_user_cards(self.user.id)
@@ -4357,15 +4413,17 @@ class SacrificialDrawConfirmationView(discord.ui.View):
                 key = (cat, name)
                 if user_card_counts.get(key, 0) < 1:
                     logging.error(f"[SACRIFICIAL_DRAW] Carte manquante pour {self.user.id}: {cat}/{name}")
-                    await interaction.followup.send(
-                        f"❌ Erreur: La carte **{name}** (*{cat}*) n'est plus disponible dans votre inventaire.",
-                        ephemeral=True
-                    )
+                    try:
+                        await interaction.followup.send(
+                            f"❌ Erreur: La carte **{name}** (*{cat}*) n'est plus disponible dans votre inventaire.",
+                            ephemeral=True
+                        )
+                    except Exception as e:
+                        logging.error(f"[SACRIFICIAL_DRAW] Erreur lors de l'envoi du message d'erreur: {e}")
                     return False
                 user_card_counts[key] -= 1
 
             # Étape 2: Retirer les cartes sélectionnées
-            removed_cards = []
             for cat, name in self.selected_cards:
                 if self.cog.remove_card_from_user(self.user.id, cat, name):
                     removed_cards.append((cat, name))
@@ -4374,10 +4432,13 @@ class SacrificialDrawConfirmationView(discord.ui.View):
                     for rollback_cat, rollback_name in removed_cards:
                         self.cog.add_card_to_user(self.user.id, rollback_cat, rollback_name)
                     logging.error(f"[SACRIFICIAL_DRAW] Échec du retrait de carte pour {self.user.id}: {cat}/{name}")
-                    await interaction.followup.send(
-                        "❌ Erreur lors du retrait des cartes. Aucune modification n'a été apportée.",
-                        ephemeral=True
-                    )
+                    try:
+                        await interaction.followup.send(
+                            "❌ Erreur lors du retrait des cartes. Aucune modification n'a été apportée.",
+                            ephemeral=True
+                        )
+                    except Exception as e:
+                        logging.error(f"[SACRIFICIAL_DRAW] Erreur lors de l'envoi du message d'erreur: {e}")
                     return False
 
             # Étape 3: Effectuer le tirage de 3 cartes
@@ -4390,75 +4451,132 @@ class SacrificialDrawConfirmationView(discord.ui.View):
                     for rollback_cat, rollback_name in removed_cards:
                         self.cog.add_card_to_user(self.user.id, rollback_cat, rollback_name)
                     logging.error(f"[SACRIFICIAL_DRAW] Échec de l'ajout de carte tirée pour {self.user.id}: {cat}/{name}")
-                    await interaction.followup.send(
-                        "❌ Erreur lors de l'ajout des cartes tirées. Vos cartes sacrifiées ont été restaurées.",
-                        ephemeral=True
-                    )
+                    try:
+                        await interaction.followup.send(
+                            "❌ Erreur lors de l'ajout des cartes tirées. Vos cartes sacrifiées ont été restaurées.",
+                            ephemeral=True
+                        )
+                    except Exception as e:
+                        logging.error(f"[SACRIFICIAL_DRAW] Erreur lors de l'envoi du message d'erreur: {e}")
                     return False
 
             # Étape 5: Gérer les annonces et le mur pour les nouvelles cartes
-            discovered_cards = self.cog.get_discovered_cards()
-            new_cards = [c for c in drawn_cards if c not in discovered_cards]
-            if new_cards:
-                await self.cog._handle_announce_and_wall(interaction, new_cards)
+            try:
+                discovered_cards = self.cog.get_discovered_cards()
+                new_cards = [c for c in drawn_cards if c not in discovered_cards]
+                if new_cards:
+                    await self.cog._handle_announce_and_wall(interaction, new_cards)
+            except Exception as e:
+                logging.error(f"[SACRIFICIAL_DRAW] Erreur lors de la gestion des annonces: {e}")
+                # Ne pas faire échouer la transaction pour cette erreur non-critique
 
             # Étape 6: Afficher les cartes tirées
-            await self.display_drawn_cards(interaction, drawn_cards)
+            try:
+                await self.display_drawn_cards(interaction, drawn_cards)
+            except Exception as e:
+                logging.error(f"[SACRIFICIAL_DRAW] Erreur lors de l'affichage des cartes: {e}")
+                # Ne pas faire échouer la transaction pour cette erreur non-critique
 
             # Étape 7: Vérifier les upgrades
-            await self.cog.check_for_upgrades(interaction, self.user.id, drawn_cards)
+            try:
+                await self.cog.check_for_upgrades(interaction, self.user.id, drawn_cards)
+            except Exception as e:
+                logging.error(f"[SACRIFICIAL_DRAW] Erreur lors de la vérification des upgrades: {e}")
+                # Ne pas faire échouer la transaction pour cette erreur non-critique
 
             # Étape 8: Enregistrer l'utilisation du tirage sacrificiel pour aujourd'hui
+            # CRITIQUE: Cette étape ne doit se faire qu'après que tout le reste ait réussi
             await self.record_daily_usage(interaction)
 
             logging.info(f"[SACRIFICIAL_DRAW] Succès pour {self.user.id}: sacrifié {len(removed_cards)} cartes, tiré {len(drawn_cards)} cartes")
             return True
 
         except Exception as e:
+            # Rollback complet en cas d'erreur inattendue
+            if removed_cards:
+                logging.warning(f"[SACRIFICIAL_DRAW] Rollback des cartes pour {self.user.id}: {removed_cards}")
+                for rollback_cat, rollback_name in removed_cards:
+                    try:
+                        self.cog.add_card_to_user(self.user.id, rollback_cat, rollback_name)
+                    except Exception as rollback_error:
+                        logging.error(f"[SACRIFICIAL_DRAW] Erreur lors du rollback: {rollback_error}")
+
             logging.error(f"[SACRIFICIAL_DRAW] Erreur inattendue pour {self.user.id}: {e}")
-            await interaction.followup.send(
-                "❌ Une erreur inattendue s'est produite. Veuillez réessayer plus tard.",
-                ephemeral=True
-            )
+            try:
+                await interaction.followup.send(
+                    "❌ Une erreur inattendue s'est produite. Veuillez réessayer plus tard.",
+                    ephemeral=True
+                )
+            except Exception as followup_error:
+                logging.error(f"[SACRIFICIAL_DRAW] Erreur lors de l'envoi du message d'erreur: {followup_error}")
             return False
 
     async def display_drawn_cards(self, interaction: discord.Interaction, drawn_cards: list[tuple[str, str]]):
         """Affiche les cartes tirées avec leurs images."""
         embed_msgs = []
         for cat, name in drawn_cards:
-            # Recherche du fichier image (inclut cartes Full)
-            file_id = next(
-                (f["id"] for f in (self.cog.cards_by_category.get(cat, []) + self.cog.upgrade_cards_by_category.get(cat, []))
-                if f["name"].removesuffix(".png") == name),
-                None,
-            )
-            if file_id:
-                file_bytes = self.cog.download_drive_file(file_id)
-                embed, image_file = self.cog.build_card_embed(cat, name, file_bytes)
-                embed_msgs.append((embed, image_file))
+            try:
+                # Recherche du fichier image (inclut cartes Full)
+                file_id = next(
+                    (f["id"] for f in (self.cog.cards_by_category.get(cat, []) + self.cog.upgrade_cards_by_category.get(cat, []))
+                    if f["name"].removesuffix(".png") == name),
+                    None,
+                )
+                if file_id:
+                    file_bytes = self.cog.download_drive_file(file_id)
+                    embed, image_file = self.cog.build_card_embed(cat, name, file_bytes)
+                    embed_msgs.append((embed, image_file))
+                else:
+                    logging.warning(f"[SACRIFICIAL_DRAW] Image non trouvée pour {cat}/{name}")
+            except Exception as e:
+                logging.error(f"[SACRIFICIAL_DRAW] Erreur lors de la préparation de l'embed pour {cat}/{name}: {e}")
 
         # Envoyer les embeds des cartes tirées
         if embed_msgs:
             for embed, image_file in embed_msgs:
-                await interaction.followup.send(embed=embed, file=image_file, ephemeral=False)
+                try:
+                    await interaction.followup.send(embed=embed, file=image_file, ephemeral=False)
+                except Exception as e:
+                    logging.error(f"[SACRIFICIAL_DRAW] Erreur lors de l'envoi de l'embed: {e}")
+                    # Essayer d'envoyer au moins le nom de la carte
+                    try:
+                        card_name = embed.title if embed.title else "Carte inconnue"
+                        await interaction.followup.send(f"🎴 **{card_name}** (image non disponible)", ephemeral=False)
+                    except Exception as fallback_error:
+                        logging.error(f"[SACRIFICIAL_DRAW] Erreur lors de l'envoi du message de fallback: {fallback_error}")
+        else:
+            # Aucune image disponible, envoyer au moins les noms des cartes
+            try:
+                card_names = [f"🎴 **{name}** (*{cat}*)" for cat, name in drawn_cards]
+                await interaction.followup.send(
+                    f"**Cartes tirées:**\n" + "\n".join(card_names),
+                    ephemeral=False
+                )
+            except Exception as e:
+                logging.error(f"[SACRIFICIAL_DRAW] Erreur lors de l'envoi des noms de cartes: {e}")
 
     async def record_daily_usage(self, interaction: discord.Interaction):
-        """Enregistre l'utilisation du tirage sacrificiel pour aujourd'hui."""
+        """
+        Enregistre l'utilisation du tirage sacrificiel pour aujourd'hui.
+        Cette méthode est critique et doit réussir pour éviter les abus.
+        """
         try:
-            data = self.cog._sacrificial_draw_data
-            user_id_str = data['user_id_str']
-            today = data['today']
-            row_idx = data['row_idx']
+            user_id_str = self.transaction_data['user_id_str']
+            today = self.transaction_data['today']
+            row_idx = self.transaction_data['row_idx']
 
             if row_idx is None:
                 self.cog.sheet_sacrificial_draw.append_row([user_id_str, today])
+                logging.info(f"[SACRIFICIAL_DRAW] Nouvel enregistrement d'usage pour {user_id_str} le {today}")
             else:
                 self.cog.sheet_sacrificial_draw.update(f"B{row_idx+1}", [[today]])
+                logging.info(f"[SACRIFICIAL_DRAW] Mise à jour de l'usage pour {user_id_str} le {today}")
 
-            logging.info(f"[SACRIFICIAL_DRAW] Usage enregistré pour {user_id_str} le {today}")
         except Exception as e:
-            logging.error(f"[SACRIFICIAL_DRAW] Erreur lors de l'enregistrement de l'usage: {e}")
-            # Ne pas faire échouer la transaction pour cette erreur non-critique
+            logging.error(f"[SACRIFICIAL_DRAW] ERREUR CRITIQUE lors de l'enregistrement de l'usage: {e}")
+            # Cette erreur est critique car elle pourrait permettre des abus
+            # Lever l'exception pour faire échouer la transaction
+            raise Exception(f"Impossible d'enregistrer l'utilisation du tirage sacrificiel: {e}")
 
 
 class TradeMenuView(discord.ui.View):
