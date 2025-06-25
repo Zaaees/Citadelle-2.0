@@ -2601,6 +2601,187 @@ class Cards(commands.Cog):
         logging.info("[DEBUG] Commande /tirage_journalier déclenchée")
         await self.handle_daily_draw(interaction)
 
+    @app_commands.command(name="tirage_sacrificiel", description="Échangez 5 cartes contre un tirage")
+    async def sacrificial_draw(self, interaction: discord.Interaction):
+        """Permet d'échanger 5 cartes sélectionnées aléatoirement contre un tirage standard."""
+        logging.info(f"[SACRIFICIAL_DRAW] Commande déclenchée par {interaction.user.id}")
+        await self.handle_sacrificial_draw(interaction)
+
+    async def handle_sacrificial_draw(self, interaction: discord.Interaction):
+        """Gère le processus de tirage sacrificiel."""
+        await interaction.response.defer(ephemeral=True)
+
+        # Assigner automatiquement le rôle de collectionneur de cartes
+        await self.ensure_card_collector_role(interaction)
+
+        # Vérifier si l'utilisateur a déjà effectué un tirage sacrificiel aujourd'hui
+        user_id_str = str(interaction.user.id)
+        paris_tz = pytz.timezone("Europe/Paris")
+        today = datetime.now(paris_tz).strftime("%Y-%m-%d")
+
+        # Créer ou accéder à la feuille de suivi des tirages sacrificiels
+        try:
+            self.sheet_sacrificial_draw = self.gspread_client.open_by_key(os.getenv('GOOGLE_SHEET_ID_CARTES')).worksheet("Tirages Sacrificiels")
+        except gspread.exceptions.WorksheetNotFound:
+            spreadsheet = self.gspread_client.open_by_key(os.getenv('GOOGLE_SHEET_ID_CARTES'))
+            self.sheet_sacrificial_draw = spreadsheet.add_worksheet(title="Tirages Sacrificiels", rows="1000", cols="2")
+
+        # Vérifier si l'utilisateur a déjà effectué un tirage sacrificiel aujourd'hui
+        all_rows = self.sheet_sacrificial_draw.get_all_values()
+        row_idx = next((i for i, r in enumerate(all_rows) if r and r[0] == user_id_str), None)
+        if row_idx is not None and len(all_rows[row_idx]) > 1 and all_rows[row_idx][1] == today:
+            await interaction.followup.send(
+                "🚫 Vous avez déjà effectué votre tirage sacrificiel aujourd'hui.\n"
+                "Vous pouvez effectuer un nouveau tirage sacrificiel demain à minuit (heure de Paris).",
+                ephemeral=True
+            )
+            return
+
+        # Récupérer les cartes de l'utilisateur (excluant les cartes Full)
+        user_cards = self.get_user_cards(interaction.user.id)
+        eligible_cards = [(cat, name) for cat, name in user_cards
+                         if not name.removesuffix('.png').endswith(' (Full)')]
+
+        # Vérifier que l'utilisateur a au moins 5 cartes éligibles
+        if len(eligible_cards) < 5:
+            await interaction.followup.send(
+                f"❌ Vous devez avoir au moins 5 cartes (hors cartes Full) pour effectuer un tirage sacrificiel.\n"
+                f"Vous avez actuellement {len(eligible_cards)} carte(s) éligible(s).\n\n"
+                f"💡 **Astuce :** Utilisez `/cartes` pour tirer plus de cartes ou `/tirage_journalier` pour votre tirage quotidien gratuit.",
+                ephemeral=True
+            )
+            return
+
+        # Sélectionner 5 cartes de manière déterministe basée sur le jour et l'utilisateur
+        selected_cards = self.select_daily_sacrificial_cards(interaction.user.id, eligible_cards)
+
+        # Validation finale : s'assurer qu'on a exactement 5 cartes
+        if len(selected_cards) != 5:
+            await interaction.followup.send(
+                f"❌ Erreur interne : impossible de sélectionner exactement 5 cartes.\n"
+                f"Cartes sélectionnées : {len(selected_cards)}. Veuillez réessayer plus tard.",
+                ephemeral=True
+            )
+            logging.error(f"[SACRIFICIAL_DRAW] Erreur de sélection pour {interaction.user.id}: {len(selected_cards)} cartes sélectionnées au lieu de 5")
+            return
+
+        # Stocker les informations pour la transaction
+        self._sacrificial_draw_data = {
+            'user_id_str': user_id_str,
+            'today': today,
+            'row_idx': row_idx
+        }
+
+        # Créer la vue de confirmation
+        view = SacrificialDrawConfirmationView(self, interaction.user, selected_cards)
+
+        # Créer l'embed d'affichage
+        embed = discord.Embed(
+            title="🔥 Tirage Sacrificiel",
+            description="Voici les 5 cartes sélectionnées pour le sacrifice d'aujourd'hui :",
+            color=0xff6b35
+        )
+
+        # Ajouter les cartes sélectionnées à l'embed avec leurs identifiants
+        card_list = []
+        for i, (cat, name) in enumerate(selected_cards, 1):
+            # Essayer de trouver l'identifiant de la carte
+            card_id = self.get_card_identifier(cat, name)
+            if card_id:
+                card_list.append(f"{i}. **{name}** (*{cat}*) - `{card_id}`")
+            else:
+                card_list.append(f"{i}. **{name}** (*{cat}*)")
+
+        embed.add_field(
+            name="Cartes à sacrifier",
+            value="\n".join(card_list),
+            inline=False
+        )
+
+        embed.add_field(
+            name="⚠️ Attention",
+            value="Ces cartes seront définitivement supprimées de votre inventaire en échange d'un tirage de 3 cartes.",
+            inline=False
+        )
+
+        embed.add_field(
+            name="ℹ️ Information",
+            value="• Vous ne pouvez effectuer qu'un seul tirage sacrificiel par jour\n"
+                  "• Cette sélection change chaque jour à minuit (heure de Paris)\n"
+                  "• Les cartes Full ne peuvent pas être sacrifiées",
+            inline=False
+        )
+
+        embed.set_footer(text="Cliquez sur 'Confirmer' pour procéder au sacrifice ou 'Refuser' pour annuler")
+
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+    def select_daily_sacrificial_cards(self, user_id: int, eligible_cards: list[tuple[str, str]]) -> list[tuple[str, str]]:
+        """
+        Sélectionne 5 cartes de manière déterministe basée sur le jour actuel et l'ID utilisateur.
+        La sélection reste la même pour un utilisateur donné pendant toute la journée.
+        Gère intelligemment les doublons pour éviter de sélectionner plus de cartes d'un type que l'utilisateur n'en possède.
+        """
+        import hashlib
+        from datetime import datetime
+        import pytz
+
+        # Obtenir la date actuelle en timezone Paris
+        paris_tz = pytz.timezone("Europe/Paris")
+        today = datetime.now(paris_tz).strftime("%Y-%m-%d")
+
+        # Créer une seed déterministe basée sur l'utilisateur et la date
+        seed_string = f"{user_id}_{today}_sacrificial"
+        seed_hash = hashlib.md5(seed_string.encode()).hexdigest()
+        seed = int(seed_hash[:8], 16)  # Utiliser les 8 premiers caractères hex comme seed
+
+        # Utiliser cette seed pour la sélection aléatoire
+        import random
+        rng = random.Random(seed)
+
+        # Compter les cartes disponibles par type
+        card_counts = {}
+        for cat, name in eligible_cards:
+            key = (cat, name)
+            card_counts[key] = card_counts.get(key, 0) + 1
+
+        # Créer une liste pondérée pour la sélection
+        # Chaque carte unique apparaît une fois dans la liste de sélection
+        unique_cards = list(card_counts.keys())
+        rng.shuffle(unique_cards)
+
+        # Sélectionner 5 cartes en respectant les quantités disponibles
+        selected_cards = []
+        selected_counts = {}
+
+        for card_key in unique_cards:
+            if len(selected_cards) >= 5:
+                break
+
+            cat, name = card_key
+            available_count = card_counts[card_key]
+            already_selected = selected_counts.get(card_key, 0)
+
+            if already_selected < available_count:
+                selected_cards.append((cat, name))
+                selected_counts[card_key] = already_selected + 1
+
+        # Si on n'a pas assez de cartes uniques, compléter avec des doublons
+        while len(selected_cards) < 5:
+            for card_key in unique_cards:
+                if len(selected_cards) >= 5:
+                    break
+
+                cat, name = card_key
+                available_count = card_counts[card_key]
+                already_selected = selected_counts.get(card_key, 0)
+
+                if already_selected < available_count:
+                    selected_cards.append((cat, name))
+                    selected_counts[card_key] = already_selected + 1
+
+        return selected_cards[:5]
+
 
     def add_card_to_user(self, user_id: int, category: str, name: str) -> bool:
         """Ajoute une carte pour un utilisateur dans la persistance."""
@@ -4023,6 +4204,201 @@ class CardsMenuView(discord.ui.View):
 
         view = TradeMenuView(self.cog, self.user)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+
+class SacrificialDrawConfirmationView(discord.ui.View):
+    """Vue de confirmation pour le tirage sacrificiel."""
+
+    def __init__(self, cog: Cards, user: discord.User, selected_cards: list[tuple[str, str]]):
+        super().__init__(timeout=300)  # 5 minutes timeout
+        self.cog = cog
+        self.user = user
+        self.selected_cards = selected_cards
+        self.confirmed = False  # Pour éviter les clics multiples
+
+    @discord.ui.button(label="✅ Confirmer", style=discord.ButtonStyle.success)
+    async def confirm_sacrifice(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Confirme le sacrifice et effectue le tirage."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Ce bouton ne vous est pas destiné.", ephemeral=True)
+            return
+
+        # Éviter les clics multiples
+        if self.confirmed:
+            await interaction.response.send_message("⚠️ Vous avez déjà confirmé ce tirage.", ephemeral=True)
+            return
+
+        self.confirmed = True
+
+        # Désactiver tous les boutons immédiatement
+        for child in self.children:
+            child.disabled = True
+
+        await interaction.response.defer()
+
+        # Exécuter la transaction atomique
+        success = await self.execute_sacrificial_draw(interaction)
+
+        if success:
+            await interaction.edit_original_response(
+                content="✅ Tirage sacrificiel terminé avec succès !",
+                embed=None,
+                view=self
+            )
+        else:
+            # Réactiver les boutons en cas d'échec
+            self.confirmed = False
+            for child in self.children:
+                child.disabled = False
+            await interaction.edit_original_response(
+                content="❌ Échec du tirage sacrificiel. Veuillez réessayer.",
+                view=self
+            )
+
+    @discord.ui.button(label="❌ Refuser", style=discord.ButtonStyle.danger)
+    async def refuse_sacrifice(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Refuse le sacrifice et ferme le message."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Ce bouton ne vous est pas destiné.", ephemeral=True)
+            return
+
+        # Éviter les clics multiples
+        if self.confirmed:
+            await interaction.response.send_message("⚠️ Cette proposition a déjà été traitée.", ephemeral=True)
+            return
+
+        self.confirmed = True
+
+        # Désactiver tous les boutons
+        for child in self.children:
+            child.disabled = True
+
+        await interaction.response.edit_message(
+            content="❌ Tirage sacrificiel annulé.",
+            embed=None,
+            view=self
+        )
+
+    async def execute_sacrificial_draw(self, interaction: discord.Interaction) -> bool:
+        """
+        Exécute la transaction atomique : retire les 5 cartes et effectue le tirage.
+        Retourne True en cas de succès, False en cas d'échec.
+        """
+        try:
+            # Étape 1: Vérifier que l'utilisateur possède encore toutes les cartes sélectionnées
+            user_cards = self.cog.get_user_cards(self.user.id)
+            user_card_counts = {}
+            for cat, name in user_cards:
+                key = (cat, name)
+                user_card_counts[key] = user_card_counts.get(key, 0) + 1
+
+            # Vérifier la disponibilité de chaque carte sélectionnée
+            for cat, name in self.selected_cards:
+                key = (cat, name)
+                if user_card_counts.get(key, 0) < 1:
+                    logging.error(f"[SACRIFICIAL_DRAW] Carte manquante pour {self.user.id}: {cat}/{name}")
+                    await interaction.followup.send(
+                        f"❌ Erreur: La carte **{name}** (*{cat}*) n'est plus disponible dans votre inventaire.",
+                        ephemeral=True
+                    )
+                    return False
+                user_card_counts[key] -= 1
+
+            # Étape 2: Retirer les cartes sélectionnées
+            removed_cards = []
+            for cat, name in self.selected_cards:
+                if self.cog.remove_card_from_user(self.user.id, cat, name):
+                    removed_cards.append((cat, name))
+                else:
+                    # Rollback: remettre les cartes déjà retirées
+                    for rollback_cat, rollback_name in removed_cards:
+                        self.cog.add_card_to_user(self.user.id, rollback_cat, rollback_name)
+                    logging.error(f"[SACRIFICIAL_DRAW] Échec du retrait de carte pour {self.user.id}: {cat}/{name}")
+                    await interaction.followup.send(
+                        "❌ Erreur lors du retrait des cartes. Aucune modification n'a été apportée.",
+                        ephemeral=True
+                    )
+                    return False
+
+            # Étape 3: Effectuer le tirage de 3 cartes
+            drawn_cards = self.cog.draw_cards(3)
+
+            # Étape 4: Ajouter les cartes tirées à l'inventaire
+            for cat, name in drawn_cards:
+                if not self.cog.add_card_to_user(self.user.id, cat, name):
+                    # Rollback complet: remettre les cartes sacrifiées
+                    for rollback_cat, rollback_name in removed_cards:
+                        self.cog.add_card_to_user(self.user.id, rollback_cat, rollback_name)
+                    logging.error(f"[SACRIFICIAL_DRAW] Échec de l'ajout de carte tirée pour {self.user.id}: {cat}/{name}")
+                    await interaction.followup.send(
+                        "❌ Erreur lors de l'ajout des cartes tirées. Vos cartes sacrifiées ont été restaurées.",
+                        ephemeral=True
+                    )
+                    return False
+
+            # Étape 5: Gérer les annonces et le mur pour les nouvelles cartes
+            discovered_cards = self.cog.get_discovered_cards()
+            new_cards = [c for c in drawn_cards if c not in discovered_cards]
+            if new_cards:
+                await self.cog._handle_announce_and_wall(interaction, new_cards)
+
+            # Étape 6: Afficher les cartes tirées
+            await self.display_drawn_cards(interaction, drawn_cards)
+
+            # Étape 7: Vérifier les upgrades
+            await self.cog.check_for_upgrades(interaction, self.user.id, drawn_cards)
+
+            # Étape 8: Enregistrer l'utilisation du tirage sacrificiel pour aujourd'hui
+            await self.record_daily_usage(interaction)
+
+            logging.info(f"[SACRIFICIAL_DRAW] Succès pour {self.user.id}: sacrifié {len(removed_cards)} cartes, tiré {len(drawn_cards)} cartes")
+            return True
+
+        except Exception as e:
+            logging.error(f"[SACRIFICIAL_DRAW] Erreur inattendue pour {self.user.id}: {e}")
+            await interaction.followup.send(
+                "❌ Une erreur inattendue s'est produite. Veuillez réessayer plus tard.",
+                ephemeral=True
+            )
+            return False
+
+    async def display_drawn_cards(self, interaction: discord.Interaction, drawn_cards: list[tuple[str, str]]):
+        """Affiche les cartes tirées avec leurs images."""
+        embed_msgs = []
+        for cat, name in drawn_cards:
+            # Recherche du fichier image (inclut cartes Full)
+            file_id = next(
+                (f["id"] for f in (self.cog.cards_by_category.get(cat, []) + self.cog.upgrade_cards_by_category.get(cat, []))
+                if f["name"].removesuffix(".png") == name),
+                None,
+            )
+            if file_id:
+                file_bytes = self.cog.download_drive_file(file_id)
+                embed, image_file = self.cog.build_card_embed(cat, name, file_bytes)
+                embed_msgs.append((embed, image_file))
+
+        # Envoyer les embeds des cartes tirées
+        if embed_msgs:
+            for embed, image_file in embed_msgs:
+                await interaction.followup.send(embed=embed, file=image_file, ephemeral=False)
+
+    async def record_daily_usage(self, interaction: discord.Interaction):
+        """Enregistre l'utilisation du tirage sacrificiel pour aujourd'hui."""
+        try:
+            data = self.cog._sacrificial_draw_data
+            user_id_str = data['user_id_str']
+            today = data['today']
+            row_idx = data['row_idx']
+
+            if row_idx is None:
+                self.cog.sheet_sacrificial_draw.append_row([user_id_str, today])
+            else:
+                self.cog.sheet_sacrificial_draw.update(f"B{row_idx+1}", [[today]])
+
+            logging.info(f"[SACRIFICIAL_DRAW] Usage enregistré pour {user_id_str} le {today}")
+        except Exception as e:
+            logging.error(f"[SACRIFICIAL_DRAW] Erreur lors de l'enregistrement de l'usage: {e}")
+            # Ne pas faire échouer la transaction pour cette erreur non-critique
 
 
 class TradeMenuView(discord.ui.View):
