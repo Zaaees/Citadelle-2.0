@@ -548,11 +548,74 @@ class Cards(commands.Cog):
             return b""
 
     async def check_for_upgrades(self, interaction: discord.Interaction, user_id: int, drawn_cards: list[tuple[str, str]]):
-        """Vérifie et effectue les upgrades automatiques vers les cartes Full."""
+        """
+        Pour chaque carte normale où l'utilisateur a atteint le seuil de
+        doublons, on échange les N doublons contre la version Full,
+        on notifie l'utilisateur et on met à jour le mur.
+        """
         try:
-            # Logique d'upgrade simplifiée pour l'instant
-            # Cette méthode sera complétée si nécessaire
-            pass
+            # Seuils de conversion (nombre de cartes normales pour obtenir une Full)
+            upgrade_thresholds = {"Élèves": 5}
+
+            # 1) Récupérer tous les doublons de l'utilisateur
+            user_cards = self.get_user_cards(user_id)
+            # Compter les occurrences par (catégorie, nom)
+            counts: dict[tuple[str,str], int] = {}
+            for cat, name in user_cards:
+                counts[(cat, name)] = counts.get((cat, name), 0) + 1
+
+            # 2) Pour chaque carte où count >= seuil, effectuer l'upgrade
+            for (cat, name), count in counts.items():
+                if cat not in upgrade_thresholds:
+                    continue
+                seuil = upgrade_thresholds[cat]
+                if count >= seuil:
+                    removed = 0
+                    for _ in range(seuil):
+                        if self.remove_card_from_user(user_id, cat, name):
+                            removed += 1
+                        else:
+                            logging.error(
+                                f"[UPGRADE] Échec suppression {name} pour {user_id}. Rollback"
+                            )
+                            for _ in range(removed):
+                                self.add_card_to_user(user_id, cat, name)
+                            break
+                    else:
+                        full_name = f"{name} (Full)"
+
+                        # Chercher la carte Full correspondante
+                        file_id = None
+                        for f in self.upgrade_cards_by_category.get(cat, []):
+                            if self.normalize_name(f['name'].removesuffix(".png")) == self.normalize_name(full_name):
+                                file_id = f['id']
+                                break
+
+                        if file_id:
+                            file_bytes = self.download_drive_file(file_id)
+                            embed, image_file = self.build_card_embed(cat, full_name, file_bytes)
+                            embed.title = f"🎉 Carte Full obtenue : {full_name}"
+                            embed.description = (
+                                f"Vous avez échangé **{seuil}× {name}** "
+                                f"contre **{full_name}** !"
+                            )
+                            embed.color = discord.Color.gold()
+
+                            await interaction.followup.send(embed=embed, file=image_file)
+
+                            # Ajouter la carte Full à l'inventaire
+                            if not self.add_card_to_user(user_id, cat, full_name):
+                                logging.error(
+                                    f"[UPGRADE] Échec ajout {full_name} pour {user_id}. Rollback"
+                                )
+                                for _ in range(seuil):
+                                    self.add_card_to_user(user_id, cat, name)
+                        else:
+                            logging.error(f"[UPGRADE] Carte Full {full_name} introuvable dans {cat}")
+                            # Rollback
+                            for _ in range(removed):
+                                self.add_card_to_user(user_id, cat, name)
+
         except Exception as e:
             logging.error(f"[UPGRADE] Erreur lors de la vérification des upgrades: {e}")
     
@@ -560,6 +623,10 @@ class Cards(commands.Cog):
         """Vérifie si un utilisateur possède une carte spécifique."""
         user_cards = self.get_user_cards(user_id)
         return (category, name) in user_cards
+
+    def normalize_name(self, name: str) -> str:
+        """Normalise un nom de carte pour la comparaison."""
+        return name.strip().lower().replace(" ", "").replace("(", "").replace(")", "")
 
     # ========== MÉTHODES DE CLASSEMENT ==========
 
