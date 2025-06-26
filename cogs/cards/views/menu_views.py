@@ -12,12 +12,47 @@ if TYPE_CHECKING:
 
 class CardsMenuView(discord.ui.View):
     """Vue principale du menu des cartes."""
-    
+
     def __init__(self, cog: "Cards", user: discord.User):
         super().__init__(timeout=None)
         self.cog = cog
         self.user = user
         self.user_id = user.id
+
+        # Vérifier s'il y a des bonus non réclamés et ajouter le bouton si nécessaire
+        unclaimed_bonus_count = self.cog.get_user_unclaimed_bonus_count(user.id)
+        if unclaimed_bonus_count > 0:
+            self.add_bonus_claim_button(unclaimed_bonus_count)
+
+    def add_bonus_claim_button(self, bonus_count: int):
+        """Ajoute le bouton de réclamation des bonus en rouge."""
+        bonus_button = discord.ui.Button(
+            label=f"🎁 Réclamer {bonus_count} bonus",
+            style=discord.ButtonStyle.danger,  # Rouge pour la visibilité
+            custom_id="claim_bonus"
+        )
+        bonus_button.callback = self.claim_bonus_callback
+        self.add_item(bonus_button)
+
+    async def claim_bonus_callback(self, interaction: discord.Interaction):
+        """Callback pour le bouton de réclamation des bonus."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
+            return
+
+        # Assigner automatiquement le rôle de collectionneur de cartes
+        await self.cog.ensure_card_collector_role(interaction)
+
+        await interaction.response.defer(ephemeral=True)
+
+        # Utiliser la méthode de réclamation des bonus du cog
+        success = await self.cog.claim_user_bonuses(interaction)
+
+        if not success:
+            await interaction.followup.send(
+                "❌ Vous n'avez aucun tirage bonus à réclamer.",
+                ephemeral=True
+            )
     
     @discord.ui.button(label="🌅 Tirage journalier", style=discord.ButtonStyle.primary)
     async def daily_draw(self, interaction: discord.Interaction, button: discord.ui.Button):

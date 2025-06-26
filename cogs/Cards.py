@@ -1155,14 +1155,48 @@ class Cards(commands.Cog):
 
 # Commande /decouvertes_recentes supprimée selon demande utilisateur
 
-    @app_commands.command(name="reclamer_bonus", description="Récupérez vos tirages bonus non réclamés")
-    async def reclamer_bonus(self, interaction: discord.Interaction):
-        """Permet de récupérer les tirages bonus accordés par les administrateurs."""
-        # Assigner automatiquement le rôle de collectionneur de cartes
-        await self.ensure_card_collector_role(interaction)
+    def get_user_unclaimed_bonus_count(self, user_id: int) -> int:
+        """
+        Vérifie et retourne le nombre total de tirages bonus non réclamés pour un utilisateur.
 
-        await interaction.response.defer(ephemeral=True)
+        Args:
+            user_id: ID de l'utilisateur
 
+        Returns:
+            int: Nombre total de tirages bonus disponibles
+        """
+        user_id_str = str(user_id)
+
+        try:
+            # Lecture des bonus
+            all_rows = self.storage.sheet_bonus.get_all_values()[1:]  # skip header
+
+            user_bonus = 0
+
+            for row in all_rows:
+                if len(row) >= 3 and row[0] == user_id_str:
+                    try:
+                        count = int(row[1])
+                        user_bonus += count
+                    except ValueError:
+                        continue
+
+            return user_bonus
+
+        except Exception as e:
+            logging.error(f"[BONUS] Erreur lors de la vérification des bonus: {e}")
+            return 0
+
+    async def claim_user_bonuses(self, interaction: discord.Interaction) -> bool:
+        """
+        Réclame tous les bonus disponibles pour un utilisateur.
+
+        Args:
+            interaction: L'interaction Discord
+
+        Returns:
+            bool: True si des bonus ont été réclamés avec succès
+        """
         user_id_str = str(interaction.user.id)
 
         try:
@@ -1183,11 +1217,7 @@ class Cards(commands.Cog):
                         continue
 
             if user_bonus <= 0:
-                await interaction.followup.send(
-                    "❌ Vous n'avez aucun tirage bonus à réclamer.",
-                    ephemeral=True
-                )
-                return
+                return False
 
             # Effectuer les tirages bonus
             drawn_cards = self.drawing_manager.draw_cards(user_bonus)
@@ -1244,12 +1274,15 @@ class Cards(commands.Cog):
             # Annonce publique si nouvelles cartes
             await self._handle_announce_and_wall(interaction, drawn_cards)
 
+            return True
+
         except Exception as e:
             logging.error(f"[BONUS] Erreur lors de la réclamation des bonus: {e}")
             await interaction.followup.send(
                 "❌ Une erreur est survenue lors de la réclamation des bonus.",
                 ephemeral=True
             )
+            return False
 
     @commands.command(name="initialiser_forum_cartes", help="Initialise la structure forum pour les cartes")
     @commands.has_permissions(administrator=True)
