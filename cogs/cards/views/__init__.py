@@ -6,7 +6,7 @@ Contient toutes les interfaces utilisateur (Views, Modals, Buttons).
 # Imports des vues principales
 from .menu_views import CardsMenuView, SacrificialDrawConfirmationView
 from .trade_views import (
-    TradeMenuView, TradeRequestView, FullVaultTradeConfirmationView,
+    TradeMenuView, TradeRequestView, TradeConfirmationView, InitiatorFinalConfirmationView,
     WithdrawVaultConfirmationView
 )
 from .gallery_views import PaginatedGalleryView, AdminPaginatedGalleryView, GalleryActionView
