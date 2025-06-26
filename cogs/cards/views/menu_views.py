@@ -234,7 +234,7 @@ class CardsMenuView(discord.ui.View):
 
             embed.add_field(
                 name="⚠️ Attention",
-                value="Ces cartes seront **définitivement perdues** en échange d'une carte rare avec chance de Full !",
+                value="Ces cartes seront **définitivement perdues** en échange d'un tirage classique !",
                 inline=False
             )
 
@@ -396,8 +396,8 @@ class SacrificialDrawConfirmationView(discord.ui.View):
                 )
                 return
 
-            # Effectuer le tirage rare avec attribution des Full cards
-            drawn_cards = self.cog.drawing_manager.draw_cards(1, rare_only=True)
+            # Effectuer un tirage classique
+            drawn_cards = self.cog.drawing_manager.draw_cards(1)
 
             if drawn_cards:
                 # Ajouter la carte tirée à l'inventaire
@@ -421,7 +421,7 @@ class SacrificialDrawConfirmationView(discord.ui.View):
                 if is_full:
                     embed.add_field(
                         name="✨ Variante Full !",
-                        value="Félicitations ! Vous avez obtenu une variante Full rare !",
+                        value="Félicitations ! Vous avez obtenu une variante Full !",
                         inline=False
                     )
 

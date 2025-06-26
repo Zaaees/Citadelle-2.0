@@ -66,11 +66,11 @@ Le tirage sacrificiel utilise maintenant la méthode `draw_cards()` standardisé
   - Maître : 25% de chance de Full
   - Black Hole : 25% de chance de Full
 
-### 🎯 Nouveau paramètre `rare_only`
+### 🎯 Tirage sacrificiel classique
 
 ```python
-# Tirage sacrificiel avec cartes rares uniquement
-drawn_cards = self.drawing_manager.draw_cards(1, rare_only=True)
+# Tirage sacrificiel avec tirage classique normal
+drawn_cards = self.drawing_manager.draw_cards(1)
 ```
 
 ### ✨ Interface améliorée
@@ -90,8 +90,8 @@ def can_perform_sacrificial_draw(self, user_id: int) -> bool
 def record_daily_draw(self, user_id: int) -> bool
 def record_sacrificial_draw(self, user_id: int) -> bool
 
-# Tirage avec support des cartes rares uniquement
-def draw_cards(self, number: int, rare_only: bool = False) -> List[Tuple[str, str]]
+# Tirage classique standard
+def draw_cards(self, number: int) -> List[Tuple[str, str]]
 ```
 
 ### 2. **Cards (Cog principal)**

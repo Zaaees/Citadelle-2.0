@@ -79,7 +79,7 @@
 1. **Vérification** : `can_perform_sacrificial_draw()` dans le bouton
 2. **Validation** : Vérification que l'utilisateur possède les cartes
 3. **Retrait** : Suppression des cartes sacrifiées (batch operation)
-4. **Tirage** : `draw_cards(1, rare_only=True)` pour la carte rare
+4. **Tirage** : `draw_cards(1)` pour un tirage classique
 5. **Inventaire** : Ajout de la nouvelle carte
 6. **Enregistrement** : Marquage du tirage + invalidation cache
 7. **Affichage** : Embed avec la carte obtenue

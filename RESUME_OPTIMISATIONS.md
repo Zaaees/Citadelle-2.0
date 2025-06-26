@@ -23,8 +23,8 @@
 
 ### ✨ **Attribution des Full Cards**
 ```python
-# Nouveau paramètre pour tirages rares uniquement
-drawn_cards = self.drawing_manager.draw_cards(1, rare_only=True)
+# Tirage sacrificiel classique standard
+drawn_cards = self.drawing_manager.draw_cards(1)
 ```
 
 **Probabilités par rareté :**
@@ -101,7 +101,7 @@ Félicitations ! Vous avez obtenu une variante Full rare !
 ## 📁 Fichiers Modifiés
 
 ### 1. `cogs/cards/drawing.py`
-- ➕ Paramètre `rare_only` dans `draw_cards()`
+- 🔄 Simplification de `draw_cards()` (suppression du paramètre `rare_only`)
 - ➕ Cache pour `can_perform_daily_draw()`
 - ➕ Nouvelles méthodes `can_perform_sacrificial_draw()` et `record_sacrificial_draw()`
 

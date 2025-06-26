@@ -23,13 +23,12 @@ class DrawingManager:
         self.cards_by_category = cards_by_category
         self.upgrade_cards_by_category = upgrade_cards_by_category
     
-    def draw_cards(self, number: int, rare_only: bool = False) -> List[Tuple[str, str]]:
+    def draw_cards(self, number: int) -> List[Tuple[str, str]]:
         """
         Effectue un tirage aléatoire de `number` cartes avec rareté adaptative.
 
         Args:
             number: Nombre de cartes à tirer
-            rare_only: Si True, tire uniquement dans les catégories rares
 
         Returns:
             List[Tuple[str, str]]: Liste des cartes tirées (category, name)
@@ -37,12 +36,8 @@ class DrawingManager:
         drawn = []
 
         # Définir les catégories disponibles
-        if rare_only:
-            available_categories = ["Secrète", "Fondateur", "Historique", "Maître", "Black Hole"]
-            category_weights = [RARITY_WEIGHTS[cat] for cat in available_categories]
-        else:
-            available_categories = ALL_CATEGORIES
-            category_weights = [RARITY_WEIGHTS[cat] for cat in available_categories]
+        available_categories = ALL_CATEGORIES
+        category_weights = [RARITY_WEIGHTS[cat] for cat in available_categories]
 
         for _ in range(number):
             # Sélection de la catégorie selon les poids de rareté
