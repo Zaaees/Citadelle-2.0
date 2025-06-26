@@ -40,6 +40,14 @@ class CardsMenuView(discord.ui.View):
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
 
+        # Vérifier que le tirage se fait dans le bon salon
+        if interaction.channel_id != 1361993326215172218:
+            await interaction.response.send_message(
+                "🚫 Les tirages ne sont autorisés que dans le salon <#1361993326215172218>.",
+                ephemeral=True
+            )
+            return
+
         # Assigner automatiquement le rôle de collectionneur de cartes
         await self.cog.ensure_card_collector_role(interaction)
 
@@ -60,7 +68,15 @@ class CardsMenuView(discord.ui.View):
         if interaction.user.id != self.user.id:
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
-        
+
+        # Vérifier que le tirage se fait dans le bon salon
+        if interaction.channel_id != 1361993326215172218:
+            await interaction.response.send_message(
+                "🚫 Les tirages ne sont autorisés que dans le salon <#1361993326215172218>.",
+                ephemeral=True
+            )
+            return
+
         # Répondre immédiatement avec un message de confirmation
         await interaction.response.send_message(
             "🌅 **Tirage journalier en cours...**",
@@ -122,7 +138,7 @@ class CardsMenuView(discord.ui.View):
             )
             if file_id:
                 file_bytes = self.cog.download_drive_file(file_id)
-                embed, image_file = self.cog.build_card_embed(cat, name, file_bytes)
+                embed, image_file = self.cog.build_card_embed(cat, name, file_bytes, self.user)
                 embed_msgs.append((embed, image_file))
 
         if embed_msgs:
@@ -148,6 +164,14 @@ class CardsMenuView(discord.ui.View):
         """Bouton pour le tirage sacrificiel."""
         if interaction.user.id != self.user.id:
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
+            return
+
+        # Vérifier que le tirage se fait dans le bon salon
+        if interaction.channel_id != 1361993326215172218:
+            await interaction.response.send_message(
+                "🚫 Les tirages ne sont autorisés que dans le salon <#1361993326215172218>.",
+                ephemeral=True
+            )
             return
 
         # Répondre immédiatement avec un message de confirmation
@@ -412,7 +436,7 @@ class SacrificialDrawConfirmationView(discord.ui.View):
                     )
                     if file_id:
                         file_bytes = self.cog.download_drive_file(file_id)
-                        embed, image_file = self.cog.build_card_embed(cat, name, file_bytes)
+                        embed, image_file = self.cog.build_card_embed(cat, name, file_bytes, self.user)
                         embed_msgs.append((embed, image_file))
 
                 if embed_msgs:

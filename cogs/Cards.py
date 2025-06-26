@@ -431,18 +431,29 @@ class Cards(commands.Cog):
                 logging.error(f"[SECURITY] Erreur lors de l'ajout batch de cartes: {e}")
                 return False
 
-    def build_card_embed(self, cat: str, name: str, file_bytes: bytes) -> tuple[discord.Embed, discord.File]:
+    def build_card_embed(self, cat: str, name: str, file_bytes: bytes, user: discord.User = None) -> tuple[discord.Embed, discord.File]:
         """Construit un embed et le fichier attaché pour une carte.
 
         Le fichier utilise toujours le nom constant ``card.png`` afin que
         l'URL ``attachment://card.png`` reste stable et ne dépende pas du nom
         de la carte fourni par l'utilisateur.
+
+        Args:
+            cat: Catégorie de la carte
+            name: Nom de la carte
+            file_bytes: Données binaires de l'image
+            user: Utilisateur qui a effectué le tirage (optionnel)
         """
         import io
         file = discord.File(io.BytesIO(file_bytes), filename="card.png")
+
+        description = f"Catégorie : **{cat}**"
+        if user:
+            description += f"\n🎯 Tiré par : **{user.display_name}**"
+
         embed = discord.Embed(
             title=name,
-            description=f"Catégorie : **{cat}**",
+            description=description,
             color=0x4E5D94,
         )
         embed.set_image(url="attachment://card.png")
