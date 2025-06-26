@@ -29,7 +29,8 @@ class CardsMenuView(discord.ui.View):
         bonus_button = discord.ui.Button(
             label=f"🎁 Réclamer {bonus_count} bonus",
             style=discord.ButtonStyle.danger,  # Rouge pour la visibilité
-            custom_id="claim_bonus"
+            custom_id="claim_bonus",
+            row=3  # Placer le bouton bonus sur la quatrième ligne
         )
         bonus_button.callback = self.claim_bonus_callback
         self.add_item(bonus_button)
@@ -62,7 +63,7 @@ class CardsMenuView(discord.ui.View):
                 ephemeral=True
             )
     
-    @discord.ui.button(label="🌅 Tirage journalier", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="🌅 Tirage journalier", style=discord.ButtonStyle.primary, row=0)
     async def daily_draw(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Bouton pour tirer une carte."""
         if interaction.user.id != self.user.id:
@@ -159,7 +160,7 @@ class CardsMenuView(discord.ui.View):
 
         return drawn_cards
 
-    @discord.ui.button(label="⚔️ Tirage sacrificiel", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="⚔️ Tirage sacrificiel", style=discord.ButtonStyle.danger, row=0)
     async def sacrificial_draw(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Bouton pour le tirage sacrificiel."""
         if interaction.user.id != self.user.id:
@@ -247,7 +248,7 @@ class CardsMenuView(discord.ui.View):
                 ephemeral=True
             )
 
-    @discord.ui.button(label="📚 Ma galerie", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="📚 Ma galerie", style=discord.ButtonStyle.secondary, row=1)
     async def view_gallery(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Bouton pour voir la galerie de cartes."""
         if interaction.user.id != self.user.id:
@@ -286,7 +287,7 @@ class CardsMenuView(discord.ui.View):
                 ephemeral=True
             )
     
-    @discord.ui.button(label="Échanges", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Échanges", style=discord.ButtonStyle.secondary, row=1)
     async def trading_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Bouton pour accéder au menu des échanges."""
         if interaction.user.id != self.user.id:
@@ -319,7 +320,7 @@ class CardsMenuView(discord.ui.View):
     
 # Ancien bouton tirage sacrificiel supprimé - maintenant placé après le tirage journalier
 
-    @discord.ui.button(label="🏆 Classement", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="🏆 Classement", style=discord.ButtonStyle.secondary, row=2)
     async def show_leaderboard(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Bouton pour afficher le classement."""
         if interaction.user.id != self.user.id:

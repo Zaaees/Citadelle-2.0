@@ -18,7 +18,7 @@ class TradeMenuView(discord.ui.View):
         self.cog = cog
         self.user = user
     
-    @discord.ui.button(label="Déposer une carte", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="Déposer une carte", style=discord.ButtonStyle.primary, row=0)
     async def deposit_card(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Bouton pour déposer une carte dans le vault."""
         if interaction.user.id != self.user.id:
@@ -31,7 +31,7 @@ class TradeMenuView(discord.ui.View):
         modal = DepositCardModal(self.cog, self.user)
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="Retirer mes cartes", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Retirer mes cartes", style=discord.ButtonStyle.secondary, row=0)
     async def withdraw_cards(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Bouton pour retirer toutes les cartes du vault."""
         if interaction.user.id != self.user.id:
@@ -89,7 +89,7 @@ class TradeMenuView(discord.ui.View):
                 ephemeral=True
             )
     
-    @discord.ui.button(label="Initier un échange", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="Initier un échange", style=discord.ButtonStyle.success, row=1)
     async def initiate_trade(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Bouton pour initier un échange avec un autre utilisateur."""
         if interaction.user.id != self.user.id:
@@ -102,7 +102,7 @@ class TradeMenuView(discord.ui.View):
         modal = InitiateTradeModal(self.cog, self.user)
         await interaction.response.send_modal(modal)
 
-    @discord.ui.button(label="👀 Voir mon coffre", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="👀 Voir mon coffre", style=discord.ButtonStyle.secondary, row=1)
     async def view_vault(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Bouton pour voir le contenu du coffre."""
         if interaction.user.id != self.user.id:
