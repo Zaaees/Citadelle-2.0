@@ -318,3 +318,26 @@ class DrawingManager:
         except Exception as e:
             logging.error(f"[DRAWING] Erreur lors de l'enregistrement du tirage sacrificiel: {e}")
             return False
+
+    def clear_sacrificial_cache(self, user_id: int = None):
+        """
+        Nettoie le cache du tirage sacrificiel.
+
+        Args:
+            user_id: Si spécifié, nettoie seulement le cache de cet utilisateur.
+                    Sinon, nettoie tout le cache.
+        """
+        if not hasattr(self, '_sacrificial_draw_cache'):
+            return
+
+        if user_id is not None:
+            # Nettoyer seulement pour cet utilisateur
+            keys_to_remove = [k for k in self._sacrificial_draw_cache.keys()
+                             if k.startswith(f"sacrificial_draw_{user_id}_")]
+            for k in keys_to_remove:
+                del self._sacrificial_draw_cache[k]
+            logging.info(f"[DRAWING] Cache sacrificiel nettoyé pour l'utilisateur {user_id}")
+        else:
+            # Nettoyer tout le cache
+            self._sacrificial_draw_cache.clear()
+            logging.info("[DRAWING] Cache sacrificiel entièrement nettoyé")

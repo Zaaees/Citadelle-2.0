@@ -54,6 +54,14 @@ class CardsStorage:
             self.sheet_daily_draw = self.spreadsheet.add_worksheet(
                 title="Tirages Journaliers", rows="1000", cols="2"
             )
+
+        # Feuille des tirages sacrificiels
+        try:
+            self.sheet_sacrificial_draw = self.spreadsheet.worksheet("Tirages Sacrificiels")
+        except gspread.exceptions.WorksheetNotFound:
+            self.sheet_sacrificial_draw = self.spreadsheet.add_worksheet(
+                title="Tirages Sacrificiels", rows="1000", cols="2"
+            )
         
         # Feuille des découvertes
         try:

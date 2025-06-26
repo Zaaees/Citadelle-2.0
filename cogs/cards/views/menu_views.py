@@ -26,7 +26,7 @@ class CardsMenuView(discord.ui.View):
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
         
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
 
         try:
             # Vérifier si l'utilisateur peut effectuer son tirage journalier
@@ -112,7 +112,7 @@ class CardsMenuView(discord.ui.View):
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
 
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
 
         try:
             # Vérifier si l'utilisateur peut effectuer son tirage sacrificiel
@@ -386,7 +386,7 @@ class SacrificialDrawConfirmationView(discord.ui.View):
             for child in self.children:
                 child.disabled = True
             
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.followup.send(embed=embed, ephemeral=False)
             
         except Exception as e:
             logging.error(f"[SACRIFICIAL] Erreur lors du sacrifice: {e}")

@@ -1318,6 +1318,23 @@ class Cards(commands.Cog):
             embed.add_field(name="Raison", value=source, inline=False)
 
             await ctx.send(embed=embed)
+        except Exception as e:
+            await ctx.send(f"❌ Erreur lors de l'attribution du bonus: {e}")
+
+    @commands.command(name="clear_sacrificial_cache")
+    @commands.has_permissions(administrator=True)
+    async def clear_sacrificial_cache(self, ctx: commands.Context, member: discord.Member = None):
+        """
+        Nettoie le cache du tirage sacrificiel.
+        Usage : !clear_sacrificial_cache [@joueur]
+        """
+        try:
+            if member:
+                self.drawing_manager.clear_sacrificial_cache(member.id)
+                await ctx.send(f"✅ Cache sacrificiel nettoyé pour {member.mention}")
+            else:
+                self.drawing_manager.clear_sacrificial_cache()
+                await ctx.send("✅ Cache sacrificiel entièrement nettoyé")
 
         except Exception as e:
             logging.error(f"[GIVE_BONUS] Erreur: {e}")
