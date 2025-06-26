@@ -77,7 +77,7 @@ class CardsMenuView(discord.ui.View):
             )
             return
 
-        # Répondre immédiatement avec un message de confirmation
+        # Répondre immédiatement avec un message éphémère
         await interaction.response.send_message(
             "🌅 **Tirage journalier en cours...**",
             ephemeral=True
@@ -103,7 +103,7 @@ class CardsMenuView(discord.ui.View):
                 return
 
             # L'affichage est déjà géré dans perform_draw() avec les images des cartes
-            
+
         except Exception as e:
             logging.error(f"[MENU] Erreur lors du tirage: {e}")
             await interaction.followup.send(
@@ -142,9 +142,9 @@ class CardsMenuView(discord.ui.View):
                 embed_msgs.append((embed, image_file))
 
         if embed_msgs:
-            # Envoyer toutes les cartes via followup pour éviter l'héritage éphémère
-            for em, f in embed_msgs:
-                await interaction.followup.send(embed=em, file=f, ephemeral=False)
+            # Envoyer toutes les cartes directement dans le salon comme messages indépendants
+            for embed, file in embed_msgs:
+                await interaction.channel.send(embed=embed, file=file)
 
         # ——————————— COMMIT ———————————
         # 1) Ajouter les cartes à l'inventaire
@@ -174,7 +174,7 @@ class CardsMenuView(discord.ui.View):
             )
             return
 
-        # Répondre immédiatement avec un message de confirmation
+        # Répondre immédiatement avec un message éphémère
         await interaction.response.send_message(
             "⚔️ **Préparation du tirage sacrificiel...**",
             ephemeral=True
@@ -371,7 +371,7 @@ class SacrificialDrawConfirmationView(discord.ui.View):
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
         
-        # Répondre immédiatement avec un message de confirmation
+        # Répondre immédiatement avec un message éphémère
         await interaction.response.send_message(
             "⚔️ **Sacrifice en cours...**",
             ephemeral=True
@@ -440,23 +440,27 @@ class SacrificialDrawConfirmationView(discord.ui.View):
                         embed_msgs.append((embed, image_file))
 
                 if embed_msgs:
+                    # Envoyer toutes les cartes directement dans le salon comme messages indépendants
                     for embed, image_file in embed_msgs:
-                        await interaction.followup.send(embed=embed, file=image_file, ephemeral=False)
+                        await interaction.channel.send(embed=embed, file=image_file)
+                else:
+                    # Si aucune carte n'a été tirée, afficher un message d'erreur éphémère
+                    await interaction.followup.send(
+                        "❌ Aucune carte n'a pu être tirée.",
+                        ephemeral=True
+                    )
 
                 # Annonce publique et mur des cartes
                 await self.cog._handle_announce_and_wall(interaction, drawn_cards)
             else:
-                embed = discord.Embed(
-                    title="❌ Erreur",
-                    description="Aucune carte rare disponible.",
-                    color=0xe74c3c
+                await interaction.followup.send(
+                    "❌ Aucune carte rare disponible.",
+                    ephemeral=True
                 )
-            
+
             # Désactiver tous les boutons
             for child in self.children:
                 child.disabled = True
-            
-            await interaction.followup.send(embed=embed, ephemeral=False)
             
         except Exception as e:
             logging.error(f"[SACRIFICIAL] Erreur lors du sacrifice: {e}")
