@@ -396,33 +396,41 @@ class SacrificialDrawConfirmationView(discord.ui.View):
                 )
                 return
 
-            # Effectuer un tirage classique
-            drawn_cards = self.cog.drawing_manager.draw_cards(1)
+            # Effectuer un tirage classique de 3 cartes (comme le tirage journalier)
+            drawn_cards = self.cog.drawing_manager.draw_cards(3)
 
             if drawn_cards:
-                # Ajouter la carte tirée à l'inventaire
-                cat, name = drawn_cards[0]
-                self.cog.add_card_to_user(self.user.id, cat, name)
+                # Ajouter les cartes tirées à l'inventaire
+                for cat, name in drawn_cards:
+                    self.cog.add_card_to_user(self.user.id, cat, name)
+
+                # Gérer les upgrades (comme dans le tirage journalier)
+                await self.cog.check_for_upgrades(interaction, self.user.id, drawn_cards)
 
                 # Enregistrer le tirage sacrificiel
                 self.cog.drawing_manager.record_sacrificial_draw(self.user.id)
-            
-            if drawn_cards:
-                cat, name = drawn_cards[0]
-                display_name = name.removesuffix('.png')
-                is_full = "(Full)" in name
 
+            if drawn_cards:
+                # Créer un embed principal pour le sacrifice accompli
                 embed = discord.Embed(
                     title="⚔️ Sacrifice accompli !",
-                    description=f"Vous avez obtenu : **{display_name}** ({cat})",
+                    description=f"Vous avez obtenu **{len(drawn_cards)} cartes** :",
                     color=0x27ae60
                 )
 
-                if is_full:
+                # Ajouter chaque carte tirée à l'embed
+                for i, (cat, name) in enumerate(drawn_cards, 1):
+                    display_name = name.removesuffix('.png')
+                    is_full = "(Full)" in name
+
+                    card_info = f"**{display_name}** ({cat})"
+                    if is_full:
+                        card_info += " ✨ *Variante Full !*"
+
                     embed.add_field(
-                        name="✨ Variante Full !",
-                        value="Félicitations ! Vous avez obtenu une variante Full !",
-                        inline=False
+                        name=f"Carte {i}",
+                        value=card_info,
+                        inline=True
                     )
 
                 # Affichage des cartes avec embeds/images (style original)
