@@ -12,21 +12,77 @@ if TYPE_CHECKING:
 
 class CardsMenuView(discord.ui.View):
     """Vue principale du menu des cartes."""
-    
+
     def __init__(self, cog: "Cards", user: discord.User):
         super().__init__(timeout=None)
         self.cog = cog
         self.user = user
         self.user_id = user.id
+
+        # Vérifier s'il y a des bonus non réclamés et ajouter le bouton si nécessaire
+        unclaimed_bonus_count = self.cog.get_user_unclaimed_bonus_count(user.id)
+        if unclaimed_bonus_count > 0:
+            self.add_bonus_claim_button(unclaimed_bonus_count)
+
+    def add_bonus_claim_button(self, bonus_count: int):
+        """Ajoute le bouton de réclamation des bonus en rouge."""
+        bonus_button = discord.ui.Button(
+            label=f"🎁 Réclamer {bonus_count} bonus",
+            style=discord.ButtonStyle.danger,  # Rouge pour la visibilité
+            custom_id="claim_bonus",
+            row=3  # Placer le bouton bonus sur la quatrième ligne
+        )
+        bonus_button.callback = self.claim_bonus_callback
+        self.add_item(bonus_button)
+
+    async def claim_bonus_callback(self, interaction: discord.Interaction):
+        """Callback pour le bouton de réclamation des bonus."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
+            return
+
+        # Vérifier que le tirage se fait dans le bon salon
+        if interaction.channel_id != 1361993326215172218:
+            await interaction.response.send_message(
+                "🚫 Les tirages ne sont autorisés que dans le salon <#1361993326215172218>.",
+                ephemeral=True
+            )
+            return
+
+        # Assigner automatiquement le rôle de collectionneur de cartes
+        await self.cog.ensure_card_collector_role(interaction)
+
+        await interaction.response.defer(ephemeral=True)
+
+        # Utiliser la méthode de réclamation des bonus du cog
+        success = await self.cog.claim_user_bonuses(interaction)
+
+        if not success:
+            await interaction.followup.send(
+                "❌ Vous n'avez aucun tirage bonus à réclamer.",
+                ephemeral=True
+            )
     
-    @discord.ui.button(label="🌅 Tirage journalier", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="🌅 Tirage journalier", style=discord.ButtonStyle.primary, row=0)
     async def daily_draw(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Bouton pour tirer une carte."""
         if interaction.user.id != self.user.id:
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
-        
-        await interaction.response.defer(ephemeral=True)
+
+        # Vérifier que le tirage se fait dans le bon salon
+        if interaction.channel_id != 1361993326215172218:
+            await interaction.response.send_message(
+                "🚫 Les tirages ne sont autorisés que dans le salon <#1361993326215172218>.",
+                ephemeral=True
+            )
+            return
+
+        # Répondre immédiatement avec un message éphémère
+        await interaction.response.send_message(
+            "🌅 **Tirage journalier en cours...**",
+            ephemeral=True
+        )
 
         try:
             # Vérifier si l'utilisateur peut effectuer son tirage journalier
@@ -37,7 +93,7 @@ class CardsMenuView(discord.ui.View):
                 )
                 return
 
-            # Effectuer le tirage journalier
+            # Effectuer le tirage journalier (qui gère déjà l'affichage)
             drawn_cards = await self.perform_draw(interaction)
 
             if not drawn_cards:
@@ -47,26 +103,8 @@ class CardsMenuView(discord.ui.View):
                 )
                 return
 
-            # Créer l'embed de résultat
-            embed = discord.Embed(
-                title="🌅 Tirage journalier !",
-                description="Vous avez reçu 3 cartes gratuites !",
-                color=0xf1c40f
-            )
+            # L'affichage est déjà géré dans perform_draw() avec les images des cartes
 
-            for i, (cat, name) in enumerate(drawn_cards, 1):
-                display_name = name.removesuffix('.png')
-                embed.add_field(
-                    name=f"Carte {i}",
-                    value=f"**{display_name}**\n*{cat}*",
-                    inline=True
-                )
-
-            await interaction.followup.send(embed=embed, ephemeral=True)
-
-            # Annonce publique si nouvelles cartes
-            await self.cog._handle_announce_and_wall(interaction, drawn_cards)
-            
         except Exception as e:
             logging.error(f"[MENU] Erreur lors du tirage: {e}")
             await interaction.followup.send(
@@ -76,35 +114,83 @@ class CardsMenuView(discord.ui.View):
     
     async def perform_draw(self, interaction: discord.Interaction) -> list[tuple[str, str]]:
         """
-        Effectue le tirage journalier de 3 cartes pour l'utilisateur.
+        Effectue le tirage journalier de 3 cartes pour l'utilisateur avec affichage original.
         """
-        # Vérifier si l'utilisateur peut effectuer son tirage journalier
-        if not self.cog.drawing_manager.can_perform_daily_draw(self.user.id):
-            return []  # Pas de tirage disponible
+        # NOTE: La vérification can_perform_daily_draw() a déjà été faite dans le bouton
+        # Ne pas la refaire ici pour éviter les problèmes de cache
 
         # Effectuer le tirage journalier de 3 cartes
         drawn_cards = self.cog.drawing_manager.draw_cards(3)
 
-        # Ajouter les cartes à l'inventaire
+        # Annonce publique si nouvelles cartes
+        discovered_cards = self.cog.discovery_manager.get_discovered_cards()
+        new_cards = [c for c in drawn_cards if c not in discovered_cards]
+        if new_cards:
+            await self.cog._handle_announce_and_wall(interaction, new_cards)
+
+        # Affichage des cartes avec embeds/images (style original)
+        embed_msgs = []
+        for cat, name in drawn_cards:
+            # Recherche du fichier image (inclut cartes Full)
+            file_id = next(
+                (f["id"] for f in (self.cog.cards_by_category.get(cat, []) + self.cog.upgrade_cards_by_category.get(cat, []))
+                if f["name"].removesuffix(".png") == name),
+                None,
+            )
+            if file_id:
+                file_bytes = self.cog.download_drive_file(file_id)
+                embed, image_file = self.cog.build_card_embed(cat, name, file_bytes, self.user)
+                embed_msgs.append((embed, image_file))
+
+        if embed_msgs:
+            # Envoyer toutes les cartes directement dans le salon comme messages indépendants
+            for embed, file in embed_msgs:
+                await interaction.channel.send(embed=embed, file=file)
+
+        # ——————————— COMMIT ———————————
+        # 1) Ajouter les cartes à l'inventaire
         for cat, name in drawn_cards:
             self.cog.add_card_to_user(self.user.id, cat, name)
 
-        # Enregistrer le tirage journalier
+        # 2) Maintenant que l'inventaire est à jour, on gère les upgrades
+        await self.cog.check_for_upgrades(interaction, self.user.id, drawn_cards)
+
+        # 3) Enfin, enregistrer le tirage journalier (ceci invalide le cache)
         self.cog.drawing_manager.record_daily_draw(self.user.id)
 
         return drawn_cards
 
-    @discord.ui.button(label="⚔️ Tirage sacrificiel", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="⚔️ Tirage sacrificiel", style=discord.ButtonStyle.danger, row=0)
     async def sacrificial_draw(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Bouton pour le tirage sacrificiel."""
         if interaction.user.id != self.user.id:
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
 
-        await interaction.response.defer(ephemeral=True)
+        # Vérifier que le tirage se fait dans le bon salon
+        if interaction.channel_id != 1361993326215172218:
+            await interaction.response.send_message(
+                "🚫 Les tirages ne sont autorisés que dans le salon <#1361993326215172218>.",
+                ephemeral=True
+            )
+            return
+
+        # Répondre immédiatement avec un message éphémère
+        await interaction.response.send_message(
+            "⚔️ **Préparation du tirage sacrificiel...**",
+            ephemeral=True
+        )
 
         try:
-            # Récupérer les cartes éligibles (non-Full)
+            # Vérifier si l'utilisateur peut effectuer son tirage sacrificiel
+            if not self.cog.drawing_manager.can_perform_sacrificial_draw(interaction.user.id):
+                await interaction.followup.send(
+                    "🚫 Vous avez déjà effectué votre tirage sacrificiel aujourd'hui. Revenez demain !",
+                    ephemeral=True
+                )
+                return
+
+            # Récupérer les cartes éligibles (non-Full) avec cache optimisé
             user_cards = self.cog.get_user_cards(interaction.user.id)
             eligible_cards = [(cat, name) for cat, name in user_cards if not "(Full)" in name]
 
@@ -149,7 +235,7 @@ class CardsMenuView(discord.ui.View):
 
             embed.add_field(
                 name="⚠️ Attention",
-                value="Ces cartes seront **définitivement perdues** en échange d'une carte rare !",
+                value="Ces cartes seront **définitivement perdues** en échange d'un tirage classique !",
                 inline=False
             )
 
@@ -162,7 +248,7 @@ class CardsMenuView(discord.ui.View):
                 ephemeral=True
             )
 
-    @discord.ui.button(label="📚 Ma galerie", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="📚 Ma galerie", style=discord.ButtonStyle.secondary, row=1)
     async def view_gallery(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Bouton pour voir la galerie de cartes."""
         if interaction.user.id != self.user.id:
@@ -183,7 +269,9 @@ class CardsMenuView(discord.ui.View):
                 return
 
             embed_normales, embed_full, pagination_info = result
-            embeds = [embed_normales, embed_full] if embed_full else [embed_normales]
+            embeds = [embed_normales]
+            if embed_full:
+                embeds.append(embed_full)
 
             # Importer ici pour éviter les imports circulaires
             from .gallery_views import PaginatedGalleryView
@@ -199,7 +287,7 @@ class CardsMenuView(discord.ui.View):
                 ephemeral=True
             )
     
-    @discord.ui.button(label="Échanges", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Échanges", style=discord.ButtonStyle.secondary, row=1)
     async def trading_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Bouton pour accéder au menu des échanges."""
         if interaction.user.id != self.user.id:
@@ -232,7 +320,7 @@ class CardsMenuView(discord.ui.View):
     
 # Ancien bouton tirage sacrificiel supprimé - maintenant placé après le tirage journalier
 
-    @discord.ui.button(label="🏆 Classement", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="🏆 Classement", style=discord.ButtonStyle.secondary, row=2)
     async def show_leaderboard(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Bouton pour afficher le classement."""
         if interaction.user.id != self.user.id:
@@ -284,7 +372,11 @@ class SacrificialDrawConfirmationView(discord.ui.View):
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
         
-        await interaction.response.defer(ephemeral=True)
+        # Répondre immédiatement avec un message éphémère
+        await interaction.response.send_message(
+            "⚔️ **Sacrifice en cours...**",
+            ephemeral=True
+        )
         
         try:
             # Vérifier que l'utilisateur possède encore toutes les cartes
@@ -296,51 +388,88 @@ class SacrificialDrawConfirmationView(discord.ui.View):
                         ephemeral=True
                     )
                     return
-            
-            # Retirer les cartes sacrifiées
-            for cat, name in self.selected_cards:
-                if not self.cog.remove_card_from_user(self.user.id, cat, name):
-                    await interaction.followup.send(
-                        "❌ Erreur lors du retrait des cartes sacrifiées.",
-                        ephemeral=True
-                    )
-                    return
-            
-            # Effectuer le tirage rare (catégories rares uniquement)
-            rare_categories = ["Secrète", "Fondateur", "Historique", "Maître", "Black Hole"]
-            drawn_cards = []
-            
-            for _ in range(1):  # Un seul tirage rare
-                category = self.cog.drawing_manager.random.choice(rare_categories)
-                available_cards = self.cog.cards_by_category.get(category, [])
-                if available_cards:
-                    selected_card = self.cog.drawing_manager.random.choice(available_cards)
-                    card_name = selected_card['name'].removesuffix('.png')
-                    drawn_cards.append((category, card_name))
-                    self.cog.add_card_to_user(self.user.id, category, card_name)
-            
+
+            # Utiliser les opérations batch optimisées pour retirer les cartes
+            if not self.cog.batch_remove_cards_from_user(self.user.id, self.selected_cards):
+                await interaction.followup.send(
+                    "❌ Erreur lors du retrait des cartes sacrifiées.",
+                    ephemeral=True
+                )
+                return
+
+            # Effectuer un tirage classique de 3 cartes (comme le tirage journalier)
+            drawn_cards = self.cog.drawing_manager.draw_cards(3)
+
             if drawn_cards:
-                cat, name = drawn_cards[0]
+                # Ajouter les cartes tirées à l'inventaire
+                for cat, name in drawn_cards:
+                    self.cog.add_card_to_user(self.user.id, cat, name)
+
+                # Gérer les upgrades (comme dans le tirage journalier)
+                await self.cog.check_for_upgrades(interaction, self.user.id, drawn_cards)
+
+                # Enregistrer le tirage sacrificiel
+                self.cog.drawing_manager.record_sacrificial_draw(self.user.id)
+
+            if drawn_cards:
+                # Créer un embed principal pour le sacrifice accompli
                 embed = discord.Embed(
                     title="⚔️ Sacrifice accompli !",
-                    description=f"Vous avez obtenu : **{name}** ({cat})",
+                    description=f"Vous avez obtenu **{len(drawn_cards)} cartes** :",
                     color=0x27ae60
                 )
-                
-                # Annonce publique
+
+                # Ajouter chaque carte tirée à l'embed
+                for i, (cat, name) in enumerate(drawn_cards, 1):
+                    display_name = name.removesuffix('.png')
+                    is_full = "(Full)" in name
+
+                    card_info = f"**{display_name}** ({cat})"
+                    if is_full:
+                        card_info += " ✨ *Variante Full !*"
+
+                    embed.add_field(
+                        name=f"Carte {i}",
+                        value=card_info,
+                        inline=True
+                    )
+
+                # Affichage des cartes avec embeds/images (style original)
+                embed_msgs = []
+                for cat, name in drawn_cards:
+                    # Recherche du fichier image (inclut cartes Full)
+                    file_id = next(
+                        (f["id"] for f in (self.cog.cards_by_category.get(cat, []) + self.cog.upgrade_cards_by_category.get(cat, []))
+                        if f["name"].removesuffix(".png") == name),
+                        None,
+                    )
+                    if file_id:
+                        file_bytes = self.cog.download_drive_file(file_id)
+                        embed, image_file = self.cog.build_card_embed(cat, name, file_bytes, self.user)
+                        embed_msgs.append((embed, image_file))
+
+                if embed_msgs:
+                    # Envoyer toutes les cartes directement dans le salon comme messages indépendants
+                    for embed, image_file in embed_msgs:
+                        await interaction.channel.send(embed=embed, file=image_file)
+                else:
+                    # Si aucune carte n'a été tirée, afficher un message d'erreur éphémère
+                    await interaction.followup.send(
+                        "❌ Aucune carte n'a pu être tirée.",
+                        ephemeral=True
+                    )
+
+                # Annonce publique et mur des cartes
                 await self.cog._handle_announce_and_wall(interaction, drawn_cards)
             else:
-                embed = discord.Embed(
-                    title="❌ Erreur",
-                    description="Aucune carte rare disponible.",
-                    color=0xe74c3c
+                await interaction.followup.send(
+                    "❌ Aucune carte rare disponible.",
+                    ephemeral=True
                 )
-            
+
             # Désactiver tous les boutons
             for child in self.children:
                 child.disabled = True
-            
-            await interaction.followup.send(embed=embed, ephemeral=True)
             
         except Exception as e:
             logging.error(f"[SACRIFICIAL] Erreur lors du sacrifice: {e}")

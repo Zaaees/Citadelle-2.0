@@ -239,6 +239,7 @@ class CustomBot(commands.Bot):
         extensions = [
             'cogs.inventaire',
             'cogs.Cards',
+            'cogs.card_monitor',
             'cogs.RPTracker',
             'cogs.bump',
             'cogs.vocabulaire',

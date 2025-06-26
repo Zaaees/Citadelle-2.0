@@ -53,6 +53,8 @@ class PaginatedGalleryView(discord.ui.View):
         try:
             # Utiliser la méthode originale du cog
             result = self.cog.generate_paginated_gallery_embeds(self.user, page)
+            if result is None:
+                logging.warning(f"[GALLERY] Aucune carte trouvée pour l'utilisateur {self.user.id}")
             return result
 
         except Exception as e:
@@ -98,8 +100,12 @@ class PaginatedGalleryView(discord.ui.View):
     
     async def _update_gallery(self, interaction: discord.Interaction):
         """Met à jour l'affichage de la galerie."""
-        await interaction.response.defer()
-        
+        try:
+            await interaction.response.defer()
+        except discord.InteractionResponse:
+            # L'interaction a déjà été répondue
+            pass
+
         try:
             result = await self.get_gallery_page(self.current_page)
             if not result:
@@ -108,21 +114,27 @@ class PaginatedGalleryView(discord.ui.View):
                     ephemeral=True
                 )
                 return
-            
+
             embed_normales, embed_full, pagination_info = result
-            embeds = [embed_normales, embed_full] if embed_full else [embed_normales]
-            
+            embeds = [embed_normales]
+            if embed_full:
+                embeds.append(embed_full)
+
             # Mettre à jour les boutons
             self._update_buttons()
-            
+
             await interaction.edit_original_response(embeds=embeds, view=self)
-            
+
         except Exception as e:
             logging.error(f"[GALLERY] Erreur lors de la mise à jour: {e}")
-            await interaction.followup.send(
-                "❌ Une erreur est survenue lors de la mise à jour.",
-                ephemeral=True
-            )
+            try:
+                await interaction.followup.send(
+                    "❌ Une erreur est survenue lors de la mise à jour.",
+                    ephemeral=True
+                )
+            except:
+                # Si même le followup échoue, on log l'erreur
+                logging.error(f"[GALLERY] Impossible d'envoyer le message d'erreur: {e}")
     
     @discord.ui.button(label="🔍 Voir carte", style=discord.ButtonStyle.primary)
     async def show_card(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -191,8 +203,12 @@ class AdminPaginatedGalleryView(discord.ui.View):
     
     async def _update_gallery(self, interaction: discord.Interaction):
         """Met à jour l'affichage de la galerie."""
-        await interaction.response.defer()
-        
+        try:
+            await interaction.response.defer()
+        except discord.InteractionResponse:
+            # L'interaction a déjà été répondue
+            pass
+
         try:
             # Utiliser la méthode originale du cog
             result = self.cog.generate_paginated_gallery_embeds(self.user, self.current_page)
@@ -204,7 +220,9 @@ class AdminPaginatedGalleryView(discord.ui.View):
                 return
 
             embed_normales, embed_full, pagination_info = result
-            embeds = [embed_normales, embed_full] if embed_full else [embed_normales]
+            embeds = [embed_normales]
+            if embed_full:
+                embeds.append(embed_full)
 
             # Mettre à jour les boutons
             self._update_buttons()

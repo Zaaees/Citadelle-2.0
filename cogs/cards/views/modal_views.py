@@ -160,36 +160,72 @@ class InitiateTradeModal(discord.ui.Modal, title="Initier un échange"):
                 )
                 return
             
-            # Créer la demande d'échange
-            from .trade_views import TradeRequestView
-            
-            trade_view = TradeRequestView(self.cog, self.user, target_user)
-            
-            # Créer l'embed de demande
+            # Vérifier que l'utilisateur cible a des cartes dans son vault
+            target_vault = self.cog.vault_manager.get_user_vault_cards(target_user.id)
+            if not target_vault:
+                await interaction.followup.send(
+                    f"❌ {target_user.display_name} n'a pas de cartes dans son vault.",
+                    ephemeral=True
+                )
+                return
+
+            # Créer la vue de confirmation d'échange
+            from .trade_views import TradeConfirmationView
+
+            trade_view = TradeConfirmationView(self.cog, self.user, target_user)
+
+            # Créer l'embed détaillé avec les cartes
             embed = discord.Embed(
-                title="🔄 Demande d'échange de vault",
-                description=f"{self.user.display_name} souhaite échanger son vault avec {target_user.display_name}",
-                color=0x3498db
+                title="🔄 Proposition d'échange complet",
+                description=f"**{self.user.display_name}** souhaite échanger TOUT le contenu de son coffre avec vous.\n\n**Voulez-vous accepter cet échange ?**",
+                color=0x4E5D94
             )
-            
+
+            # Afficher les cartes de l'initiateur (ce que le destinataire va recevoir)
+            initiator_unique = list({(cat, name) for cat, name in user_vault})
+            give_text = "\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in initiator_unique])
+
             embed.add_field(
-                name="📦 Votre vault",
-                value=f"{len(set(user_vault))} cartes uniques\n({len(user_vault)} total)",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="⚠️ Information",
-                value="Cet échange concernera **tout le contenu** des vaults.",
+                name=f"📥 Vous recevrez ({len(initiator_unique)} cartes uniques)",
+                value=give_text if give_text else "Aucune carte",
                 inline=False
             )
-            
-            # Envoyer la demande (non-ephemeral pour que la cible puisse voir)
-            await interaction.followup.send(
-                content=f"{target_user.mention}, vous avez reçu une demande d'échange !",
-                embed=embed,
-                view=trade_view
+
+            # Afficher les cartes du destinataire (ce qu'il va donner)
+            target_unique = list({(cat, name) for cat, name in target_vault})
+            receive_text = "\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in target_unique])
+
+            embed.add_field(
+                name=f"📤 Vous donnerez ({len(target_unique)} cartes uniques)",
+                value=receive_text if receive_text else "Aucune carte",
+                inline=False
             )
+
+            embed.add_field(
+                name="⚠️ Important",
+                value="Cet échange transfère TOUTES les cartes des deux coffres vers vos inventaires principaux.",
+                inline=False
+            )
+
+            # Essayer d'envoyer en message privé
+            try:
+                await target_user.send(embed=embed, view=trade_view)
+                await interaction.followup.send(
+                    f"📨 Proposition d'échange envoyée à **{target_user.display_name}** en message privé !",
+                    ephemeral=True
+                )
+            except discord.Forbidden:
+                # Si impossible d'envoyer en DM, envoyer en public
+                await interaction.followup.send(
+                    content=f"{target_user.mention}, vous avez reçu une proposition d'échange !",
+                    embed=embed,
+                    view=trade_view,
+                    ephemeral=False
+                )
+                await interaction.followup.send(
+                    "⚠️ Impossible d'envoyer en message privé. La proposition a été envoyée ici.",
+                    ephemeral=True
+                )
             
         except Exception as e:
             logging.error(f"[TRADE_INIT] Erreur lors de l'initiation: {e}")

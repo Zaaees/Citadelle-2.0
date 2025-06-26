@@ -240,11 +240,438 @@ class Cards(commands.Cog):
             except Exception as e:
                 logging.error(f"[CARDS] Erreur lors du retrait de carte: {e}")
                 return False
+
+    def batch_remove_cards_from_user(self, user_id: int, cards_to_remove: list[tuple[str, str]]) -> bool:
+        """
+        Supprime plusieurs cartes pour un utilisateur en une seule opération batch.
+        OPTIMISÉ pour le tirage sacrificiel.
+
+        Args:
+            user_id: ID de l'utilisateur
+            cards_to_remove: Liste de tuples (category, name) des cartes à supprimer
+
+        Returns:
+            bool: True si toutes les suppressions ont réussi, False sinon
+        """
+        with self.storage._cards_lock:
+            try:
+                # Validation des paramètres d'entrée
+                if user_id <= 0 or not cards_to_remove:
+                    logging.error(f"[SECURITY] Paramètres invalides pour batch_remove_cards_from_user: user_id={user_id}, cards={len(cards_to_remove)}")
+                    return False
+
+                # Compter les cartes à supprimer
+                from collections import Counter
+                cards_counter = Counter(cards_to_remove)
+
+                # Vérifier que l'utilisateur possède toutes ces cartes
+                user_cards = self.get_user_cards(user_id)
+                user_cards_counter = Counter(user_cards)
+
+                for (cat, name), count_needed in cards_counter.items():
+                    if user_cards_counter.get((cat, name), 0) < count_needed:
+                        logging.error(f"[SECURITY] Tentative de suppression batch d'une carte non possédée en quantité suffisante: user_id={user_id}, carte=({cat}, {name}), besoin={count_needed}, possédé={user_cards_counter.get((cat, name), 0)}")
+                        return False
+
+                # Effectuer les suppressions en batch
+                cards_cache = self.storage.get_cards_cache()
+                if not cards_cache:
+                    return False
+
+                updates_to_make = []  # Liste des mises à jour à effectuer
+
+                for i, row in enumerate(cards_cache):
+                    if len(row) < 2:
+                        continue
+
+                    card_key = (row[0], row[1])
+                    if card_key in cards_counter:
+                        cards_to_remove_count = cards_counter[card_key]
+                        original_len = len(row)
+                        row_modified = False
+
+                        for j in range(2, len(row)):
+                            cell = row[j].strip()
+                            if cell.startswith(f"{user_id}:"):
+                                try:
+                                    uid, count = cell.split(":", 1)
+                                    uid = uid.strip()
+                                    current_count = int(count)
+                                    new_count = current_count - cards_to_remove_count
+
+                                    if new_count > 0:
+                                        row[j] = f"{uid}:{new_count}"
+                                    else:
+                                        row[j] = ""
+
+                                    row_modified = True
+                                    break
+                                except (ValueError, IndexError) as e:
+                                    logging.error(f"[SECURITY] Données corrompues dans batch_remove_cards_from_user: {cell}, erreur: {e}")
+                                    return False
+
+                        if row_modified:
+                            cleaned_row = merge_cells(row)
+                            pad = max(original_len, len(cleaned_row)) - len(cleaned_row)
+                            cleaned_row += [""] * pad
+                            updates_to_make.append((i+1, cleaned_row))
+
+                # Effectuer toutes les mises à jour
+                for row_num, cleaned_row in updates_to_make:
+                    self.storage.sheet_cards.update(f"A{row_num}", [cleaned_row])
+
+                # Rafraîchir le cache une seule fois
+                self.storage.refresh_cards_cache()
+                logging.info(f"[BATCH] Suppression batch réussie: {len(cards_to_remove)} cartes pour l'utilisateur {user_id}")
+                return True
+
+            except Exception as e:
+                logging.error(f"[SECURITY] Erreur lors de la suppression batch de cartes: {e}")
+                return False
+
+    def batch_add_cards_to_user(self, user_id: int, cards_to_add: list[tuple[str, str]]) -> bool:
+        """
+        Ajoute plusieurs cartes pour un utilisateur en une seule opération batch.
+        OPTIMISÉ pour le tirage sacrificiel.
+
+        Args:
+            user_id: ID de l'utilisateur
+            cards_to_add: Liste de tuples (category, name) des cartes à ajouter
+
+        Returns:
+            bool: True si tous les ajouts ont réussi, False sinon
+        """
+        with self.storage._cards_lock:
+            try:
+                # Validation des paramètres d'entrée
+                if user_id <= 0 or not cards_to_add:
+                    logging.error(f"[SECURITY] Paramètres invalides pour batch_add_cards_to_user: user_id={user_id}, cards={len(cards_to_add)}")
+                    return False
+
+                # Compter les cartes à ajouter
+                from collections import Counter
+                cards_counter = Counter(cards_to_add)
+
+                # Vérifier que toutes les cartes existent
+                all_files = {}
+                for cat, files in self.cards_by_category.items():
+                    all_files.setdefault(cat, []).extend(files)
+                for cat, files in self.upgrade_cards_by_category.items():
+                    all_files.setdefault(cat, []).extend(files)
+
+                for (cat, name), _ in cards_counter.items():
+                    card_exists = any(
+                        f['name'].removesuffix('.png') == name
+                        for f in all_files.get(cat, [])
+                    )
+                    if not card_exists:
+                        logging.error(f"[SECURITY] Tentative d'ajout batch d'une carte inexistante: ({cat}, {name})")
+                        return False
+
+                # Effectuer les ajouts en batch
+                cards_cache = self.storage.get_cards_cache()
+                if not cards_cache:
+                    return False
+
+                updates_to_make = []  # Liste des mises à jour à effectuer
+                new_rows_to_add = []  # Liste des nouvelles lignes à ajouter
+
+                for (cat, name), count_to_add in cards_counter.items():
+                    card_found = False
+
+                    # Chercher si la carte existe déjà
+                    for i, row in enumerate(cards_cache):
+                        if len(row) >= 2 and row[0] == cat and row[1] == name:
+                            card_found = True
+                            original_len = len(row)
+                            user_found = False
+
+                            # Chercher l'utilisateur dans cette ligne
+                            for j in range(2, len(row)):
+                                cell = row[j].strip()
+                                if cell.startswith(f"{user_id}:"):
+                                    try:
+                                        uid, current_count = cell.split(":", 1)
+                                        new_count = int(current_count) + count_to_add
+                                        row[j] = f"{uid}:{new_count}"
+                                        user_found = True
+                                        break
+                                    except (ValueError, IndexError) as e:
+                                        logging.error(f"[SECURITY] Données corrompues dans batch_add_cards_to_user: {cell}, erreur: {e}")
+                                        return False
+
+                            if not user_found:
+                                # Ajouter l'utilisateur à cette ligne
+                                row.append(f"{user_id}:{count_to_add}")
+
+                            cleaned_row = merge_cells(row)
+                            pad = max(original_len + (0 if user_found else 1), len(cleaned_row)) - len(cleaned_row)
+                            cleaned_row += [""] * pad
+                            updates_to_make.append((i+1, cleaned_row))
+                            break
+
+                    if not card_found:
+                        # Créer une nouvelle ligne pour cette carte
+                        new_rows_to_add.append([cat, name, f"{user_id}:{count_to_add}"])
+
+                # Effectuer toutes les mises à jour
+                for row_num, cleaned_row in updates_to_make:
+                    self.storage.sheet_cards.update(f"A{row_num}", [cleaned_row])
+
+                # Ajouter les nouvelles lignes
+                for new_row in new_rows_to_add:
+                    self.storage.sheet_cards.append_row(new_row)
+
+                # Rafraîchir le cache une seule fois
+                self.storage.refresh_cards_cache()
+                logging.info(f"[BATCH] Ajout batch réussi: {len(cards_to_add)} cartes pour l'utilisateur {user_id}")
+                return True
+
+            except Exception as e:
+                logging.error(f"[SECURITY] Erreur lors de l'ajout batch de cartes: {e}")
+                return False
+
+    def build_card_embed(self, cat: str, name: str, file_bytes: bytes, user: discord.User = None) -> tuple[discord.Embed, discord.File]:
+        """Construit un embed et le fichier attaché pour une carte.
+
+        Le fichier utilise toujours le nom constant ``card.png`` afin que
+        l'URL ``attachment://card.png`` reste stable et ne dépende pas du nom
+        de la carte fourni par l'utilisateur.
+
+        Args:
+            cat: Catégorie de la carte
+            name: Nom de la carte
+            file_bytes: Données binaires de l'image
+            user: Utilisateur qui a effectué le tirage (optionnel)
+        """
+        import io
+        file = discord.File(io.BytesIO(file_bytes), filename="card.png")
+
+        description = f"Catégorie : **{cat}**"
+        if user:
+            description += f"\n🎯 Tiré par : **{user.display_name}**"
+
+        embed = discord.Embed(
+            title=name,
+            description=description,
+            color=0x4E5D94,
+        )
+        embed.set_image(url="attachment://card.png")
+        return embed, file
+
+    async def _handle_announce_and_wall(self, interaction: discord.Interaction, drawn_cards: list[tuple[str, str]]):
+        """Gère les annonces publiques et le mur des cartes."""
+        # Le système forum est maintenant toujours activé
+        await self._handle_forum_posting(interaction, drawn_cards)
+
+    async def _handle_forum_posting(self, interaction: discord.Interaction, drawn_cards: list[tuple[str, str]]):
+        """Nouvelle méthode pour poster les cartes dans le système forum."""
+        try:
+            # 1) Charger toutes les cartes déjà découvertes
+            discovered_cards = self.discovery_manager.get_discovered_cards()
+
+            # 2) Fusionner les fichiers "normaux" et "Full"
+            all_files = {}
+            for cat, files in self.cards_by_category.items():
+                all_files.setdefault(cat, []).extend(files)
+            for cat, files in self.upgrade_cards_by_category.items():
+                all_files.setdefault(cat, []).extend(files)
+
+            # 3) Identifier les nouvelles cartes (non découvertes)
+            new_draws = [card for card in drawn_cards if card not in discovered_cards]
+            if not new_draws:
+                return
+
+            # 4) Poster chaque nouvelle carte dans son thread de catégorie
+            for cat, name in new_draws:
+                file_id = next(
+                    (f['id'] for f in all_files.get(cat, [])
+                    if f['name'].removesuffix(".png") == name),
+                    None
+                )
+                if not file_id:
+                    continue
+
+                # Enregistrer la découverte et obtenir l'index
+                discovery_index = self.discovery_manager.log_discovery(cat, name, interaction.user.id, interaction.user.display_name)
+
+                # Télécharger l'image
+                file_bytes = self.download_drive_file(file_id)
+
+                # Poster dans le forum (la méthode gère la création de thread si nécessaire)
+                success = await self.forum_manager.post_card_to_forum(
+                    cat, name, file_bytes,
+                    interaction.user.display_name, discovery_index
+                )
+
+                if not success:
+                    logging.error(f"[FORUM] Échec du post de la carte {name} ({cat}) dans le forum")
+
+            # 5) Mettre à jour le message de progression dans le canal principal
+            await self._update_progress_message(discovered_cards, new_draws)
+
+        except Exception as e:
+            logging.error(f"[FORUM] Erreur lors du posting forum: {e}")
+
+    async def _update_progress_message(self, discovered_cards: set, new_draws: list):
+        """Met à jour le message de progression des découvertes dans le forum."""
+        try:
+            # Pour le système forum, mettre à jour les headers des threads
+            forum_channel = self.bot.get_channel(CARD_FORUM_CHANNEL_ID)
+            if forum_channel and isinstance(forum_channel, discord.ForumChannel):
+                # Mettre à jour les headers des threads concernés par les nouvelles cartes
+                updated_categories = set()
+                for cat, name in new_draws:
+                    # Déterminer la catégorie du thread
+                    if name.removesuffix('.png').endswith(' (Full)'):
+                        updated_categories.add("Full")
+                    else:
+                        updated_categories.add(cat)
+
+                # Mettre à jour les headers des catégories concernées
+                for category in updated_categories:
+                    try:
+                        await self.forum_manager.update_category_thread_header(forum_channel, category)
+                    except Exception as e:
+                        logging.error(f"[FORUM] Erreur mise à jour header {category}: {e}")
+        except Exception as e:
+            logging.error(f"[PROGRESS] Erreur lors de la mise à jour du message de progression: {e}")
+
+    def download_drive_file(self, file_id: str) -> bytes:
+        """Télécharge un fichier depuis Google Drive."""
+        try:
+            request = self.drive_service.files().get_media(fileId=file_id)
+            file_bytes = request.execute()
+            return file_bytes
+        except Exception as e:
+            logging.error(f"[DRIVE] Erreur lors du téléchargement du fichier {file_id}: {e}")
+            return b""
+
+    async def check_for_upgrades(self, interaction: discord.Interaction, user_id: int, drawn_cards: list[tuple[str, str]]):
+        """
+        Pour chaque carte normale où l'utilisateur a atteint le seuil de
+        doublons, on échange les N doublons contre la version Full,
+        on notifie l'utilisateur et on met à jour le mur.
+        """
+        await self.check_for_upgrades_with_channel(interaction, user_id, drawn_cards, None)
+
+    async def check_for_upgrades_with_channel(self, interaction: discord.Interaction, user_id: int, drawn_cards: list[tuple[str, str]], notification_channel_id: int = None):
+        """
+        Pour chaque carte normale où l'utilisateur a atteint le seuil de
+        doublons, on échange les N doublons contre la version Full,
+        on notifie l'utilisateur et on met à jour le mur.
+
+        Args:
+            interaction: L'interaction Discord
+            user_id: ID de l'utilisateur
+            drawn_cards: Liste des cartes tirées (pour compatibilité)
+            notification_channel_id: ID du salon où envoyer les notifications (optionnel)
+        """
+        try:
+            # Seuils de conversion (nombre de cartes normales pour obtenir une Full)
+            upgrade_thresholds = {"Élèves": 5}
+
+            # 1) Récupérer tous les doublons de l'utilisateur
+            user_cards = self.get_user_cards(user_id)
+            # Compter les occurrences par (catégorie, nom)
+            counts: dict[tuple[str,str], int] = {}
+            for cat, name in user_cards:
+                counts[(cat, name)] = counts.get((cat, name), 0) + 1
+
+            # 2) Pour chaque carte où count >= seuil, effectuer l'upgrade
+            for (cat, name), count in counts.items():
+                if cat not in upgrade_thresholds:
+                    continue
+                seuil = upgrade_thresholds[cat]
+                if count >= seuil:
+                    removed = 0
+                    for _ in range(seuil):
+                        if self.remove_card_from_user(user_id, cat, name):
+                            removed += 1
+                        else:
+                            logging.error(
+                                f"[UPGRADE] Échec suppression {name} pour {user_id}. Rollback"
+                            )
+                            for _ in range(removed):
+                                self.add_card_to_user(user_id, cat, name)
+                            break
+                    else:
+                        full_name = f"{name} (Full)"
+
+                        # Chercher la carte Full correspondante
+                        file_id = None
+                        for f in self.upgrade_cards_by_category.get(cat, []):
+                            if self.normalize_name(f['name'].removesuffix(".png")) == self.normalize_name(full_name):
+                                file_id = f['id']
+                                break
+
+                        if file_id:
+                            file_bytes = self.download_drive_file(file_id)
+                            embed, image_file = self.build_card_embed(cat, full_name, file_bytes)
+                            embed.title = f"🎉 Carte Full obtenue : {full_name}"
+                            embed.description = (
+                                f"<@{user_id}> a échangé **{seuil}× {name}** "
+                                f"contre **{full_name}** !"
+                            )
+                            embed.color = discord.Color.gold()
+
+                            # Envoyer la notification dans le salon spécifié ou via followup
+                            if notification_channel_id:
+                                try:
+                                    channel = self.bot.get_channel(notification_channel_id)
+                                    if channel:
+                                        await channel.send(embed=embed, file=image_file)
+                                        logging.info(f"[UPGRADE] Notification envoyée dans le salon {notification_channel_id} pour {full_name}")
+                                    else:
+                                        logging.error(f"[UPGRADE] Salon {notification_channel_id} introuvable")
+                                        # Fallback vers followup si le salon n'existe pas
+                                        embed.description = (
+                                            f"Vous avez échangé **{seuil}× {name}** "
+                                            f"contre **{full_name}** !"
+                                        )
+                                        await interaction.followup.send(embed=embed, file=image_file)
+                                except Exception as e:
+                                    logging.error(f"[UPGRADE] Erreur envoi notification salon {notification_channel_id}: {e}")
+                                    # Fallback vers followup en cas d'erreur
+                                    embed.description = (
+                                        f"Vous avez échangé **{seuil}× {name}** "
+                                        f"contre **{full_name}** !"
+                                    )
+                                    await interaction.followup.send(embed=embed, file=image_file)
+                            else:
+                                embed.description = (
+                                    f"Vous avez échangé **{seuil}× {name}** "
+                                    f"contre **{full_name}** !"
+                                )
+                                await interaction.followup.send(embed=embed, file=image_file)
+
+                            # Ajouter la carte Full à l'inventaire
+                            if not self.add_card_to_user(user_id, cat, full_name):
+                                logging.error(
+                                    f"[UPGRADE] Échec ajout {full_name} pour {user_id}. Rollback"
+                                )
+                                for _ in range(seuil):
+                                    self.add_card_to_user(user_id, cat, name)
+                            else:
+                                # Mettre à jour le mur des cartes avec la nouvelle carte Full
+                                await self._handle_announce_and_wall(interaction, [(cat, full_name)])
+                        else:
+                            logging.error(f"[UPGRADE] Carte Full {full_name} introuvable dans {cat}")
+                            # Rollback
+                            for _ in range(removed):
+                                self.add_card_to_user(user_id, cat, name)
+
+        except Exception as e:
+            logging.error(f"[UPGRADE] Erreur lors de la vérification des upgrades: {e}")
     
     def _user_has_card(self, user_id: int, category: str, name: str) -> bool:
         """Vérifie si un utilisateur possède une carte spécifique."""
         user_cards = self.get_user_cards(user_id)
         return (category, name) in user_cards
+
+    def normalize_name(self, name: str) -> str:
+        """Normalise un nom de carte pour la comparaison."""
+        return name.strip().lower().replace(" ", "").replace("(", "").replace(")", "")
 
     # ========== MÉTHODES DE CLASSEMENT ==========
 
@@ -355,11 +782,23 @@ class Cards(commands.Cog):
 
     def find_user_card_by_input(self, user_id: int, input_text: str) -> tuple[str, str] | None:
         """Recherche une carte dans l'inventaire d'un utilisateur par nom ou ID."""
-        normalized_input, is_card_id = parse_card_input(input_text)
+        input_text = input_text.strip()
 
-        if is_card_id:
-            # Recherche par ID de carte
-            # Cette fonctionnalité sera implémentée avec le système d'ID
+        # Vérifier si c'est un identifiant (C1, C2, etc.)
+        if input_text.upper().startswith('C') and input_text[1:].isdigit():
+            # Recherche par identifiant
+            discovery_index = int(input_text[1:])
+            discoveries_cache = self.discovery_manager.storage.get_discoveries_cache()
+
+            if discoveries_cache:
+                for row in discoveries_cache[1:]:  # Skip header
+                    if len(row) >= 6 and int(row[5]) == discovery_index:
+                        category, name = row[0], row[1]
+                        # Vérifier que l'utilisateur possède cette carte
+                        owned_cards = self.get_user_cards(user_id)
+                        if any(cat == category and n == name for cat, n in owned_cards):
+                            return (category, name)
+                        return None
             return None
 
         # Recherche par nom
@@ -376,10 +815,17 @@ class Cards(commands.Cog):
         )
         return match
 
+    def get_card_identifier(self, category: str, name: str) -> str | None:
+        """Récupère l'identifiant d'une carte (C1, C2, etc.)."""
+        discovery_info = self.discovery_manager.get_discovery_info(category, name)
+        if discovery_info:
+            return f"C{discovery_info['discovery_index']}"
+        return None
+
     def find_card_by_name(self, input_name: str) -> tuple[str, str, str] | None:
         """
         Recherche une carte par nom dans toutes les catégories.
-        Retourne (catégorie, nom exact, file_id) ou None.
+        Retourne (catégorie, nom exact avec extension, file_id) ou None.
         """
         normalized_input = normalize_name(input_name.removesuffix(".png"))
 
@@ -395,7 +841,8 @@ class Cards(commands.Cog):
                 file_name = file_info['name']
                 normalized_file = normalize_name(file_name.removesuffix(".png"))
                 if normalized_file == normalized_input:
-                    return category, file_name.removesuffix('.png'), file_info['id']
+                    # Retourner le nom avec extension pour correspondre au format de l'inventaire
+                    return category, file_name, file_info['id']
 
         return None
 
@@ -421,161 +868,192 @@ class Cards(commands.Cog):
             return f"C{discovery_info['discovery_index']}"
         return None
 
-    def generate_paginated_gallery_embeds(self, user: discord.abc.User, page: int = 0) -> tuple[discord.Embed, discord.Embed, dict] | None:
+    def generate_paginated_gallery_embeds(self, user: discord.abc.User, page: int = 0) -> tuple[discord.Embed, discord.Embed | None, dict] | None:
         """Construit les embeds de galerie paginés pour l'utilisateur donné (format original)."""
-        user_cards = self.get_user_cards(user.id)
-        if not user_cards:
+        try:
+            user_cards = self.get_user_cards(user.id)
+            if not user_cards:
+                return None
+
+            # Configuration de la pagination
+            CARDS_PER_PAGE = 15  # Nombre de cartes par catégorie par page
+
+            rarity_order = {
+                "Secrète": 0,
+                "Fondateur": 1,
+                "Historique": 2,
+                "Maître": 3,
+                "Black Hole": 4,
+                "Architectes": 5,
+                "Professeurs": 6,
+                "Autre": 7,
+                "Élèves": 8,
+            }
+            user_cards.sort(key=lambda c: rarity_order.get(c[0], 9))
+
+            cards_by_cat: dict[str, list[str]] = {}
+            for cat, name in user_cards:
+                cards_by_cat.setdefault(cat, []).append(name)
+
+            # Calculer le nombre total de pages nécessaires
+            max_pages_needed = 0
+            for cat in rarity_order:
+                noms = cards_by_cat.get(cat, [])
+                normales = [n for n in noms if not n.endswith(" (Full)")]
+                fulls = [n for n in noms if n.endswith(" (Full)")]
+
+                if normales:
+                    counts = {}
+                    for n in normales:
+                        counts[n] = counts.get(n, 0) + 1
+                    pages_for_cat = (len(counts) + CARDS_PER_PAGE - 1) // CARDS_PER_PAGE
+                    max_pages_needed = max(max_pages_needed, pages_for_cat)
+
+                if fulls:
+                    counts = {}
+                    for n in fulls:
+                        counts[n] = counts.get(n, 0) + 1
+                    pages_for_cat = (len(counts) + CARDS_PER_PAGE - 1) // CARDS_PER_PAGE
+                    max_pages_needed = max(max_pages_needed, pages_for_cat)
+
+            total_pages = max(1, max_pages_needed)
+            current_page = max(0, min(page, total_pages - 1))
+
+            embed_normales = discord.Embed(
+                title=f"Galerie de {user.display_name} (Page {current_page + 1}/{total_pages})",
+                color=discord.Color.blue(),
+            )
+            embed_full = discord.Embed(
+                title=f"Cartes Full de {user.display_name} (Page {current_page + 1}/{total_pages})",
+                color=discord.Color.gold(),
+            )
+
+            has_normal_cards = False
+            has_full_cards = False
+
+            for cat in rarity_order:
+                noms = cards_by_cat.get(cat, [])
+
+                normales = [n for n in noms if not n.endswith(" (Full)")]
+                if normales:
+                    counts: dict[str, int] = {}
+                    for n in normales:
+                        counts[n] = counts.get(n, 0) + 1
+                    # Sort cards alphabetically within the category (accent-insensitive)
+                    sorted_cards = sorted(counts.items(), key=lambda x: normalize_name(x[0].removesuffix('.png')))
+
+                    # Pagination logic for normal cards
+                    start_idx = current_page * CARDS_PER_PAGE
+                    end_idx = start_idx + CARDS_PER_PAGE
+                    page_cards = sorted_cards[start_idx:end_idx]
+
+                    if page_cards:  # Only show category if there are cards on this page
+                        has_normal_cards = True
+                        lines = []
+                        for n, c in page_cards:
+                            try:
+                                card_name = n.removesuffix('.png')
+                                # Get card identifier if available
+                                identifier = self.get_card_identifier(cat, n)
+                                identifier_text = f" ({identifier})" if identifier else ""
+                                count_text = f' (x{c})' if c > 1 else ''
+                                lines.append(f"- **{card_name}**{identifier_text}{count_text}")
+                            except Exception as e:
+                                logging.error(f"[GALLERY] Erreur lors du traitement de la carte {n}: {e}")
+                                continue
+
+                        if lines:  # Only add field if we have valid lines
+                            field_value = "\n".join(lines)
+
+                            # Add pagination info if there are more cards
+                            total_cards_in_cat = len(sorted_cards)
+                            if total_cards_in_cat > CARDS_PER_PAGE:
+                                showing_start = start_idx + 1
+                                showing_end = min(end_idx, total_cards_in_cat)
+                                field_value += f"\n\n*Affichage {showing_start}-{showing_end} sur {total_cards_in_cat}*"
+
+                            try:
+                                total_available = len({
+                                    f['name'].removesuffix('.png')
+                                    for f in self.cards_by_category.get(cat, [])
+                                })
+                                owned_unique = len(counts)
+
+                                embed_normales.add_field(
+                                    name=f"{cat} : {owned_unique}/{total_available}",
+                                    value=field_value,
+                                    inline=False,
+                                )
+                            except Exception as e:
+                                logging.error(f"[GALLERY] Erreur lors de l'ajout du champ pour {cat}: {e}")
+                                continue
+
+                fulls = [n for n in noms if n.endswith(" (Full)")]
+                if fulls:
+                    counts: dict[str, int] = {}
+                    for n in fulls:
+                        counts[n] = counts.get(n, 0) + 1
+                    # Sort cards alphabetically within the category (accent-insensitive)
+                    sorted_cards = sorted(counts.items(), key=lambda x: normalize_name(x[0].removesuffix('.png')))
+
+                    # Pagination logic for full cards
+                    start_idx = current_page * CARDS_PER_PAGE
+                    end_idx = start_idx + CARDS_PER_PAGE
+                    page_cards = sorted_cards[start_idx:end_idx]
+
+                    if page_cards:  # Only show category if there are cards on this page
+                        has_full_cards = True
+                        lines = []
+                        for n, c in page_cards:
+                            try:
+                                card_name = n.removesuffix('.png')
+                                count_text = f' (x{c})' if c > 1 else ''
+                                lines.append(f"- **{card_name}**{count_text}")
+                            except Exception as e:
+                                logging.error(f"[GALLERY] Erreur lors du traitement de la carte Full {n}: {e}")
+                                continue
+
+                        if lines:  # Only add field if we have valid lines
+                            field_value = "\n".join(lines)
+
+                            # Add pagination info if there are more cards
+                            total_cards_in_cat = len(sorted_cards)
+                            if total_cards_in_cat > CARDS_PER_PAGE:
+                                showing_start = start_idx + 1
+                                showing_end = min(end_idx, total_cards_in_cat)
+                                field_value += f"\n\n*Affichage {showing_start}-{showing_end} sur {total_cards_in_cat}*"
+
+                            try:
+                                total_full = len({
+                                    f['name'].removesuffix('.png')
+                                    for f in self.upgrade_cards_by_category.get(cat, [])
+                                })
+                                owned_full = len(counts)
+
+                                embed_full.add_field(
+                                    name=f"{cat} (Full) : {owned_full}/{total_full}",
+                                    value=field_value,
+                                    inline=False,
+                                )
+                            except Exception as e:
+                                logging.error(f"[GALLERY] Erreur lors de l'ajout du champ Full pour {cat}: {e}")
+                                continue
+
+            # Prepare pagination info
+            pagination_info = {
+                'current_page': current_page,
+                'total_pages': total_pages,
+                'has_previous': current_page > 0,
+                'has_next': current_page < total_pages - 1
+            }
+
+            # Return only the embeds that have content
+            final_embed_full = embed_full if has_full_cards else None
+            return embed_normales, final_embed_full, pagination_info
+
+        except Exception as e:
+            logging.error(f"[GALLERY] Erreur dans generate_paginated_gallery_embeds: {e}")
             return None
-
-        # Configuration de la pagination
-        CARDS_PER_PAGE = 15  # Nombre de cartes par catégorie par page
-
-        rarity_order = {
-            "Secrète": 0,
-            "Fondateur": 1,
-            "Historique": 2,
-            "Maître": 3,
-            "Black Hole": 4,
-            "Architectes": 5,
-            "Professeurs": 6,
-            "Autre": 7,
-            "Élèves": 8,
-        }
-        user_cards.sort(key=lambda c: rarity_order.get(c[0], 9))
-
-        cards_by_cat: dict[str, list[str]] = {}
-        for cat, name in user_cards:
-            cards_by_cat.setdefault(cat, []).append(name)
-
-        # Calculer le nombre total de pages nécessaires
-        max_pages_needed = 0
-        for cat in rarity_order:
-            noms = cards_by_cat.get(cat, [])
-            normales = [n for n in noms if not n.endswith(" (Full)")]
-            fulls = [n for n in noms if n.endswith(" (Full)")]
-
-            if normales:
-                counts = {}
-                for n in normales:
-                    counts[n] = counts.get(n, 0) + 1
-                pages_for_cat = (len(counts) + CARDS_PER_PAGE - 1) // CARDS_PER_PAGE
-                max_pages_needed = max(max_pages_needed, pages_for_cat)
-
-            if fulls:
-                counts = {}
-                for n in fulls:
-                    counts[n] = counts.get(n, 0) + 1
-                pages_for_cat = (len(counts) + CARDS_PER_PAGE - 1) // CARDS_PER_PAGE
-                max_pages_needed = max(max_pages_needed, pages_for_cat)
-
-        total_pages = max(1, max_pages_needed)
-        current_page = max(0, min(page, total_pages - 1))
-
-        embed_normales = discord.Embed(
-            title=f"Galerie de {user.display_name} (Page {current_page + 1}/{total_pages})",
-            color=discord.Color.blue(),
-        )
-        embed_full = discord.Embed(
-            title=f"Cartes Full de {user.display_name} (Page {current_page + 1}/{total_pages})",
-            color=discord.Color.gold(),
-        )
-
-        for cat in rarity_order:
-            noms = cards_by_cat.get(cat, [])
-
-            normales = [n for n in noms if not n.endswith(" (Full)")]
-            if normales:
-                counts: dict[str, int] = {}
-                for n in normales:
-                    counts[n] = counts.get(n, 0) + 1
-                # Sort cards alphabetically within the category (accent-insensitive)
-                sorted_cards = sorted(counts.items(), key=lambda x: normalize_name(x[0].removesuffix('.png')))
-
-                # Pagination logic for normal cards
-                start_idx = current_page * CARDS_PER_PAGE
-                end_idx = start_idx + CARDS_PER_PAGE
-                page_cards = sorted_cards[start_idx:end_idx]
-
-                if page_cards:  # Only show category if there are cards on this page
-                    lines = []
-                    for n, c in page_cards:
-                        card_name = n.removesuffix('.png')
-                        # Get card identifier if available
-                        identifier = self.get_card_identifier(cat, n)
-                        identifier_text = f" ({identifier})" if identifier else ""
-                        count_text = f' (x{c})' if c > 1 else ''
-                        lines.append(f"- **{card_name}**{identifier_text}{count_text}")
-
-                    field_value = "\n".join(lines)
-
-                    # Add pagination info if there are more cards
-                    total_cards_in_cat = len(sorted_cards)
-                    if total_cards_in_cat > CARDS_PER_PAGE:
-                        showing_start = start_idx + 1
-                        showing_end = min(end_idx, total_cards_in_cat)
-                        field_value += f"\n\n*Affichage {showing_start}-{showing_end} sur {total_cards_in_cat}*"
-
-                    total_available = len({
-                        f['name'].removesuffix('.png')
-                        for f in self.cards_by_category.get(cat, [])
-                    })
-                    owned_unique = len(counts)
-
-                    embed_normales.add_field(
-                        name=f"{cat} : {owned_unique}/{total_available}",
-                        value=field_value,
-                        inline=False,
-                    )
-
-            fulls = [n for n in noms if n.endswith(" (Full)")]
-            if fulls:
-                counts: dict[str, int] = {}
-                for n in fulls:
-                    counts[n] = counts.get(n, 0) + 1
-                # Sort cards alphabetically within the category (accent-insensitive)
-                sorted_cards = sorted(counts.items(), key=lambda x: normalize_name(x[0].removesuffix('.png')))
-
-                # Pagination logic for full cards
-                start_idx = current_page * CARDS_PER_PAGE
-                end_idx = start_idx + CARDS_PER_PAGE
-                page_cards = sorted_cards[start_idx:end_idx]
-
-                if page_cards:  # Only show category if there are cards on this page
-                    lines = [
-                        f"- **{n.removesuffix('.png')}**{' (x'+str(c)+')' if c>1 else ''}"
-                        for n, c in page_cards
-                    ]
-
-                    field_value = "\n".join(lines)
-
-                    # Add pagination info if there are more cards
-                    total_cards_in_cat = len(sorted_cards)
-                    if total_cards_in_cat > CARDS_PER_PAGE:
-                        showing_start = start_idx + 1
-                        showing_end = min(end_idx, total_cards_in_cat)
-                        field_value += f"\n\n*Affichage {showing_start}-{showing_end} sur {total_cards_in_cat}*"
-
-                    total_full = len({
-                        f['name'].removesuffix('.png')
-                        for f in self.upgrade_cards_by_category.get(cat, [])
-                    })
-                    owned_full = len(counts)
-
-                    embed_full.add_field(
-                        name=f"{cat} (Full) : {owned_full}/{total_full}",
-                        value=field_value,
-                        inline=False,
-                    )
-
-        # Prepare pagination info
-        pagination_info = {
-            'current_page': current_page,
-            'total_pages': total_pages,
-            'has_previous': current_page > 0,
-            'has_next': current_page < total_pages - 1
-        }
-
-        return embed_normales, embed_full, pagination_info
 
     def get_all_card_categories(self) -> list[str]:
         """Retourne la liste complète des catégories de cartes."""
@@ -655,7 +1133,7 @@ class Cards(commands.Cog):
 
     @app_commands.command(name="cartes", description="Gérer vos cartes à collectionner")
     async def cartes(self, interaction: discord.Interaction):
-        """Commande principale du système de cartes."""
+        """Commande principale du système de cartes optimisée."""
         logging.info("[DEBUG] Commande /cartes déclenchée")
 
         await interaction.response.defer(ephemeral=True)
@@ -667,35 +1145,40 @@ class Cards(commands.Cog):
 
         view = CardsMenuView(self, interaction.user)
 
-        # Calcul des statistiques de l'utilisateur
+        # Calcul optimisé des statistiques de l'utilisateur
         user_cards = self.get_user_cards(interaction.user.id)
         drawn_count = len(user_cards)
 
-        # Statistiques de cartes uniques
-        unique_count = len(set(user_cards))
-        unique_count_excluding_full = len(set([(cat, name) for cat, name in user_cards if not "(Full)" in name]))
+        # Statistiques de cartes uniques (optimisé avec une seule itération)
+        unique_cards = set(user_cards)
+        unique_count = len(unique_cards)
+        unique_count_excluding_full = len(set([(cat, name) for cat, name in unique_cards if not "(Full)" in name]))
 
-        # Totaux disponibles
+        # Totaux disponibles (mise en cache)
         total_unique = self.total_unique_cards_available()
         total_unique_excluding_full = self.total_unique_cards_available_excluding_full()
 
-        # Classements
+        # Classements (optimisé avec cache)
         rank, _ = self.get_user_rank(interaction.user.id)
         rank_excluding_full, _ = self.get_user_rank_excluding_full(interaction.user.id)
 
         rank_text = f"#{rank}" if rank else "Non classé"
         rank_text_excluding_full = f"#{rank_excluding_full}" if rank_excluding_full else "Non classé"
 
-        # Vérifier si le tirage journalier est disponible
+        # Vérifier les tirages disponibles (optimisé avec cache)
         can_draw_today = self.drawing_manager.can_perform_daily_draw(interaction.user.id)
-        tirage_status = "✅ Disponible" if can_draw_today else "❌ Déjà effectué"
+        can_sacrificial_today = self.drawing_manager.can_perform_sacrificial_draw(interaction.user.id)
 
-        # Créer l'embed principal simplifié
+        tirage_status = "✅ Disponible" if can_draw_today else "❌ Déjà effectué"
+        sacrificial_status = "✅ Disponible" if can_sacrificial_today else "❌ Déjà effectué"
+
+        # Créer l'embed principal optimisé
         embed = discord.Embed(
             title="🎴 Menu des Cartes",
             description=(
                 f"**Bienvenue {interaction.user.display_name} !**\n\n"
                 f"🌅 **Tirage journalier :** {tirage_status}\n"
+                f"⚔️ **Tirage sacrificiel :** {sacrificial_status}\n"
                 f"📈 **Cartes différentes :** {unique_count}/{total_unique} | Hors Full : {unique_count_excluding_full}/{total_unique_excluding_full}\n"
                 f"🥇 **Classement :** {rank_text} | Hors Full : {rank_text_excluding_full}\n"
                 f"🎴 **Total possédé :** {drawn_count} cartes"
@@ -795,14 +1278,48 @@ class Cards(commands.Cog):
 
 # Commande /decouvertes_recentes supprimée selon demande utilisateur
 
-    @app_commands.command(name="reclamer_bonus", description="Récupérez vos tirages bonus non réclamés")
-    async def reclamer_bonus(self, interaction: discord.Interaction):
-        """Permet de récupérer les tirages bonus accordés par les administrateurs."""
-        # Assigner automatiquement le rôle de collectionneur de cartes
-        await self.ensure_card_collector_role(interaction)
+    def get_user_unclaimed_bonus_count(self, user_id: int) -> int:
+        """
+        Vérifie et retourne le nombre total de tirages bonus non réclamés pour un utilisateur.
 
-        await interaction.response.defer(ephemeral=True)
+        Args:
+            user_id: ID de l'utilisateur
 
+        Returns:
+            int: Nombre total de tirages bonus disponibles
+        """
+        user_id_str = str(user_id)
+
+        try:
+            # Lecture des bonus
+            all_rows = self.storage.sheet_bonus.get_all_values()[1:]  # skip header
+
+            user_bonus = 0
+
+            for row in all_rows:
+                if len(row) >= 3 and row[0] == user_id_str:
+                    try:
+                        count = int(row[1])
+                        user_bonus += count
+                    except ValueError:
+                        continue
+
+            return user_bonus
+
+        except Exception as e:
+            logging.error(f"[BONUS] Erreur lors de la vérification des bonus: {e}")
+            return 0
+
+    async def claim_user_bonuses(self, interaction: discord.Interaction) -> bool:
+        """
+        Réclame tous les bonus disponibles pour un utilisateur.
+
+        Args:
+            interaction: L'interaction Discord
+
+        Returns:
+            bool: True si des bonus ont été réclamés avec succès
+        """
         user_id_str = str(interaction.user.id)
 
         try:
@@ -823,11 +1340,7 @@ class Cards(commands.Cog):
                         continue
 
             if user_bonus <= 0:
-                await interaction.followup.send(
-                    "❌ Vous n'avez aucun tirage bonus à réclamer.",
-                    ephemeral=True
-                )
-                return
+                return False
 
             # Effectuer les tirages bonus
             drawn_cards = self.drawing_manager.draw_cards(user_bonus)
@@ -884,12 +1397,15 @@ class Cards(commands.Cog):
             # Annonce publique si nouvelles cartes
             await self._handle_announce_and_wall(interaction, drawn_cards)
 
+            return True
+
         except Exception as e:
             logging.error(f"[BONUS] Erreur lors de la réclamation des bonus: {e}")
             await interaction.followup.send(
                 "❌ Une erreur est survenue lors de la réclamation des bonus.",
                 ephemeral=True
             )
+            return False
 
     @commands.command(name="initialiser_forum_cartes", help="Initialise la structure forum pour les cartes")
     @commands.has_permissions(administrator=True)
@@ -927,7 +1443,9 @@ class Cards(commands.Cog):
                 return
 
             embed_normales, embed_full, pagination_info = result
-            embeds = [embed_normales, embed_full] if embed_full else [embed_normales]
+            embeds = [embed_normales]
+            if embed_full:
+                embeds.append(embed_full)
 
             # Créer la vue de galerie admin
             gallery_view = AdminPaginatedGalleryView(self, member)
@@ -956,6 +1474,23 @@ class Cards(commands.Cog):
             embed.add_field(name="Raison", value=source, inline=False)
 
             await ctx.send(embed=embed)
+        except Exception as e:
+            await ctx.send(f"❌ Erreur lors de l'attribution du bonus: {e}")
+
+    @commands.command(name="clear_sacrificial_cache")
+    @commands.has_permissions(administrator=True)
+    async def clear_sacrificial_cache(self, ctx: commands.Context, member: discord.Member = None):
+        """
+        Nettoie le cache du tirage sacrificiel.
+        Usage : !clear_sacrificial_cache [@joueur]
+        """
+        try:
+            if member:
+                self.drawing_manager.clear_sacrificial_cache(member.id)
+                await ctx.send(f"✅ Cache sacrificiel nettoyé pour {member.mention}")
+            else:
+                self.drawing_manager.clear_sacrificial_cache()
+                await ctx.send("✅ Cache sacrificiel entièrement nettoyé")
 
         except Exception as e:
             logging.error(f"[GIVE_BONUS] Erreur: {e}")

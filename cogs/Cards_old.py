@@ -76,6 +76,13 @@ async def finalize_exchange(state: TradeExchangeState, interaction: discord.Inte
         await state.target.send(
             f"📦 Échange confirmé ! Tu as donné **{state.return_name}** et reçu **{state.offer_name}**."
         )
+
+        # Vérifier les transformations en cartes full après l'échange
+        try:
+            await state.cog.check_for_upgrades_with_channel(interaction, state.offerer.id, [], 1361993326215172218)
+            await state.cog.check_for_upgrades_with_channel(interaction, state.target.id, [], 1361993326215172218)
+        except Exception as e:
+            logging.error(f"[EXCHANGE] Erreur lors de la vérification des upgrades après échange: {e}")
     else:
         await state.offerer.send("❌ L’échange a échoué : une des cartes n’était plus disponible.")
         await state.target.send("❌ L’échange a échoué : une des cartes n’était plus disponible.")
@@ -3505,58 +3512,118 @@ class Cards(commands.Cog):
         doublons, on échange les N doublons contre la version Full,
         on notifie l'utilisateur et on met à jour le mur.
         """
-        # 1) Récupérer tous les doublons de l'utilisateur
-        user_cards = self.get_user_cards(user_id)
-        # Compter les occurrences par (catégorie, nom)
-        counts: dict[tuple[str,str], int] = {}
-        for cat, name in user_cards:
-            counts[(cat, name)] = counts.get((cat, name), 0) + 1
+        await self.check_for_upgrades_with_channel(interaction, user_id, drawn_cards, None)
 
-        # 2) Pour chaque carte où count >= seuil, effectuer l'upgrade
+    async def check_for_upgrades_with_channel(
+        self,
+        interaction: discord.Interaction,
+        user_id: int,
+        drawn_cards: list[tuple[str,str]],
+        notification_channel_id: int = None
+    ):
+        """
+        Pour chaque carte normale où l'utilisateur a atteint le seuil de
+        doublons, on échange les N doublons contre la version Full,
+        on notifie l'utilisateur et on met à jour le mur.
 
-        for (cat, name), count in counts.items():
-            if cat not in self.upgrade_thresholds:
-                continue
-            seuil = self.upgrade_thresholds[cat]
-            if count >= seuil:
-                removed = 0
-                for _ in range(seuil):
-                    if self.remove_card_from_user(user_id, cat, name):
-                        removed += 1
+        Args:
+            interaction: L'interaction Discord
+            user_id: ID de l'utilisateur
+            drawn_cards: Liste des cartes tirées (pour compatibilité)
+            notification_channel_id: ID du salon où envoyer les notifications (optionnel)
+        """
+        try:
+            # 1) Récupérer tous les doublons de l'utilisateur
+            user_cards = self.get_user_cards(user_id)
+            # Compter les occurrences par (catégorie, nom)
+            counts: dict[tuple[str,str], int] = {}
+            for cat, name in user_cards:
+                counts[(cat, name)] = counts.get((cat, name), 0) + 1
+
+            # 2) Pour chaque carte où count >= seuil, effectuer l'upgrade
+            for (cat, name), count in counts.items():
+                if cat not in self.upgrade_thresholds:
+                    continue
+                seuil = self.upgrade_thresholds[cat]
+                if count >= seuil:
+                    removed = 0
+                    for _ in range(seuil):
+                        if self.remove_card_from_user(user_id, cat, name):
+                            removed += 1
+                        else:
+                            logging.error(
+                                f"[UPGRADE] Échec suppression {name} pour {user_id}. Rollback"
+                            )
+                            for _ in range(removed):
+                                self.add_card_to_user(user_id, cat, name)
+                            break
                     else:
-                        logging.error(
-                            f"[UPGRADE] Échec suppression {name} pour {user_id}. Rollback"
-                        )
-                        for _ in range(removed):
-                            self.add_card_to_user(user_id, cat, name)
-                        break
-                else:
-                    full_name = f"{name} (Full)"
+                        full_name = f"{name} (Full)"
 
-                    file_id = next(
-                        f['id'] for f in self.upgrade_cards_by_category[cat]
-                        if self.normalize_name(f['name'].removesuffix(".png"))
-                        == self.normalize_name(full_name)
-                    )
-                    file_bytes = self.download_drive_file(file_id)
-                    embed, image_file = self.build_card_embed(cat, full_name, file_bytes)
-                    embed.title = f"🎉 Carte Full obtenue : {full_name}"
-                    embed.description = (
-                        f"Vous avez échangé **{seuil}× {name}** "
-                        f"contre **{full_name}** !"
-                    )
-                    embed.color = discord.Color.gold()
+                        # Chercher la carte Full correspondante avec gestion d'erreur
+                        file_id = None
+                        for f in self.upgrade_cards_by_category.get(cat, []):
+                            if self.normalize_name(f['name'].removesuffix(".png")) == self.normalize_name(full_name):
+                                file_id = f['id']
+                                break
 
-                    await interaction.followup.send(embed=embed, file=image_file)
+                        if file_id:
+                            file_bytes = self.download_drive_file(file_id)
+                            embed, image_file = self.build_card_embed(cat, full_name, file_bytes)
+                            embed.title = f"🎉 Carte Full obtenue : {full_name}"
 
-                    await self._handle_announce_and_wall(interaction, [(cat, full_name)])
+                            # Envoyer la notification dans le salon spécifié ou via followup
+                            if notification_channel_id:
+                                embed.description = (
+                                    f"<@{user_id}> a échangé **{seuil}× {name}** "
+                                    f"contre **{full_name}** !"
+                                )
+                                try:
+                                    channel = self.bot.get_channel(notification_channel_id)
+                                    if channel:
+                                        await channel.send(embed=embed, file=image_file)
+                                        logging.info(f"[UPGRADE] Notification envoyée dans le salon {notification_channel_id} pour {full_name}")
+                                    else:
+                                        logging.error(f"[UPGRADE] Salon {notification_channel_id} introuvable")
+                                        # Fallback vers followup si le salon n'existe pas
+                                        embed.description = (
+                                            f"Vous avez échangé **{seuil}× {name}** "
+                                            f"contre **{full_name}** !"
+                                        )
+                                        await interaction.followup.send(embed=embed, file=image_file)
+                                except Exception as e:
+                                    logging.error(f"[UPGRADE] Erreur envoi notification salon {notification_channel_id}: {e}")
+                                    # Fallback vers followup en cas d'erreur
+                                    embed.description = (
+                                        f"Vous avez échangé **{seuil}× {name}** "
+                                        f"contre **{full_name}** !"
+                                    )
+                                    await interaction.followup.send(embed=embed, file=image_file)
+                            else:
+                                embed.description = (
+                                    f"Vous avez échangé **{seuil}× {name}** "
+                                    f"contre **{full_name}** !"
+                                )
+                                await interaction.followup.send(embed=embed, file=image_file)
 
-                    if not self.add_card_to_user(user_id, cat, full_name):
-                        logging.error(
-                            f"[UPGRADE] Échec ajout {full_name} pour {user_id}. Rollback"
-                        )
-                        for _ in range(seuil):
-                            self.add_card_to_user(user_id, cat, name)
+                            # Mettre à jour le mur des cartes avec la nouvelle carte Full
+                            await self._handle_announce_and_wall(interaction, [(cat, full_name)])
+
+                            # Ajouter la carte Full à l'inventaire
+                            if not self.add_card_to_user(user_id, cat, full_name):
+                                logging.error(
+                                    f"[UPGRADE] Échec ajout {full_name} pour {user_id}. Rollback"
+                                )
+                                for _ in range(seuil):
+                                    self.add_card_to_user(user_id, cat, name)
+                        else:
+                            logging.error(f"[UPGRADE] Carte Full {full_name} introuvable dans {cat}")
+                            # Rollback
+                            for _ in range(removed):
+                                self.add_card_to_user(user_id, cat, name)
+
+        except Exception as e:
+            logging.error(f"[UPGRADE] Erreur lors de la vérification des upgrades: {e}")
 
 
     def log_bonus(self, user_id: int, source: str):
@@ -5581,8 +5648,8 @@ class InitiatorFinalConfirmationView(discord.ui.View):
 
             # Vérifier et effectuer les conversions de cartes (5 régulières → 1 Full) pour les deux utilisateurs
             try:
-                await self.cog.check_for_upgrades(interaction, self.initiator.id, [])
-                await self.cog.check_for_upgrades(interaction, self.target.id, [])
+                await self.cog.check_for_upgrades_with_channel(interaction, self.initiator.id, [], 1361993326215172218)
+                await self.cog.check_for_upgrades_with_channel(interaction, self.target.id, [], 1361993326215172218)
                 logging.info(f"[VAULT_TRADE] Vérifications de conversion terminées pour les utilisateurs {self.initiator.id} et {self.target.id}")
             except Exception as e:
                 logging.error(f"[VAULT_TRADE] Erreur lors de la vérification des conversions après échange de coffres: {e}")
@@ -6055,8 +6122,9 @@ class TradeFinalConfirmView(discord.ui.View):
                 interaction,
                 [(state.offer_cat, state.offer_name)]
             )
-            await state.cog.check_for_upgrades(interaction, state.offerer.id, [])
-            await state.cog.check_for_upgrades(interaction, state.target.id, [])
+            # Vérifier les transformations en cartes full après l'échange avec notification dans le salon spécifié
+            await state.cog.check_for_upgrades_with_channel(interaction, state.offerer.id, [], 1361993326215172218)
+            await state.cog.check_for_upgrades_with_channel(interaction, state.target.id, [], 1361993326215172218)
         else:
             await state.offerer.send("❌ L’échange a échoué : une des cartes n’était plus disponible.")
             await state.target.send("❌ L’échange a échoué : une des cartes n’était plus disponible.")
