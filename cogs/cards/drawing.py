@@ -220,10 +220,14 @@ class DrawingManager:
                 # Ajouter une nouvelle ligne
                 self.storage.sheet_daily_draw.append_row([user_id_str, today])
 
-            # Invalider le cache pour cet utilisateur
+            # Invalider le cache pour cet utilisateur APRÈS l'enregistrement
             if hasattr(self, '_daily_draw_cache'):
                 cache_key = f"daily_draw_{user_id}_{today}"
                 self._daily_draw_cache[cache_key] = False
+                # Aussi invalider toutes les entrées de cache pour cet utilisateur
+                keys_to_remove = [k for k in self._daily_draw_cache.keys() if k.startswith(f"daily_draw_{user_id}_")]
+                for k in keys_to_remove:
+                    del self._daily_draw_cache[k]
 
             logging.info(f"[DRAWING] Tirage journalier enregistré pour l'utilisateur {user_id}")
             return True
@@ -299,10 +303,14 @@ class DrawingManager:
                 # Ajouter une nouvelle ligne
                 self.storage.sheet_sacrificial_draw.append_row([user_id_str, today])
 
-            # Invalider le cache pour cet utilisateur
+            # Invalider le cache pour cet utilisateur APRÈS l'enregistrement
             if hasattr(self, '_sacrificial_draw_cache'):
                 cache_key = f"sacrificial_draw_{user_id}_{today}"
                 self._sacrificial_draw_cache[cache_key] = False
+                # Aussi invalider toutes les entrées de cache pour cet utilisateur
+                keys_to_remove = [k for k in self._sacrificial_draw_cache.keys() if k.startswith(f"sacrificial_draw_{user_id}_")]
+                for k in keys_to_remove:
+                    del self._sacrificial_draw_cache[k]
 
             logging.info(f"[DRAWING] Tirage sacrificiel enregistré pour l'utilisateur {user_id}")
             return True

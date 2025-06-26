@@ -37,7 +37,7 @@ class CardsMenuView(discord.ui.View):
                 )
                 return
 
-            # Effectuer le tirage journalier
+            # Effectuer le tirage journalier (qui gère déjà l'affichage)
             drawn_cards = await self.perform_draw(interaction)
 
             if not drawn_cards:
@@ -47,25 +47,7 @@ class CardsMenuView(discord.ui.View):
                 )
                 return
 
-            # Créer l'embed de résultat
-            embed = discord.Embed(
-                title="🌅 Tirage journalier !",
-                description="Vous avez reçu 3 cartes gratuites !",
-                color=0xf1c40f
-            )
-
-            for i, (cat, name) in enumerate(drawn_cards, 1):
-                display_name = name.removesuffix('.png')
-                embed.add_field(
-                    name=f"Carte {i}",
-                    value=f"**{display_name}**\n*{cat}*",
-                    inline=True
-                )
-
-            await interaction.followup.send(embed=embed, ephemeral=True)
-
-            # Annonce publique si nouvelles cartes
-            await self.cog._handle_announce_and_wall(interaction, drawn_cards)
+            # L'affichage est déjà géré dans perform_draw() avec les images des cartes
             
         except Exception as e:
             logging.error(f"[MENU] Erreur lors du tirage: {e}")
@@ -78,9 +60,8 @@ class CardsMenuView(discord.ui.View):
         """
         Effectue le tirage journalier de 3 cartes pour l'utilisateur avec affichage original.
         """
-        # Vérifier si l'utilisateur peut effectuer son tirage journalier
-        if not self.cog.drawing_manager.can_perform_daily_draw(self.user.id):
-            return []  # Pas de tirage disponible
+        # NOTE: La vérification can_perform_daily_draw() a déjà été faite dans le bouton
+        # Ne pas la refaire ici pour éviter les problèmes de cache
 
         # Effectuer le tirage journalier de 3 cartes
         drawn_cards = self.cog.drawing_manager.draw_cards(3)
@@ -111,14 +92,15 @@ class CardsMenuView(discord.ui.View):
             for em, f in embed_msgs[1:]:
                 await interaction.followup.send(embed=em, file=f, ephemeral=False)
 
-        # Ajouter les cartes à l'inventaire
+        # ——————————— COMMIT ———————————
+        # 1) Ajouter les cartes à l'inventaire
         for cat, name in drawn_cards:
             self.cog.add_card_to_user(self.user.id, cat, name)
 
-        # Maintenant que l'inventaire est à jour, on gère les upgrades
+        # 2) Maintenant que l'inventaire est à jour, on gère les upgrades
         await self.cog.check_for_upgrades(interaction, self.user.id, drawn_cards)
 
-        # Enregistrer le tirage journalier
+        # 3) Enfin, enregistrer le tirage journalier (ceci invalide le cache)
         self.cog.drawing_manager.record_daily_draw(self.user.id)
 
         return drawn_cards

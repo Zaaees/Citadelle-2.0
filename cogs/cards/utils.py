@@ -16,21 +16,34 @@ def normalize_name(name: str) -> str:
 
 
 def merge_cells(row: List[str]) -> List[str]:
-    """Fusionne les colonnes d'un même utilisateur en nettoyant les espaces."""
+    """
+    Fusionne les colonnes d'un même utilisateur en nettoyant les espaces.
+    PRÉSERVE les colonnes category et name (les 2 premières).
+    """
+    if len(row) < 2:
+        return row
+
+    # Préserver les colonnes category et name
+    category, name = row[0], row[1]
+
+    # Fusionner les données utilisateur (colonnes 2+)
     merged = {}
-    for cell in row:
+    for cell in row[2:]:  # ✅ Traiter seulement les colonnes utilisateur
+        cell = cell.strip()
         if not cell or ":" not in cell:
             continue
         try:
             uid, count = cell.split(":", 1)
             uid = uid.strip()
             count = int(count.strip())
-            merged[uid] = merged.get(uid, 0) + count
+            if count > 0:  # Ignorer les comptes négatifs ou zéro
+                merged[uid] = merged.get(uid, 0) + count
         except (ValueError, IndexError) as e:
             logging.warning(f"[SECURITY] Données corrompues dans merge_cells: {cell}, erreur: {e}")
             continue
-    
-    return [f"{uid}:{count}" for uid, count in merged.items() if count > 0]
+
+    # Retourner category + name + données utilisateur fusionnées
+    return [category, name] + [f"{uid}:{count}" for uid, count in merged.items() if count > 0]
 
 
 def parse_card_input(input_text: str) -> tuple[str, bool]:
