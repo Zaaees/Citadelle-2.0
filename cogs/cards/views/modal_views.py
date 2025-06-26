@@ -183,9 +183,7 @@ class InitiateTradeModal(discord.ui.Modal, title="Initier un échange"):
 
             # Afficher les cartes de l'initiateur (ce que le destinataire va recevoir)
             initiator_unique = list({(cat, name) for cat, name in user_vault})
-            give_text = "\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in initiator_unique[:6]])
-            if len(initiator_unique) > 6:
-                give_text += f"\n... et {len(initiator_unique) - 6} autres cartes"
+            give_text = "\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in initiator_unique])
 
             embed.add_field(
                 name=f"📥 Vous recevrez ({len(initiator_unique)} cartes uniques)",
@@ -195,9 +193,7 @@ class InitiateTradeModal(discord.ui.Modal, title="Initier un échange"):
 
             # Afficher les cartes du destinataire (ce qu'il va donner)
             target_unique = list({(cat, name) for cat, name in target_vault})
-            receive_text = "\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in target_unique[:6]])
-            if len(target_unique) > 6:
-                receive_text += f"\n... et {len(target_unique) - 6} autres cartes"
+            receive_text = "\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in target_unique])
 
             embed.add_field(
                 name=f"📤 Vous donnerez ({len(target_unique)} cartes uniques)",

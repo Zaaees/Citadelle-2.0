@@ -305,9 +305,7 @@ class TradeConfirmationView(discord.ui.View):
             target_unique = list({(cat, name) for cat, name in target_vault_cards})
 
             # Cartes que l'initiateur donne
-            give_text = "\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in initiator_unique[:6]])
-            if len(initiator_unique) > 6:
-                give_text += f"\n... et {len(initiator_unique) - 6} autres cartes"
+            give_text = "\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in initiator_unique])
 
             embed.add_field(
                 name=f"📤 Vous donnez ({len(initiator_unique)} cartes uniques)",
@@ -316,9 +314,7 @@ class TradeConfirmationView(discord.ui.View):
             )
 
             # Cartes que l'initiateur reçoit
-            receive_text = "\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in target_unique[:6]])
-            if len(target_unique) > 6:
-                receive_text += f"\n... et {len(target_unique) - 6} autres cartes"
+            receive_text = "\n".join([f"- **{name.removesuffix('.png')}** (*{cat}*)" for cat, name in target_unique])
 
             embed.add_field(
                 name=f"📥 Vous recevez ({len(target_unique)} cartes uniques)",
