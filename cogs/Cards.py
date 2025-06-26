@@ -553,6 +553,20 @@ class Cards(commands.Cog):
         doublons, on échange les N doublons contre la version Full,
         on notifie l'utilisateur et on met à jour le mur.
         """
+        await self.check_for_upgrades_with_channel(interaction, user_id, drawn_cards, None)
+
+    async def check_for_upgrades_with_channel(self, interaction: discord.Interaction, user_id: int, drawn_cards: list[tuple[str, str]], notification_channel_id: int = None):
+        """
+        Pour chaque carte normale où l'utilisateur a atteint le seuil de
+        doublons, on échange les N doublons contre la version Full,
+        on notifie l'utilisateur et on met à jour le mur.
+
+        Args:
+            interaction: L'interaction Discord
+            user_id: ID de l'utilisateur
+            drawn_cards: Liste des cartes tirées (pour compatibilité)
+            notification_channel_id: ID du salon où envoyer les notifications (optionnel)
+        """
         try:
             # Seuils de conversion (nombre de cartes normales pour obtenir une Full)
             upgrade_thresholds = {"Élèves": 5}
@@ -596,12 +610,40 @@ class Cards(commands.Cog):
                             embed, image_file = self.build_card_embed(cat, full_name, file_bytes)
                             embed.title = f"🎉 Carte Full obtenue : {full_name}"
                             embed.description = (
-                                f"Vous avez échangé **{seuil}× {name}** "
+                                f"<@{user_id}> a échangé **{seuil}× {name}** "
                                 f"contre **{full_name}** !"
                             )
                             embed.color = discord.Color.gold()
 
-                            await interaction.followup.send(embed=embed, file=image_file)
+                            # Envoyer la notification dans le salon spécifié ou via followup
+                            if notification_channel_id:
+                                try:
+                                    channel = self.bot.get_channel(notification_channel_id)
+                                    if channel:
+                                        await channel.send(embed=embed, file=image_file)
+                                        logging.info(f"[UPGRADE] Notification envoyée dans le salon {notification_channel_id} pour {full_name}")
+                                    else:
+                                        logging.error(f"[UPGRADE] Salon {notification_channel_id} introuvable")
+                                        # Fallback vers followup si le salon n'existe pas
+                                        embed.description = (
+                                            f"Vous avez échangé **{seuil}× {name}** "
+                                            f"contre **{full_name}** !"
+                                        )
+                                        await interaction.followup.send(embed=embed, file=image_file)
+                                except Exception as e:
+                                    logging.error(f"[UPGRADE] Erreur envoi notification salon {notification_channel_id}: {e}")
+                                    # Fallback vers followup en cas d'erreur
+                                    embed.description = (
+                                        f"Vous avez échangé **{seuil}× {name}** "
+                                        f"contre **{full_name}** !"
+                                    )
+                                    await interaction.followup.send(embed=embed, file=image_file)
+                            else:
+                                embed.description = (
+                                    f"Vous avez échangé **{seuil}× {name}** "
+                                    f"contre **{full_name}** !"
+                                )
+                                await interaction.followup.send(embed=embed, file=image_file)
 
                             # Ajouter la carte Full à l'inventaire
                             if not self.add_card_to_user(user_id, cat, full_name):
@@ -610,6 +652,9 @@ class Cards(commands.Cog):
                                 )
                                 for _ in range(seuil):
                                     self.add_card_to_user(user_id, cat, name)
+                            else:
+                                # Mettre à jour le mur des cartes avec la nouvelle carte Full
+                                await self._handle_announce_and_wall(interaction, [(cat, full_name)])
                         else:
                             logging.error(f"[UPGRADE] Carte Full {full_name} introuvable dans {cat}")
                             # Rollback

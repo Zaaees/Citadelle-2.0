@@ -76,6 +76,13 @@ async def finalize_exchange(state: TradeExchangeState, interaction: discord.Inte
         await state.target.send(
             f"📦 Échange confirmé ! Tu as donné **{state.return_name}** et reçu **{state.offer_name}**."
         )
+
+        # Vérifier les transformations en cartes full après l'échange
+        try:
+            await state.cog.check_for_upgrades_with_channel(interaction, state.offerer.id, [], 1361993326215172218)
+            await state.cog.check_for_upgrades_with_channel(interaction, state.target.id, [], 1361993326215172218)
+        except Exception as e:
+            logging.error(f"[EXCHANGE] Erreur lors de la vérification des upgrades après échange: {e}")
     else:
         await state.offerer.send("❌ L’échange a échoué : une des cartes n’était plus disponible.")
         await state.target.send("❌ L’échange a échoué : une des cartes n’était plus disponible.")
@@ -5581,8 +5588,8 @@ class InitiatorFinalConfirmationView(discord.ui.View):
 
             # Vérifier et effectuer les conversions de cartes (5 régulières → 1 Full) pour les deux utilisateurs
             try:
-                await self.cog.check_for_upgrades(interaction, self.initiator.id, [])
-                await self.cog.check_for_upgrades(interaction, self.target.id, [])
+                await self.cog.check_for_upgrades_with_channel(interaction, self.initiator.id, [], 1361993326215172218)
+                await self.cog.check_for_upgrades_with_channel(interaction, self.target.id, [], 1361993326215172218)
                 logging.info(f"[VAULT_TRADE] Vérifications de conversion terminées pour les utilisateurs {self.initiator.id} et {self.target.id}")
             except Exception as e:
                 logging.error(f"[VAULT_TRADE] Erreur lors de la vérification des conversions après échange de coffres: {e}")
@@ -6055,8 +6062,9 @@ class TradeFinalConfirmView(discord.ui.View):
                 interaction,
                 [(state.offer_cat, state.offer_name)]
             )
-            await state.cog.check_for_upgrades(interaction, state.offerer.id, [])
-            await state.cog.check_for_upgrades(interaction, state.target.id, [])
+            # Vérifier les transformations en cartes full après l'échange avec notification dans le salon spécifié
+            await state.cog.check_for_upgrades_with_channel(interaction, state.offerer.id, [], 1361993326215172218)
+            await state.cog.check_for_upgrades_with_channel(interaction, state.target.id, [], 1361993326215172218)
         else:
             await state.offerer.send("❌ L’échange a échoué : une des cartes n’était plus disponible.")
             await state.target.send("❌ L’échange a échoué : une des cartes n’était plus disponible.")
