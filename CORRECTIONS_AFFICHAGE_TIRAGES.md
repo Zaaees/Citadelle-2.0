@@ -23,31 +23,59 @@
 
 ### 1. Fichier `cogs/cards/views/menu_views.py`
 
-#### Ligne 29 - Bouton tirage journalier
+#### 🔧 CORRECTION MAJEURE : Nouvelle logique d'affichage
+
+**Problème identifié :** `edit_original_response()` hérite TOUJOURS du caractère éphémère initial, même avec `defer(ephemeral=False)`.
+
+**Solution :** Utiliser uniquement `followup.send(ephemeral=False)` pour toutes les cartes.
+
+#### Ligne 29-33 - Bouton tirage journalier
 ```python
 # Avant
-await interaction.response.defer(ephemeral=True)
-
-# Après  
 await interaction.response.defer(ephemeral=False)
+
+# Après
+await interaction.response.send_message(
+    "🌅 **Tirage journalier en cours...**",
+    ephemeral=True
+)
 ```
 
-#### Ligne 115 - Bouton tirage sacrificiel
+#### Ligne 89-93 - Affichage des cartes (tirage journalier)
+```python
+# Avant
+first_embed, first_file = embed_msgs[0]
+await interaction.edit_original_response(content=None, embed=first_embed, attachments=[first_file])
+for em, f in embed_msgs[1:]:
+    await interaction.followup.send(embed=em, file=f, ephemeral=False)
+
+# Après
+for em, f in embed_msgs:
+    await interaction.followup.send(embed=em, file=f, ephemeral=False)
+```
+
+#### Ligne 118-122 - Bouton tirage sacrificiel
+```python
+# Avant
+await interaction.response.defer(ephemeral=False)
+
+# Après
+await interaction.response.send_message(
+    "⚔️ **Préparation du tirage sacrificiel...**",
+    ephemeral=True
+)
+```
+
+#### Ligne 315-319 - Vue de confirmation sacrificiel
 ```python
 # Avant
 await interaction.response.defer(ephemeral=True)
 
 # Après
-await interaction.response.defer(ephemeral=False)
-```
-
-#### Ligne 389 - Message de confirmation sacrificiel
-```python
-# Avant
-await interaction.followup.send(embed=embed, ephemeral=True)
-
-# Après
-await interaction.followup.send(embed=embed, ephemeral=False)
+await interaction.response.send_message(
+    "⚔️ **Sacrifice en cours...**",
+    ephemeral=True
+)
 ```
 
 ### 2. Fichier `cogs/cards/storage.py`
@@ -85,11 +113,12 @@ async def clear_sacrificial_cache(self, ctx, member: discord.Member = None):
 
 ## 🎯 Résultats Attendus
 
-- ✅ **Tirages journaliers** : Toutes les cartes s'affichent en public
-- ✅ **Tirages sacrificiels** : Affichage public de la carte obtenue
+- ✅ **Tirages journaliers** : Toutes les cartes s'affichent en public (NOUVEAU MESSAGES)
+- ✅ **Tirages sacrificiels** : Affichage public de la carte obtenue (NOUVEAU MESSAGE)
 - ✅ **Détection correcte** : Plus de faux positifs pour "tirage déjà fait"
 - ✅ **Cache fonctionnel** : Système de cache du tirage sacrificiel opérationnel
 - ✅ **Debug disponible** : Commande admin pour nettoyer le cache si nécessaire
+- ✅ **Pas d'héritage éphémère** : Chaque carte = nouveau message public indépendant
 
 ## 🧪 Tests Recommandés
 
@@ -111,12 +140,21 @@ ou
 
 ### Avant
 - Messages éphémères (visibles seulement par l'utilisateur)
+- `edit_original_response()` héritait du caractère éphémère
 - Feuille "Tirages Sacrificiels" manquante
 - Cache sacrificiel non fonctionnel
 
-### Après  
-- Messages publics (visibles par tous)
+### Après
+- Messages publics (visibles par tous) via `followup.send(ephemeral=False)`
+- Chaque carte = nouveau message public indépendant
 - Feuille "Tirages Sacrificiels" correctement initialisée
 - Cache sacrificiel fonctionnel avec outils de debug
+- Messages de statut éphémères séparés des cartes publiques
 
-Ces corrections garantissent que les tirages s'affichent correctement en public et que la logique du tirage sacrificiel fonctionne comme prévu.
+## 🚀 Impact Final
+
+Ces corrections garantissent que :
+1. **Toutes les cartes** des tirages s'affichent en **public**
+2. **Aucun héritage** du caractère éphémère
+3. **Logique cohérente** entre tirages journaliers et sacrificiels
+4. **Affichage propre** avec messages de statut séparés

@@ -26,7 +26,11 @@ class CardsMenuView(discord.ui.View):
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
         
-        await interaction.response.defer(ephemeral=False)
+        # Répondre immédiatement avec un message de confirmation
+        await interaction.response.send_message(
+            "🌅 **Tirage journalier en cours...**",
+            ephemeral=True
+        )
 
         try:
             # Vérifier si l'utilisateur peut effectuer son tirage journalier
@@ -87,9 +91,8 @@ class CardsMenuView(discord.ui.View):
                 embed_msgs.append((embed, image_file))
 
         if embed_msgs:
-            first_embed, first_file = embed_msgs[0]
-            await interaction.edit_original_response(content=None, embed=first_embed, attachments=[first_file])
-            for em, f in embed_msgs[1:]:
+            # Envoyer toutes les cartes via followup pour éviter l'héritage éphémère
+            for em, f in embed_msgs:
                 await interaction.followup.send(embed=em, file=f, ephemeral=False)
 
         # ——————————— COMMIT ———————————
@@ -112,7 +115,11 @@ class CardsMenuView(discord.ui.View):
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
 
-        await interaction.response.defer(ephemeral=False)
+        # Répondre immédiatement avec un message de confirmation
+        await interaction.response.send_message(
+            "⚔️ **Préparation du tirage sacrificiel...**",
+            ephemeral=True
+        )
 
         try:
             # Vérifier si l'utilisateur peut effectuer son tirage sacrificiel
@@ -305,7 +312,11 @@ class SacrificialDrawConfirmationView(discord.ui.View):
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
         
-        await interaction.response.defer(ephemeral=True)
+        # Répondre immédiatement avec un message de confirmation
+        await interaction.response.send_message(
+            "⚔️ **Sacrifice en cours...**",
+            ephemeral=True
+        )
         
         try:
             # Vérifier que l'utilisateur possède encore toutes les cartes
