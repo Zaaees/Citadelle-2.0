@@ -11,195 +11,62 @@ if TYPE_CHECKING:
     from ...Cards import Cards
 
 
-class PaginatedGalleryView(discord.ui.View):
-    """Vue de galerie paginée pour les cartes."""
-    
-    def __init__(self, cog: "Cards", user: discord.User, current_page: int = 0):
+class GalleryView(discord.ui.View):
+    """Vue de galerie complète pour les cartes."""
+
+    def __init__(self, cog: "Cards", user: discord.User):
         super().__init__(timeout=300)  # 5 minutes timeout
         self.cog = cog
         self.user = user
-        self.current_page = current_page
 
-        # Mettre à jour l'état des boutons
-        self._update_buttons()
-    
-    def _update_buttons(self):
-        """Met à jour l'état des boutons de navigation."""
-        # Utiliser la méthode du cog pour obtenir les informations de pagination
-        result = self.cog.generate_paginated_gallery_embeds(self.user, 0)
-        if not result:
-            return
-
-        _, _, pagination_info = result
-        total_pages = pagination_info.get('total_pages', 1)
-
-        # Mettre à jour les boutons
-        self.previous_page.disabled = self.current_page <= 0
-        self.next_page.disabled = self.current_page >= total_pages - 1
-    
-    async def get_gallery_page(self, page: int) -> Optional[Tuple[discord.Embed, Optional[discord.Embed], dict]]:
+    async def get_gallery_embeds(self) -> Optional[List[discord.Embed]]:
         """
-        Récupère une page de la galerie en utilisant le format original.
+        Récupère la galerie complète.
 
         Returns:
-            Tuple: (embed_normales, embed_full, pagination_info) ou None
+            List[discord.Embed]: Liste des embeds de la galerie ou None
         """
         try:
-            # Utiliser la méthode originale du cog
-            result = self.cog.generate_paginated_gallery_embeds(self.user, page)
+            # Utiliser la méthode de galerie complète du cog
+            result = self.cog.generate_gallery_embeds(self.user)
             if result is None:
                 logging.warning(f"[GALLERY] Aucune carte trouvée pour l'utilisateur {self.user.id}")
             return result
 
         except Exception as e:
-            logging.error(f"[GALLERY] Erreur lors de la création de la page: {e}")
+            logging.error(f"[GALLERY] Erreur lors de la création de la galerie: {e}")
             return None
-    
-    def _sort_cards_by_rarity(self, cards: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
-        """Trie les cartes par rareté puis alphabétiquement."""
-        category_order = {cat: i for i, cat in enumerate(self.cog.get_all_card_categories())}
-        
-        return sorted(cards, key=lambda x: (
-            category_order.get(x[0], 999),  # Ordre de rareté
-            x[1].lower()  # Ordre alphabétique
-        ))
-    
-    @discord.ui.button(label="◀️ Précédent", style=discord.ButtonStyle.secondary)
-    async def previous_page(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Bouton pour la page précédente."""
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
-            return
-        
-        if self.current_page > 0:
-            self.current_page -= 1
-            await self._update_gallery(interaction)
-    
-    @discord.ui.button(label="▶️ Suivant", style=discord.ButtonStyle.secondary)
-    async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Bouton pour la page suivante."""
+
+    @discord.ui.button(label="🔄 Actualiser", style=discord.ButtonStyle.secondary)
+    async def refresh_gallery(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Bouton pour actualiser la galerie."""
         if interaction.user.id != self.user.id:
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
 
-        # Utiliser la méthode du cog pour obtenir les informations de pagination
-        result = self.cog.generate_paginated_gallery_embeds(self.user, 0)
-        if not result:
-            return
-
-        _, _, pagination_info = result
-        total_pages = pagination_info.get('total_pages', 1)
-
-        if self.current_page < total_pages - 1:
-            self.current_page += 1
-            await self._update_gallery(interaction)
-
-    @discord.ui.button(label="📋 Galerie complète", style=discord.ButtonStyle.primary, row=1)
-    async def show_complete_gallery(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Bouton pour afficher la galerie complète."""
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
 
         try:
             # Générer la galerie complète
-            complete_embeds = self.cog.generate_complete_gallery_embeds(self.user)
+            gallery_embeds = await self.get_gallery_embeds()
 
-            if not complete_embeds:
+            if not gallery_embeds:
                 await interaction.followup.send(
-                    "❌ Impossible de générer la galerie complète.",
+                    "❌ Impossible de générer la galerie.",
                     ephemeral=True
                 )
                 return
 
-            # Envoyer tous les embeds
-            await interaction.followup.send(
-                content="🎴 **Voici votre collection complète :**",
-                embeds=complete_embeds,
-                ephemeral=True
-            )
+            # Mettre à jour l'affichage
+            await interaction.edit_original_response(embeds=gallery_embeds, view=self)
 
         except Exception as e:
-            logging.error(f"[GALLERY] Erreur lors de l'affichage de la galerie complète: {e}")
+            logging.error(f"[GALLERY] Erreur lors de l'actualisation de la galerie: {e}")
             await interaction.followup.send(
-                "❌ Une erreur est survenue lors de l'affichage de la galerie complète.",
+                "❌ Une erreur est survenue lors de l'actualisation de la galerie.",
                 ephemeral=True
             )
 
-    @discord.ui.button(label="📋 Galerie complète", style=discord.ButtonStyle.primary, row=1)
-    async def show_complete_gallery(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Bouton pour afficher la galerie complète."""
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        try:
-            # Générer la galerie complète
-            complete_embeds = self.cog.generate_complete_gallery_embeds(self.user)
-
-            if not complete_embeds:
-                await interaction.followup.send(
-                    "❌ Impossible de générer la galerie complète.",
-                    ephemeral=True
-                )
-                return
-
-            # Envoyer tous les embeds
-            await interaction.followup.send(
-                content="🎴 **Voici votre collection complète :**",
-                embeds=complete_embeds,
-                ephemeral=True
-            )
-
-        except Exception as e:
-            logging.error(f"[GALLERY] Erreur lors de l'affichage de la galerie complète: {e}")
-            await interaction.followup.send(
-                "❌ Une erreur est survenue lors de l'affichage de la galerie complète.",
-                ephemeral=True
-            )
-    
-    async def _update_gallery(self, interaction: discord.Interaction):
-        """Met à jour l'affichage de la galerie."""
-        try:
-            await interaction.response.defer()
-        except discord.InteractionResponse:
-            # L'interaction a déjà été répondue
-            pass
-
-        try:
-            result = await self.get_gallery_page(self.current_page)
-            if not result:
-                await interaction.followup.send(
-                    "❌ Erreur lors de la mise à jour de la galerie.",
-                    ephemeral=True
-                )
-                return
-
-            embed_normales, embed_full, pagination_info = result
-            embeds = [embed_normales]
-            if embed_full:
-                embeds.append(embed_full)
-
-            # Mettre à jour les boutons
-            self._update_buttons()
-
-            await interaction.edit_original_response(embeds=embeds, view=self)
-
-        except Exception as e:
-            logging.error(f"[GALLERY] Erreur lors de la mise à jour: {e}")
-            try:
-                await interaction.followup.send(
-                    "❌ Une erreur est survenue lors de la mise à jour.",
-                    ephemeral=True
-                )
-            except:
-                # Si même le followup échoue, on log l'erreur
-                logging.error(f"[GALLERY] Impossible d'envoyer le message d'erreur: {e}")
-    
     @discord.ui.button(label="🔍 Voir carte", style=discord.ButtonStyle.primary)
     async def show_card(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Bouton pour afficher une carte spécifique avec ses informations."""
@@ -214,113 +81,36 @@ class PaginatedGalleryView(discord.ui.View):
         await interaction.response.send_modal(modal)
 
 
-class AdminPaginatedGalleryView(discord.ui.View):
-    """Vue de galerie paginée pour les commandes admin (non-ephemeral)."""
-    
-    def __init__(self, cog: "Cards", user: discord.User, current_page: int = 0):
+class AdminGalleryView(discord.ui.View):
+    """Vue de galerie complète pour les commandes admin (non-ephemeral)."""
+
+    def __init__(self, cog: "Cards", user: discord.User):
         super().__init__(timeout=300)
         self.cog = cog
         self.user = user
-        self.current_page = current_page
 
-        # Mettre à jour l'état des boutons
-        self._update_buttons()
-    
-    def _update_buttons(self):
-        """Met à jour l'état des boutons de navigation."""
-        # Utiliser la méthode du cog pour obtenir les informations de pagination
-        result = self.cog.generate_paginated_gallery_embeds(self.user, 0)
-        if not result:
-            return
-
-        _, _, pagination_info = result
-        total_pages = pagination_info.get('total_pages', 1)
-
-        # Mettre à jour les boutons
-        self.previous_page.disabled = self.current_page <= 0
-        self.next_page.disabled = self.current_page >= total_pages - 1
-    
-    @discord.ui.button(label="◀️ Précédent", style=discord.ButtonStyle.secondary)
-    async def previous_page(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Bouton pour la page précédente."""
-        if self.current_page > 0:
-            self.current_page -= 1
-            await self._update_gallery(interaction)
-    
-    @discord.ui.button(label="▶️ Suivant", style=discord.ButtonStyle.secondary)
-    async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Bouton pour la page suivante."""
-        # Utiliser la méthode du cog pour obtenir les informations de pagination
-        result = self.cog.generate_paginated_gallery_embeds(self.user, 0)
-        if not result:
-            return
-
-        _, _, pagination_info = result
-        total_pages = pagination_info.get('total_pages', 1)
-
-        if self.current_page < total_pages - 1:
-            self.current_page += 1
-            await self._update_gallery(interaction)
-
-    @discord.ui.button(label="📋 Galerie complète", style=discord.ButtonStyle.primary, row=1)
-    async def show_complete_gallery(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Bouton pour afficher la galerie complète."""
+    @discord.ui.button(label="🔄 Actualiser", style=discord.ButtonStyle.secondary)
+    async def refresh_gallery(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Bouton pour actualiser la galerie."""
         await interaction.response.defer()
 
         try:
             # Générer la galerie complète
-            complete_embeds = self.cog.generate_complete_gallery_embeds(self.user)
+            gallery_embeds = self.cog.generate_gallery_embeds(self.user)
 
-            if not complete_embeds:
+            if not gallery_embeds:
                 await interaction.followup.send(
-                    "❌ Impossible de générer la galerie complète."
+                    "❌ Impossible de générer la galerie."
                 )
                 return
 
-            # Envoyer tous les embeds
-            await interaction.followup.send(
-                content=f"🎴 **Collection complète de {self.user.display_name} :**",
-                embeds=complete_embeds
-            )
+            # Mettre à jour l'affichage
+            await interaction.edit_original_response(embeds=gallery_embeds, view=self)
 
         except Exception as e:
-            logging.error(f"[GALLERY] Erreur lors de l'affichage de la galerie complète: {e}")
+            logging.error(f"[ADMIN_GALLERY] Erreur lors de l'actualisation de la galerie: {e}")
             await interaction.followup.send(
-                "❌ Une erreur est survenue lors de l'affichage de la galerie complète."
-            )
-
-    async def _update_gallery(self, interaction: discord.Interaction):
-        """Met à jour l'affichage de la galerie."""
-        try:
-            await interaction.response.defer()
-        except discord.InteractionResponse:
-            # L'interaction a déjà été répondue
-            pass
-
-        try:
-            # Utiliser la méthode originale du cog
-            result = self.cog.generate_paginated_gallery_embeds(self.user, self.current_page)
-
-            if not result:
-                await interaction.followup.send(
-                    "❌ Erreur lors de la mise à jour de la galerie."
-                )
-                return
-
-            embed_normales, embed_full, pagination_info = result
-            embeds = [embed_normales]
-            if embed_full:
-                embeds.append(embed_full)
-
-            # Mettre à jour les boutons
-            self._update_buttons()
-
-            await interaction.edit_original_response(embeds=embeds, view=self)
-
-        except Exception as e:
-            logging.error(f"[ADMIN_GALLERY] Erreur lors de la mise à jour: {e}")
-            await interaction.followup.send(
-                "❌ Une erreur est survenue lors de la mise à jour."
+                "❌ Une erreur est survenue lors de l'actualisation de la galerie."
             )
 
 

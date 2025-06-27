@@ -1139,246 +1139,10 @@ class Cards(commands.Cog):
             logging.error(f"[GALLERY] Erreur dans generate_complete_gallery_embeds: {e}")
             return None
 
-    def generate_paginated_gallery_embeds(self, user: discord.abc.User, page: int = 0) -> tuple[discord.Embed, discord.Embed | None, dict] | None:
-        """Construit les embeds de galerie paginés pour l'utilisateur donné avec pagination par catégories complètes."""
-        try:
-            user_cards = self.get_user_cards(user.id)
-            if not user_cards:
-                return None
-
-            # Configuration de la pagination
-            MAX_FIELDS_PER_PAGE = 25  # Limite Discord pour les fields dans un embed
-            MAX_CHARS_PER_FIELD = 1024  # Limite Discord pour la valeur d'un field
-            MAX_CARDS_PER_CATEGORY = 100  # Limite élevée pour éviter les troncatures
-
-            cards_by_cat: dict[str, list[str]] = {}
-            for cat, name in user_cards:
-                cards_by_cat.setdefault(cat, []).append(name)
-
-            # Préparer les catégories avec leurs cartes normales et full
-            categories_data = []
-
-            for cat, noms in cards_by_cat.items():
-                normales = [n for n in noms if not n.endswith(" (Full)")]
-                fulls = [n for n in noms if n.endswith(" (Full)")]
-
-                normal_counts = {}
-                for n in normales:
-                    normal_counts[n] = normal_counts.get(n, 0) + 1
-
-                full_counts = {}
-                for n in fulls:
-                    full_counts[n] = full_counts.get(n, 0) + 1
-
-                # Trier alphabétiquement dans chaque catégorie
-                sorted_normal_cards = sorted(normal_counts.items(), key=lambda x: normalize_name(x[0].removesuffix('.png')))
-                sorted_full_cards = sorted(full_counts.items(), key=lambda x: normalize_name(x[0].removesuffix('.png')))
-
-                # Calculer la taille totale de la catégorie (nombre de cartes uniques)
-                total_unique_cards = len(normal_counts) + len(full_counts)
-
-                categories_data.append({
-                    'name': cat,
-                    'normal_cards': sorted_normal_cards,
-                    'full_cards': sorted_full_cards,
-                    'total_unique_cards': total_unique_cards
-                })
-
-            # Trier les catégories par taille décroissante (plus grande en premier)
-            categories_data.sort(key=lambda x: x['total_unique_cards'], reverse=True)
-
-            # Créer les pages en regroupant les catégories complètes
-            pages_data = []
-            current_page_categories = []
-            current_page_fields = 0
-
-            def estimate_category_size(cat_data):
-                """Estime la taille approximative d'une catégorie en caractères."""
-                total_chars = 0
-
-                # Estimer les cartes normales
-                if cat_data['normal_cards']:
-                    for n, c in cat_data['normal_cards'][:50]:  # Estimer sur les 50 premières
-                        card_name = n.removesuffix('.png')
-                        identifier_text = " (C1)" if self.get_card_identifier(cat_data['name'], n) else ""
-                        count_text = f' (x{c})' if c > 1 else ''
-                        line_length = len(f"- **{card_name}**{identifier_text}{count_text}")
-                        total_chars += line_length + 1  # +1 pour le \n
-                        if total_chars > MAX_CHARS_PER_FIELD - 100:
-                            break
-
-                # Estimer les cartes Full
-                if cat_data['full_cards']:
-                    for n, c in cat_data['full_cards'][:50]:  # Estimer sur les 50 premières
-                        card_name = n.removesuffix('.png')
-                        count_text = f' (x{c})' if c > 1 else ''
-                        line_length = len(f"- **{card_name}**{count_text}")
-                        total_chars += line_length + 1  # +1 pour le \n
-                        if total_chars > MAX_CHARS_PER_FIELD - 100:
-                            break
-
-                return total_chars
-
-            for cat_data in categories_data:
-                # Calculer combien de fields cette catégorie va prendre
-                fields_needed = 0
-                if cat_data['normal_cards']:
-                    fields_needed += 1
-                if cat_data['full_cards']:
-                    fields_needed += 1
-
-                # Estimer la taille de la catégorie
-                estimated_size = estimate_category_size(cat_data)
-
-                # Si ajouter cette catégorie dépasse la limite de fields, créer une nouvelle page
-                if current_page_fields + fields_needed > MAX_FIELDS_PER_PAGE and current_page_categories:
-                    pages_data.append(current_page_categories)
-                    current_page_categories = []
-                    current_page_fields = 0
-
-                current_page_categories.append(cat_data)
-                current_page_fields += fields_needed
-
-            # Ajouter la dernière page si elle contient des catégories
-            if current_page_categories:
-                pages_data.append(current_page_categories)
-
-            total_pages = max(1, len(pages_data))
-            current_page = max(0, min(page, total_pages - 1))
-
-            embed_normales = discord.Embed(
-                title=f"Galerie de {user.display_name} (Page {current_page + 1}/{total_pages})",
-                color=discord.Color.blue(),
-            )
-            embed_full = discord.Embed(
-                title=f"Cartes Full de {user.display_name} (Page {current_page + 1}/{total_pages})",
-                color=discord.Color.gold(),
-            )
-
-            has_normal_cards = False
-            has_full_cards = False
-
-            # Récupérer les catégories pour la page actuelle
-            if current_page < len(pages_data):
-                page_categories = pages_data[current_page]
-
-                for cat_data in page_categories:
-                    cat = cat_data['name']
-
-                    # Traiter les cartes normales
-                    if cat_data['normal_cards']:
-                        has_normal_cards = True
-                        lines = []
-                        cards_shown = 0
-
-                        for n, c in cat_data['normal_cards']:
-                            try:
-                                card_name = n.removesuffix('.png')
-                                # Get card identifier if available
-                                identifier = self.get_card_identifier(cat, n)
-                                identifier_text = f" ({identifier})" if identifier else ""
-                                count_text = f' (x{c})' if c > 1 else ''
-                                new_line = f"- **{card_name}**{identifier_text}{count_text}"
-
-                                # Vérifier si ajouter cette ligne dépasserait la limite
-                                test_content = "\n".join(lines + [new_line])
-                                if len(test_content) > MAX_CHARS_PER_FIELD - 100:  # Garder de la marge pour le texte de troncature
-                                    break
-
-                                lines.append(new_line)
-                                cards_shown += 1
-
-                            except Exception as e:
-                                logging.error(f"[GALLERY] Erreur lors du traitement de la carte {n}: {e}")
-                                continue
-
-                        if lines:  # Only add field if we have valid lines
-                            field_value = "\n".join(lines)
-
-                            # Ajouter info si des cartes ont été tronquées
-                            total_cards_in_cat = len(cat_data['normal_cards'])
-                            if cards_shown < total_cards_in_cat:
-                                field_value += f"\n\n*Affichage {cards_shown} sur {total_cards_in_cat} cartes*"
-
-                            try:
-                                total_available = len({
-                                    f['name'].removesuffix('.png')
-                                    for f in self.cards_by_category.get(cat, [])
-                                })
-                                owned_unique = len(cat_data['normal_cards'])
-
-                                embed_normales.add_field(
-                                    name=f"{cat} : {owned_unique}/{total_available}",
-                                    value=field_value,
-                                    inline=False,
-                                )
-                            except Exception as e:
-                                logging.error(f"[GALLERY] Erreur lors de l'ajout du champ pour {cat}: {e}")
-                                continue
-
-                    # Traiter les cartes Full
-                    if cat_data['full_cards']:
-                        has_full_cards = True
-                        lines = []
-                        cards_shown = 0
-
-                        for n, c in cat_data['full_cards']:
-                            try:
-                                card_name = n.removesuffix('.png')
-                                count_text = f' (x{c})' if c > 1 else ''
-                                new_line = f"- **{card_name}**{count_text}"
-
-                                # Vérifier si ajouter cette ligne dépasserait la limite
-                                test_content = "\n".join(lines + [new_line])
-                                if len(test_content) > MAX_CHARS_PER_FIELD - 100:  # Garder de la marge pour le texte de troncature
-                                    break
-
-                                lines.append(new_line)
-                                cards_shown += 1
-
-                            except Exception as e:
-                                logging.error(f"[GALLERY] Erreur lors du traitement de la carte Full {n}: {e}")
-                                continue
-
-                        if lines:  # Only add field if we have valid lines
-                            field_value = "\n".join(lines)
-
-                            # Ajouter info si des cartes ont été tronquées
-                            total_cards_in_cat = len(cat_data['full_cards'])
-                            if cards_shown < total_cards_in_cat:
-                                field_value += f"\n\n*Affichage {cards_shown} sur {total_cards_in_cat} cartes*"
-
-                            try:
-                                total_full = len({
-                                    f['name'].removesuffix('.png')
-                                    for f in self.upgrade_cards_by_category.get(cat, [])
-                                })
-                                owned_full = len(cat_data['full_cards'])
-
-                                embed_full.add_field(
-                                    name=f"{cat} (Full) : {owned_full}/{total_full}",
-                                    value=field_value,
-                                    inline=False,
-                                )
-                            except Exception as e:
-                                logging.error(f"[GALLERY] Erreur lors de l'ajout du champ Full pour {cat}: {e}")
-                                continue
-
-            # Prepare pagination info
-            pagination_info = {
-                'current_page': current_page,
-                'total_pages': total_pages,
-                'has_previous': current_page > 0,
-                'has_next': current_page < total_pages - 1
-            }
-
-            # Return only the embeds that have content
-            final_embed_full = embed_full if has_full_cards else None
-            return embed_normales, final_embed_full, pagination_info
-
-        except Exception as e:
-            logging.error(f"[GALLERY] Erreur dans generate_paginated_gallery_embeds: {e}")
-            return None
+    def generate_gallery_embeds(self, user: discord.abc.User) -> list[discord.Embed] | None:
+        """Génère la galerie complète pour l'utilisateur donné (remplace la pagination)."""
+        # Utiliser directement la méthode de galerie complète
+        return self.generate_complete_gallery_embeds(user)
 
     def get_all_card_categories(self) -> list[str]:
         """Retourne la liste complète des catégories de cartes."""
@@ -1760,21 +1524,17 @@ class Cards(commands.Cog):
             member = ctx.author
 
         try:
-            # Utiliser la méthode originale pour générer la galerie
-            result = self.generate_paginated_gallery_embeds(member, 0)
+            # Utiliser la méthode de galerie complète
+            gallery_embeds = self.generate_gallery_embeds(member)
 
-            if not result:
+            if not gallery_embeds:
                 await ctx.send(f"❌ {member.display_name} n'a aucune carte dans sa collection.")
                 return
 
-            embed_normales, embed_full, pagination_info = result
-            embeds = [embed_normales]
-            if embed_full:
-                embeds.append(embed_full)
-
             # Créer la vue de galerie admin
-            gallery_view = AdminPaginatedGalleryView(self, member)
-            await ctx.send(embeds=embeds, view=gallery_view)
+            from .cards.views.gallery_views import AdminGalleryView
+            gallery_view = AdminGalleryView(self, member)
+            await ctx.send(embeds=gallery_embeds, view=gallery_view)
 
         except Exception as e:
             logging.error(f"[ADMIN_GALLERY] Erreur: {e}")

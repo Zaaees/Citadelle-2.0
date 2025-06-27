@@ -258,27 +258,22 @@ class CardsMenuView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         
         try:
-            # Utiliser la méthode originale du cog
-            result = self.cog.generate_paginated_gallery_embeds(self.user, 0)
+            # Utiliser la méthode de galerie complète
+            gallery_embeds = self.cog.generate_gallery_embeds(self.user)
 
-            if not result:
+            if not gallery_embeds:
                 await interaction.followup.send(
                     "❌ Vous n'avez aucune carte dans votre collection.",
                     ephemeral=True
                 )
                 return
 
-            embed_normales, embed_full, pagination_info = result
-            embeds = [embed_normales]
-            if embed_full:
-                embeds.append(embed_full)
-
             # Importer ici pour éviter les imports circulaires
-            from .gallery_views import PaginatedGalleryView
+            from .gallery_views import GalleryView
 
-            # Créer la vue de galerie paginée
-            gallery_view = PaginatedGalleryView(self.cog, self.user)
-            await interaction.followup.send(embeds=embeds, view=gallery_view, ephemeral=True)
+            # Créer la vue de galerie complète
+            gallery_view = GalleryView(self.cog, self.user)
+            await interaction.followup.send(embeds=gallery_embeds, view=gallery_view, ephemeral=True)
             
         except Exception as e:
             logging.error(f"[MENU] Erreur lors de l'affichage de la galerie: {e}")
