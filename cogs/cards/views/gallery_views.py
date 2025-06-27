@@ -37,35 +37,7 @@ class GalleryView(discord.ui.View):
             logging.error(f"[GALLERY] Erreur lors de la création de la galerie: {e}")
             return None
 
-    @discord.ui.button(label="🔄 Actualiser", style=discord.ButtonStyle.secondary)
-    async def refresh_gallery(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Bouton pour actualiser la galerie."""
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
-            return
 
-        await interaction.response.defer()
-
-        try:
-            # Générer la galerie complète
-            gallery_embeds = await self.get_gallery_embeds()
-
-            if not gallery_embeds:
-                await interaction.followup.send(
-                    "❌ Impossible de générer la galerie.",
-                    ephemeral=True
-                )
-                return
-
-            # Mettre à jour l'affichage
-            await interaction.edit_original_response(embeds=gallery_embeds, view=self)
-
-        except Exception as e:
-            logging.error(f"[GALLERY] Erreur lors de l'actualisation de la galerie: {e}")
-            await interaction.followup.send(
-                "❌ Une erreur est survenue lors de l'actualisation de la galerie.",
-                ephemeral=True
-            )
 
     @discord.ui.button(label="🔍 Voir carte", style=discord.ButtonStyle.primary)
     async def show_card(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -89,29 +61,7 @@ class AdminGalleryView(discord.ui.View):
         self.cog = cog
         self.user = user
 
-    @discord.ui.button(label="🔄 Actualiser", style=discord.ButtonStyle.secondary)
-    async def refresh_gallery(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Bouton pour actualiser la galerie."""
-        await interaction.response.defer()
 
-        try:
-            # Générer la galerie complète
-            gallery_embeds = self.cog.generate_gallery_embeds(self.user)
-
-            if not gallery_embeds:
-                await interaction.followup.send(
-                    "❌ Impossible de générer la galerie."
-                )
-                return
-
-            # Mettre à jour l'affichage
-            await interaction.edit_original_response(embeds=gallery_embeds, view=self)
-
-        except Exception as e:
-            logging.error(f"[ADMIN_GALLERY] Erreur lors de l'actualisation de la galerie: {e}")
-            await interaction.followup.send(
-                "❌ Une erreur est survenue lors de l'actualisation de la galerie."
-            )
 
 
 class GalleryActionView(discord.ui.View):

@@ -910,8 +910,19 @@ class Cards(commands.Cog):
                     'total_unique_cards': total_unique_cards
                 })
 
-            # Trier par taille décroissante
-            categories_data.sort(key=lambda x: x['total_unique_cards'], reverse=True)
+            # Trier par ordre de rareté (comme avant)
+            rarity_order = {
+                "Secrète": 0,
+                "Fondateur": 1,
+                "Historique": 2,
+                "Maître": 3,
+                "Black Hole": 4,
+                "Architectes": 5,
+                "Professeurs": 6,
+                "Autre": 7,
+                "Élèves": 8,
+            }
+            categories_data.sort(key=lambda x: rarity_order.get(x['name'], 9))
 
             # Créer les embeds avec le format original lisible
             embeds = []
