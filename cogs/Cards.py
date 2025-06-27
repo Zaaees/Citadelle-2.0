@@ -921,6 +921,33 @@ class Cards(commands.Cog):
             current_page_categories = []
             current_page_fields = 0
 
+            def estimate_category_size(cat_data):
+                """Estime la taille approximative d'une catégorie en caractères."""
+                total_chars = 0
+
+                # Estimer les cartes normales
+                if cat_data['normal_cards']:
+                    for n, c in cat_data['normal_cards'][:50]:  # Estimer sur les 50 premières
+                        card_name = n.removesuffix('.png')
+                        identifier_text = " (C1)" if self.get_card_identifier(cat_data['name'], n) else ""
+                        count_text = f' (x{c})' if c > 1 else ''
+                        line_length = len(f"- **{card_name}**{identifier_text}{count_text}")
+                        total_chars += line_length + 1  # +1 pour le \n
+                        if total_chars > MAX_CHARS_PER_FIELD - 100:
+                            break
+
+                # Estimer les cartes Full
+                if cat_data['full_cards']:
+                    for n, c in cat_data['full_cards'][:50]:  # Estimer sur les 50 premières
+                        card_name = n.removesuffix('.png')
+                        count_text = f' (x{c})' if c > 1 else ''
+                        line_length = len(f"- **{card_name}**{count_text}")
+                        total_chars += line_length + 1  # +1 pour le \n
+                        if total_chars > MAX_CHARS_PER_FIELD - 100:
+                            break
+
+                return total_chars
+
             for cat_data in categories_data:
                 # Calculer combien de fields cette catégorie va prendre
                 fields_needed = 0
@@ -929,7 +956,10 @@ class Cards(commands.Cog):
                 if cat_data['full_cards']:
                     fields_needed += 1
 
-                # Si ajouter cette catégorie dépasse la limite, créer une nouvelle page
+                # Estimer la taille de la catégorie
+                estimated_size = estimate_category_size(cat_data)
+
+                # Si ajouter cette catégorie dépasse la limite de fields, créer une nouvelle page
                 if current_page_fields + fields_needed > MAX_FIELDS_PER_PAGE and current_page_categories:
                     pages_data.append(current_page_categories)
                     current_page_categories = []
@@ -968,18 +998,25 @@ class Cards(commands.Cog):
                     if cat_data['normal_cards']:
                         has_normal_cards = True
                         lines = []
+                        cards_shown = 0
 
-                        # Limiter le nombre de cartes affichées pour éviter de dépasser la limite Discord
-                        cards_to_show = cat_data['normal_cards'][:MAX_CARDS_PER_CATEGORY]
-
-                        for n, c in cards_to_show:
+                        for n, c in cat_data['normal_cards']:
                             try:
                                 card_name = n.removesuffix('.png')
                                 # Get card identifier if available
                                 identifier = self.get_card_identifier(cat, n)
                                 identifier_text = f" ({identifier})" if identifier else ""
                                 count_text = f' (x{c})' if c > 1 else ''
-                                lines.append(f"- **{card_name}**{identifier_text}{count_text}")
+                                new_line = f"- **{card_name}**{identifier_text}{count_text}"
+
+                                # Vérifier si ajouter cette ligne dépasserait la limite
+                                test_content = "\n".join(lines + [new_line])
+                                if len(test_content) > MAX_CHARS_PER_FIELD - 100:  # Garder de la marge pour le texte de troncature
+                                    break
+
+                                lines.append(new_line)
+                                cards_shown += 1
+
                             except Exception as e:
                                 logging.error(f"[GALLERY] Erreur lors du traitement de la carte {n}: {e}")
                                 continue
@@ -989,8 +1026,8 @@ class Cards(commands.Cog):
 
                             # Ajouter info si des cartes ont été tronquées
                             total_cards_in_cat = len(cat_data['normal_cards'])
-                            if total_cards_in_cat > MAX_CARDS_PER_CATEGORY:
-                                field_value += f"\n\n*Affichage {MAX_CARDS_PER_CATEGORY} sur {total_cards_in_cat} cartes*"
+                            if cards_shown < total_cards_in_cat:
+                                field_value += f"\n\n*Affichage {cards_shown} sur {total_cards_in_cat} cartes*"
 
                             try:
                                 total_available = len({
@@ -1012,15 +1049,22 @@ class Cards(commands.Cog):
                     if cat_data['full_cards']:
                         has_full_cards = True
                         lines = []
+                        cards_shown = 0
 
-                        # Limiter le nombre de cartes affichées pour éviter de dépasser la limite Discord
-                        cards_to_show = cat_data['full_cards'][:MAX_CARDS_PER_CATEGORY]
-
-                        for n, c in cards_to_show:
+                        for n, c in cat_data['full_cards']:
                             try:
                                 card_name = n.removesuffix('.png')
                                 count_text = f' (x{c})' if c > 1 else ''
-                                lines.append(f"- **{card_name}**{count_text}")
+                                new_line = f"- **{card_name}**{count_text}"
+
+                                # Vérifier si ajouter cette ligne dépasserait la limite
+                                test_content = "\n".join(lines + [new_line])
+                                if len(test_content) > MAX_CHARS_PER_FIELD - 100:  # Garder de la marge pour le texte de troncature
+                                    break
+
+                                lines.append(new_line)
+                                cards_shown += 1
+
                             except Exception as e:
                                 logging.error(f"[GALLERY] Erreur lors du traitement de la carte Full {n}: {e}")
                                 continue
@@ -1030,8 +1074,8 @@ class Cards(commands.Cog):
 
                             # Ajouter info si des cartes ont été tronquées
                             total_cards_in_cat = len(cat_data['full_cards'])
-                            if total_cards_in_cat > MAX_CARDS_PER_CATEGORY:
-                                field_value += f"\n\n*Affichage {MAX_CARDS_PER_CATEGORY} sur {total_cards_in_cat} cartes*"
+                            if cards_shown < total_cards_in_cat:
+                                field_value += f"\n\n*Affichage {cards_shown} sur {total_cards_in_cat} cartes*"
 
                             try:
                                 total_full = len({
