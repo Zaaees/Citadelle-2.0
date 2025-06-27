@@ -9,7 +9,7 @@ from .trade_views import (
     TradeMenuView, TradeConfirmationView, InitiatorFinalConfirmationView,
     WithdrawVaultConfirmationView
 )
-from .gallery_views import PaginatedGalleryView, AdminPaginatedGalleryView, GalleryActionView
+from .gallery_views import GalleryView, AdminGalleryView, GalleryActionView
 from .modal_views import (
     DepositCardModal, InitiateTradeModal, CardNameModal,
     TradeOfferCardModal, TradeResponseModal
