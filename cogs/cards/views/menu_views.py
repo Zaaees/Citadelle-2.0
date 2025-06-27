@@ -396,17 +396,6 @@ class SacrificialDrawConfirmationView(discord.ui.View):
             drawn_cards = self.cog.drawing_manager.draw_cards(3)
 
             if drawn_cards:
-                # Ajouter les cartes tirées à l'inventaire
-                for cat, name in drawn_cards:
-                    self.cog.add_card_to_user(self.user.id, cat, name)
-
-                # Gérer les upgrades (comme dans le tirage journalier)
-                await self.cog.check_for_upgrades(interaction, self.user.id, drawn_cards)
-
-                # Enregistrer le tirage sacrificiel
-                self.cog.drawing_manager.record_sacrificial_draw(self.user.id)
-
-            if drawn_cards:
                 # Créer un embed principal pour le sacrifice accompli
                 embed = discord.Embed(
                     title="⚔️ Sacrifice accompli !",
@@ -429,7 +418,7 @@ class SacrificialDrawConfirmationView(discord.ui.View):
                         inline=True
                     )
 
-                # Affichage des cartes avec embeds/images (style original)
+                # Affichage des cartes avec embeds/images (style original) - AVANT ajout à l'inventaire
                 embed_msgs = []
                 for cat, name in drawn_cards:
                     # Recherche du fichier image (inclut cartes Full)
@@ -453,6 +442,17 @@ class SacrificialDrawConfirmationView(discord.ui.View):
                         "❌ Aucune carte n'a pu être tirée.",
                         ephemeral=True
                     )
+
+                # ——————————— COMMIT ———————————
+                # Maintenant ajouter les cartes tirées à l'inventaire
+                for cat, name in drawn_cards:
+                    self.cog.add_card_to_user(self.user.id, cat, name)
+
+                # Gérer les upgrades (comme dans le tirage journalier)
+                await self.cog.check_for_upgrades(interaction, self.user.id, drawn_cards)
+
+                # Enregistrer le tirage sacrificiel
+                self.cog.drawing_manager.record_sacrificial_draw(self.user.id)
 
                 # Annonce publique et mur des cartes
                 await self.cog._handle_announce_and_wall(interaction, drawn_cards)

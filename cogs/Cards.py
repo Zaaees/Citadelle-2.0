@@ -431,7 +431,8 @@ class Cards(commands.Cog):
                 logging.error(f"[SECURITY] Erreur lors de l'ajout batch de cartes: {e}")
                 return False
 
-    def build_card_embed(self, cat: str, name: str, file_bytes: bytes, user: discord.User = None) -> tuple[discord.Embed, discord.File]:
+    def build_card_embed(self, cat: str, name: str, file_bytes: bytes, user: discord.User = None,
+                         show_inventory_info: bool = True) -> tuple[discord.Embed, discord.File]:
         """Construit un embed et le fichier attaché pour une carte.
 
         Le fichier utilise toujours le nom constant ``card.png`` afin que
@@ -443,6 +444,7 @@ class Cards(commands.Cog):
             name: Nom de la carte
             file_bytes: Données binaires de l'image
             user: Utilisateur qui a effectué le tirage (optionnel)
+            show_inventory_info: Si True, affiche les informations d'inventaire (défaut: True)
         """
         import io
         file = discord.File(io.BytesIO(file_bytes), filename="card.png")
@@ -450,6 +452,26 @@ class Cards(commands.Cog):
         description = f"Catégorie : **{cat}**"
         if user:
             description += f"\n🎯 Tiré par : **{user.display_name}**"
+
+        # Ajouter les informations d'inventaire si demandé et si un utilisateur est fourni
+        if show_inventory_info and user:
+            # Compter le nombre d'exemplaires actuels (avant ajout de cette carte)
+            current_count = self.get_user_card_count(user.id, cat, name)
+
+            if current_count == 0:
+                description += f"\n✨ **NOUVELLE CARTE !**"
+            else:
+                # Afficher le nombre total après ajout de cette carte
+                total_count = current_count + 1
+                description += f"\n📊 Vous en avez maintenant : **{total_count}**"
+
+            # Vérifier le statut Full pour les cartes qui peuvent en avoir
+            if self.can_have_full_version(cat, name):
+                has_full = self.user_has_full_version(user.id, cat, name)
+                if has_full:
+                    description += f"\n⭐ Vous possédez déjà la version **Full** !"
+                else:
+                    description += f"\n💫 Version **Full** pas encore obtenue"
 
         embed = discord.Embed(
             title=name,
@@ -607,7 +629,8 @@ class Cards(commands.Cog):
 
                         if file_id:
                             file_bytes = self.download_drive_file(file_id)
-                            embed, image_file = self.build_card_embed(cat, full_name, file_bytes)
+                            # Désactiver les infos d'inventaire pour les notifications d'upgrade
+                            embed, image_file = self.build_card_embed(cat, full_name, file_bytes, show_inventory_info=False)
                             embed.title = f"🎉 Carte Full obtenue : {full_name}"
                             embed.description = (
                                 f"<@{user_id}> a échangé **{seuil}× {name}** "
@@ -668,6 +691,30 @@ class Cards(commands.Cog):
         """Vérifie si un utilisateur possède une carte spécifique."""
         user_cards = self.get_user_cards(user_id)
         return (category, name) in user_cards
+
+    def get_user_card_count(self, user_id: int, category: str, name: str) -> int:
+        """Retourne le nombre d'exemplaires d'une carte spécifique possédée par un utilisateur."""
+        user_cards = self.get_user_cards(user_id)
+        return user_cards.count((category, name))
+
+    def is_new_card_for_user(self, user_id: int, category: str, name: str) -> bool:
+        """Vérifie si c'est une nouvelle carte pour l'utilisateur (première fois qu'il l'obtient)."""
+        return not self._user_has_card(user_id, category, name)
+
+    def user_has_full_version(self, user_id: int, category: str, name: str) -> bool:
+        """Vérifie si l'utilisateur possède la version Full d'une carte."""
+        # Construire le nom de la carte Full
+        full_name = f"{name} (Full)"
+        return self._user_has_card(user_id, category, full_name)
+
+    def can_have_full_version(self, category: str, name: str) -> bool:
+        """Vérifie si une carte peut avoir une version Full."""
+        full_name = f"{name} (Full)"
+        # Vérifier si la carte Full existe dans les fichiers
+        for f in self.upgrade_cards_by_category.get(category, []):
+            if self.normalize_name(f['name'].removesuffix(".png")) == self.normalize_name(full_name):
+                return True
+        return False
 
     def normalize_name(self, name: str) -> str:
         """Normalise un nom de carte pour la comparaison."""
