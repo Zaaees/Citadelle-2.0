@@ -515,10 +515,9 @@ class InitiatorFinalConfirmationView(discord.ui.View):
             except discord.Forbidden:
                 pass
 
-            # Étape 4: Vérifier et effectuer les conversions de cartes (5 régulières → 1 Full)
+            # Étape 4: Traiter toutes les vérifications d'upgrade en attente
             try:
-                await self.cog.check_for_upgrades_with_channel(interaction, self.initiator.id, [], 1361993326215172218)
-                await self.cog.check_for_upgrades_with_channel(interaction, self.target.id, [], 1361993326215172218)
+                await self.cog.process_all_pending_upgrade_checks(interaction, 1361993326215172218)
                 logging.info(f"[VAULT_TRADE] Vérifications de conversion terminées pour les utilisateurs {self.initiator.id} et {self.target.id}")
             except Exception as e:
                 logging.error(f"[VAULT_TRADE] Erreur lors de la vérification des conversions après échange de coffres: {e}")

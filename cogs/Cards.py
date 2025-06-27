@@ -82,6 +82,12 @@ class Cards(commands.Cog):
         self.trading_manager._user_has_card = self._user_has_card
         self.trading_manager._add_card_to_user = self.add_card_to_user
         self.trading_manager._remove_card_from_user = self.remove_card_from_user
+
+        # Ajouter une référence au cog dans le storage pour les vérifications d'upgrade
+        self.storage._cog_ref = self
+
+        # Initialiser le système de vérification automatique des upgrades
+        self._users_needing_upgrade_check = set()
     
     def _load_card_files(self):
         """Charge les fichiers de cartes depuis Google Drive."""
@@ -174,6 +180,10 @@ class Cards(commands.Cog):
                                     cleaned_row += [""] * pad
                                     self.storage.sheet_cards.update(f"A{i+1}", [cleaned_row])
                                     self.storage.refresh_cards_cache()
+
+                                    # Marquer cet utilisateur pour vérification d'upgrade automatique
+                                    self._mark_user_for_upgrade_check(user_id)
+
                                     return True
                             except (ValueError, IndexError):
                                 continue
@@ -185,14 +195,22 @@ class Cards(commands.Cog):
                         cleaned_row += [""] * pad
                         self.storage.sheet_cards.update(f"A{i+1}", [cleaned_row])
                         self.storage.refresh_cards_cache()
+
+                        # Marquer cet utilisateur pour vérification d'upgrade automatique
+                        self._mark_user_for_upgrade_check(user_id)
+
                         return True
                 
                 # Si la carte n'existe pas encore
                 new_row = [category, name, f"{user_id}:1"]
                 self.storage.sheet_cards.append_row(new_row)
                 self.storage.refresh_cards_cache()
+
+                # Marquer cet utilisateur pour vérification d'upgrade automatique
+                self._mark_user_for_upgrade_check(user_id)
+
                 return True
-                
+
             except Exception as e:
                 logging.error(f"[CARDS] Erreur lors de l'ajout de carte: {e}")
                 return False
@@ -580,6 +598,52 @@ class Cards(commands.Cog):
         on notifie l'utilisateur et on met à jour le mur.
         """
         await self.check_for_upgrades_with_channel(interaction, user_id, drawn_cards, None)
+
+    def _mark_user_for_upgrade_check(self, user_id: int):
+        """
+        Marque un utilisateur pour vérification d'upgrade automatique.
+
+        Args:
+            user_id: ID de l'utilisateur
+        """
+        self._users_needing_upgrade_check.add(user_id)
+        logging.debug(f"[AUTO_UPGRADE] Utilisateur {user_id} marqué pour vérification d'upgrade")
+
+    async def auto_check_upgrades(self, interaction: discord.Interaction, user_id: int, notification_channel_id: int = None):
+        """
+        Vérification automatique des conversions vers les cartes Full.
+        Cette méthode doit être appelée après chaque opération qui modifie l'inventaire d'un utilisateur.
+
+        Args:
+            interaction: L'interaction Discord
+            user_id: ID de l'utilisateur
+            notification_channel_id: ID du salon où envoyer les notifications (optionnel)
+        """
+        try:
+            await self.check_for_upgrades_with_channel(interaction, user_id, [], notification_channel_id)
+            logging.info(f"[AUTO_UPGRADE] Vérification automatique des conversions terminée pour l'utilisateur {user_id}")
+        except Exception as e:
+            logging.error(f"[AUTO_UPGRADE] Erreur lors de la vérification automatique des conversions pour l'utilisateur {user_id}: {e}")
+
+    async def process_all_pending_upgrade_checks(self, interaction: discord.Interaction, notification_channel_id: int = None):
+        """
+        Traite toutes les vérifications d'upgrade en attente.
+
+        Args:
+            interaction: L'interaction Discord
+            notification_channel_id: ID du salon où envoyer les notifications (optionnel)
+        """
+        if not self._users_needing_upgrade_check:
+            return
+
+        users_to_check = self._users_needing_upgrade_check.copy()
+        self._users_needing_upgrade_check.clear()
+
+        for user_id in users_to_check:
+            try:
+                await self.auto_check_upgrades(interaction, user_id, notification_channel_id)
+            except Exception as e:
+                logging.error(f"[AUTO_UPGRADE] Erreur lors de la vérification des upgrades pour l'utilisateur {user_id}: {e}")
 
     async def check_for_upgrades_with_channel(self, interaction: discord.Interaction, user_id: int, drawn_cards: list[tuple[str, str]], notification_channel_id: int = None):
         """

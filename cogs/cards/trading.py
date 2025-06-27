@@ -78,6 +78,12 @@ class TradingManager:
                     return False
             
             logging.info(f"[TRADING] Échange réussi: {offerer_id} <-> {target_id}, cartes: ({offer_cat}, {offer_name}) <-> ({return_cat}, {return_name})")
+
+            # Marquer que les vérifications d'upgrade sont nécessaires via le cog principal
+            if hasattr(self.storage, '_cog_ref'):
+                self.storage._cog_ref._mark_user_for_upgrade_check(offerer_id)
+                self.storage._cog_ref._mark_user_for_upgrade_check(target_id)
+
             return True
             
         except Exception as e:
@@ -137,11 +143,19 @@ class TradingManager:
                 return False
             
             logging.info(f"[TRADING] Échange de vault complet réussi entre {user1_id} et {user2_id}")
+
+            # Marquer que les vérifications d'upgrade sont nécessaires via le cog principal
+            if hasattr(self.storage, '_cog_ref'):
+                self.storage._cog_ref._mark_user_for_upgrade_check(user1_id)
+                self.storage._cog_ref._mark_user_for_upgrade_check(user2_id)
+
             return True
             
         except Exception as e:
             logging.error(f"[TRADING] Erreur lors de l'échange de vault: {e}")
             return False
+
+
     
     def can_perform_weekly_exchange(self, user_id: int) -> bool:
         """
@@ -211,6 +225,10 @@ class TradingManager:
                 # Ajouter une nouvelle ligne
                 self.storage.sheet_weekly_exchanges.append_row([user_id_str, week_key, "1"])
             
+            # Marquer que cet utilisateur a besoin d'une vérification d'upgrade via le cog principal
+            if hasattr(self.storage, '_cog_ref'):
+                self.storage._cog_ref._mark_user_for_upgrade_check(user_id)
+
             logging.info(f"[TRADING] Échange hebdomadaire enregistré pour l'utilisateur {user_id}")
             return True
             

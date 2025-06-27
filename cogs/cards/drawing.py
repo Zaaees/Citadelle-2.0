@@ -17,7 +17,7 @@ from .storage import CardsStorage
 class DrawingManager:
     """Gestionnaire des tirages de cartes."""
     
-    def __init__(self, storage: CardsStorage, cards_by_category: Dict[str, List[Dict]], 
+    def __init__(self, storage: CardsStorage, cards_by_category: Dict[str, List[Dict]],
                  upgrade_cards_by_category: Dict[str, List[Dict]]):
         self.storage = storage
         self.cards_by_category = cards_by_category
@@ -224,6 +224,10 @@ class DrawingManager:
                 for k in keys_to_remove:
                     del self._daily_draw_cache[k]
 
+            # Marquer que cet utilisateur a besoin d'une vérification d'upgrade via le cog principal
+            if hasattr(self.storage, '_cog_ref'):
+                self.storage._cog_ref._mark_user_for_upgrade_check(user_id)
+
             logging.info(f"[DRAWING] Tirage journalier enregistré pour l'utilisateur {user_id}")
             return True
 
@@ -307,6 +311,10 @@ class DrawingManager:
                 for k in keys_to_remove:
                     del self._sacrificial_draw_cache[k]
 
+            # Marquer que cet utilisateur a besoin d'une vérification d'upgrade via le cog principal
+            if hasattr(self.storage, '_cog_ref'):
+                self.storage._cog_ref._mark_user_for_upgrade_check(user_id)
+
             logging.info(f"[DRAWING] Tirage sacrificiel enregistré pour l'utilisateur {user_id}")
             return True
 
@@ -336,3 +344,5 @@ class DrawingManager:
             # Nettoyer tout le cache
             self._sacrificial_draw_cache.clear()
             logging.info("[DRAWING] Cache sacrificiel entièrement nettoyé")
+
+

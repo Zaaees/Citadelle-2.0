@@ -152,11 +152,11 @@ class CardsMenuView(discord.ui.View):
         for cat, name in drawn_cards:
             self.cog.add_card_to_user(self.user.id, cat, name)
 
-        # 2) Maintenant que l'inventaire est à jour, on gère les upgrades
-        await self.cog.check_for_upgrades(interaction, self.user.id, drawn_cards)
-
-        # 3) Enfin, enregistrer le tirage journalier (ceci invalide le cache)
+        # 2) Enregistrer le tirage journalier (ceci invalide le cache et marque l'utilisateur pour vérification)
         self.cog.drawing_manager.record_daily_draw(self.user.id)
+
+        # 3) Traiter toutes les vérifications d'upgrade en attente
+        await self.cog.process_all_pending_upgrade_checks(interaction)
 
         return drawn_cards
 
@@ -448,11 +448,11 @@ class SacrificialDrawConfirmationView(discord.ui.View):
                 for cat, name in drawn_cards:
                     self.cog.add_card_to_user(self.user.id, cat, name)
 
-                # Gérer les upgrades (comme dans le tirage journalier)
-                await self.cog.check_for_upgrades(interaction, self.user.id, drawn_cards)
-
-                # Enregistrer le tirage sacrificiel
+                # Enregistrer le tirage sacrificiel (ceci marque l'utilisateur pour vérification)
                 self.cog.drawing_manager.record_sacrificial_draw(self.user.id)
+
+                # Traiter toutes les vérifications d'upgrade en attente
+                await self.cog.process_all_pending_upgrade_checks(interaction)
 
                 # Annonce publique et mur des cartes
                 await self.cog._handle_announce_and_wall(interaction, drawn_cards)
