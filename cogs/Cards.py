@@ -107,20 +107,25 @@ class Cards(commands.Cog):
                 self.cards_by_category[category] = files
                 
                 # Cartes Full (variantes)
-                full_folder_id = os.getenv(f"FOLDER_{category.upper().replace(' ', '_')}_FULL_ID")
+                full_folder_var = f"FOLDER_{category.upper().replace(' ', '_')}_FULL_ID"
+                full_folder_id = os.getenv(full_folder_var)
+
                 if full_folder_id:
+                    logging.info(f"[CARDS] Chargement des cartes Full pour {category} depuis le dossier {full_folder_id}")
                     full_results = self.drive_service.files().list(
                         q=f"'{full_folder_id}' in parents",
                         fields="files(id, name, mimeType)"
                     ).execute()
-                    
+
                     full_files = [
                         f for f in full_results.get('files', [])
                         if f.get('mimeType', '').startswith('image/')
                         and f['name'].lower().endswith('.png')
                     ]
                     self.upgrade_cards_by_category[category] = full_files
+                    logging.info(f"[CARDS] {len(full_files)} cartes Full chargées pour {category}")
                 else:
+                    logging.warning(f"[CARDS] Variable d'environnement {full_folder_var} non définie - aucune carte Full pour {category}")
                     self.upgrade_cards_by_category[category] = []
     
     # ========== MÉTHODES D'INTERFACE POUR LES GESTIONNAIRES ==========
@@ -690,10 +695,19 @@ class Cards(commands.Cog):
 
                         # Chercher la carte Full correspondante
                         file_id = None
-                        for f in self.upgrade_cards_by_category.get(cat, []):
-                            if self.normalize_name(f['name'].removesuffix(".png")) == self.normalize_name(full_name):
-                                file_id = f['id']
-                                break
+                        available_full_cards = self.upgrade_cards_by_category.get(cat, [])
+                        logging.info(f"[UPGRADE] Recherche de {full_name} dans {cat}. Cartes Full disponibles: {len(available_full_cards)}")
+
+                        if available_full_cards:
+                            for f in available_full_cards:
+                                card_file_name = f['name'].removesuffix(".png")
+                                logging.debug(f"[UPGRADE] Comparaison: '{self.normalize_name(card_file_name)}' vs '{self.normalize_name(full_name)}'")
+                                if self.normalize_name(card_file_name) == self.normalize_name(full_name):
+                                    file_id = f['id']
+                                    logging.info(f"[UPGRADE] Carte Full trouvée: {card_file_name} (ID: {file_id})")
+                                    break
+                        else:
+                            logging.error(f"[UPGRADE] Aucune carte Full disponible pour la catégorie {cat}")
 
                         if file_id:
                             file_bytes = self.download_drive_file(file_id)
