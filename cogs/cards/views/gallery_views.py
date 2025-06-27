@@ -19,26 +19,20 @@ class PaginatedGalleryView(discord.ui.View):
         self.cog = cog
         self.user = user
         self.current_page = current_page
-        self.cards_per_page = 15
-        
+
         # Mettre à jour l'état des boutons
         self._update_buttons()
     
     def _update_buttons(self):
         """Met à jour l'état des boutons de navigation."""
-        # Récupérer les cartes pour calculer le nombre de pages
-        user_cards = self.cog.get_user_cards(self.user.id)
-        if not user_cards:
+        # Utiliser la méthode du cog pour obtenir les informations de pagination
+        result = self.cog.generate_paginated_gallery_embeds(self.user, 0)
+        if not result:
             return
-        
-        # Séparer les cartes normales et Full
-        normal_cards = [(cat, name) for cat, name in user_cards if not "(Full)" in name]
-        full_cards = [(cat, name) for cat, name in user_cards if "(Full)" in name]
-        
-        # Calculer le nombre de pages basé sur les cartes normales
-        unique_normal = list(set(normal_cards))
-        total_pages = max(1, math.ceil(len(unique_normal) / self.cards_per_page))
-        
+
+        _, _, pagination_info = result
+        total_pages = pagination_info.get('total_pages', 1)
+
         # Mettre à jour les boutons
         self.previous_page.disabled = self.current_page <= 0
         self.next_page.disabled = self.current_page >= total_pages - 1
@@ -87,13 +81,15 @@ class PaginatedGalleryView(discord.ui.View):
         if interaction.user.id != self.user.id:
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
-        
-        # Vérifier qu'il y a une page suivante
-        user_cards = self.cog.get_user_cards(self.user.id)
-        normal_cards = [(cat, name) for cat, name in user_cards if not "(Full)" in name]
-        unique_normal = list(set(normal_cards))
-        total_pages = max(1, math.ceil(len(unique_normal) / self.cards_per_page))
-        
+
+        # Utiliser la méthode du cog pour obtenir les informations de pagination
+        result = self.cog.generate_paginated_gallery_embeds(self.user, 0)
+        if not result:
+            return
+
+        _, _, pagination_info = result
+        total_pages = pagination_info.get('total_pages', 1)
+
         if self.current_page < total_pages - 1:
             self.current_page += 1
             await self._update_gallery(interaction)
@@ -158,25 +154,20 @@ class AdminPaginatedGalleryView(discord.ui.View):
         self.cog = cog
         self.user = user
         self.current_page = current_page
-        self.cards_per_page = 15
-        
+
         # Mettre à jour l'état des boutons
         self._update_buttons()
     
     def _update_buttons(self):
         """Met à jour l'état des boutons de navigation."""
-        # Récupérer les cartes pour calculer le nombre de pages
-        user_cards = self.cog.get_user_cards(self.user.id)
-        if not user_cards:
+        # Utiliser la méthode du cog pour obtenir les informations de pagination
+        result = self.cog.generate_paginated_gallery_embeds(self.user, 0)
+        if not result:
             return
-        
-        # Séparer les cartes normales et Full
-        normal_cards = [(cat, name) for cat, name in user_cards if not "(Full)" in name]
-        
-        # Calculer le nombre de pages basé sur les cartes normales
-        unique_normal = list(set(normal_cards))
-        total_pages = max(1, math.ceil(len(unique_normal) / self.cards_per_page))
-        
+
+        _, _, pagination_info = result
+        total_pages = pagination_info.get('total_pages', 1)
+
         # Mettre à jour les boutons
         self.previous_page.disabled = self.current_page <= 0
         self.next_page.disabled = self.current_page >= total_pages - 1
@@ -191,12 +182,14 @@ class AdminPaginatedGalleryView(discord.ui.View):
     @discord.ui.button(label="▶️ Suivant", style=discord.ButtonStyle.secondary)
     async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Bouton pour la page suivante."""
-        # Vérifier qu'il y a une page suivante
-        user_cards = self.cog.get_user_cards(self.user.id)
-        normal_cards = [(cat, name) for cat, name in user_cards if not "(Full)" in name]
-        unique_normal = list(set(normal_cards))
-        total_pages = max(1, math.ceil(len(unique_normal) / self.cards_per_page))
-        
+        # Utiliser la méthode du cog pour obtenir les informations de pagination
+        result = self.cog.generate_paginated_gallery_embeds(self.user, 0)
+        if not result:
+            return
+
+        _, _, pagination_info = result
+        total_pages = pagination_info.get('total_pages', 1)
+
         if self.current_page < total_pages - 1:
             self.current_page += 1
             await self._update_gallery(interaction)
