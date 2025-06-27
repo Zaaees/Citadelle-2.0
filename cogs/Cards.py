@@ -88,6 +88,17 @@ class Cards(commands.Cog):
 
         # Initialiser le système de vérification automatique des upgrades
         self._users_needing_upgrade_check = set()
+
+    def _normalize_category_for_env_var(self, category: str) -> str:
+        """
+        Normalise un nom de catégorie pour les variables d'environnement.
+        Supprime les accents et caractères spéciaux.
+        """
+        # Remplacer les accents courants
+        normalized = category.replace('é', 'e').replace('è', 'e').replace('à', 'a').replace('ù', 'u').replace('ç', 'c')
+        normalized = normalized.replace('É', 'E').replace('È', 'E').replace('À', 'A').replace('Ù', 'U').replace('Ç', 'C')
+        # Remplacer espaces par underscores et mettre en majuscules
+        return normalized.upper().replace(' ', '_')
     
     def _load_card_files(self):
         """Charge les fichiers de cartes depuis Google Drive."""
@@ -107,7 +118,8 @@ class Cards(commands.Cog):
                 self.cards_by_category[category] = files
                 
                 # Cartes Full (variantes)
-                full_folder_var = f"FOLDER_{category.upper().replace(' ', '_')}_FULL_ID"
+                normalized_category = self._normalize_category_for_env_var(category)
+                full_folder_var = f"FOLDER_{normalized_category}_FULL_ID"
                 full_folder_id = os.getenv(full_folder_var)
 
                 if full_folder_id:
@@ -693,8 +705,10 @@ class Cards(commands.Cog):
                     else:
                         full_name = f"{name} (Full)"
 
-                        # Chercher la carte Full correspondante
+                        # Chercher la carte Full correspondante dans toutes les catégories
                         file_id = None
+
+                        # D'abord chercher dans la catégorie d'origine
                         available_full_cards = self.upgrade_cards_by_category.get(cat, [])
                         logging.info(f"[UPGRADE] Recherche de {full_name} dans {cat}. Cartes Full disponibles: {len(available_full_cards)}")
 
@@ -704,10 +718,23 @@ class Cards(commands.Cog):
                                 logging.debug(f"[UPGRADE] Comparaison: '{self.normalize_name(card_file_name)}' vs '{self.normalize_name(full_name)}'")
                                 if self.normalize_name(card_file_name) == self.normalize_name(full_name):
                                     file_id = f['id']
-                                    logging.info(f"[UPGRADE] Carte Full trouvée: {card_file_name} (ID: {file_id})")
+                                    logging.info(f"[UPGRADE] Carte Full trouvée dans {cat}: {card_file_name} (ID: {file_id})")
                                     break
-                        else:
-                            logging.error(f"[UPGRADE] Aucune carte Full disponible pour la catégorie {cat}")
+
+                        # Si pas trouvée dans la catégorie d'origine, chercher dans toutes les autres catégories
+                        if not file_id:
+                            logging.info(f"[UPGRADE] Carte {full_name} non trouvée dans {cat}, recherche dans toutes les catégories...")
+                            for search_cat, full_cards in self.upgrade_cards_by_category.items():
+                                if search_cat == cat:  # Déjà cherché
+                                    continue
+                                for f in full_cards:
+                                    card_file_name = f['name'].removesuffix(".png")
+                                    if self.normalize_name(card_file_name) == self.normalize_name(full_name):
+                                        file_id = f['id']
+                                        logging.info(f"[UPGRADE] Carte Full trouvée dans {search_cat}: {card_file_name} (ID: {file_id})")
+                                        break
+                                if file_id:  # Trouvée, sortir de la boucle externe
+                                    break
 
                         if file_id:
                             file_bytes = self.download_drive_file(file_id)
