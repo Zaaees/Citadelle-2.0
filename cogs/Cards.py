@@ -455,23 +455,27 @@ class Cards(commands.Cog):
 
         # Ajouter les informations d'inventaire si demandé et si un utilisateur est fourni
         if show_inventory_info and user:
-            # Compter le nombre d'exemplaires actuels (avant ajout de cette carte)
-            current_count = self.get_user_card_count(user.id, cat, name)
+            try:
+                # Compter le nombre d'exemplaires actuels (avant ajout de cette carte)
+                current_count = self.get_user_card_count(user.id, cat, name)
 
-            if current_count == 0:
-                description += f"\n✨ **NOUVELLE CARTE !**"
-            else:
-                # Afficher le nombre total après ajout de cette carte
-                total_count = current_count + 1
-                description += f"\n📊 Vous en avez maintenant : **{total_count}**"
-
-            # Vérifier le statut Full pour les cartes qui peuvent en avoir
-            if self.can_have_full_version(cat, name):
-                has_full = self.user_has_full_version(user.id, cat, name)
-                if has_full:
-                    description += f"\n⭐ Vous possédez déjà la version **Full** !"
+                if current_count == 0:
+                    description += f"\n✨ **NOUVELLE CARTE !**"
                 else:
-                    description += f"\n💫 Version **Full** pas encore obtenue"
+                    # Afficher le nombre total après ajout de cette carte
+                    total_count = current_count + 1
+                    description += f"\n📊 Vous en avez maintenant : **{total_count}**"
+
+                # Vérifier le statut Full pour les cartes qui peuvent en avoir
+                if self.can_have_full_version(cat, name):
+                    has_full = self.user_has_full_version(user.id, cat, name)
+                    if has_full:
+                        description += f"\n⭐ Vous possédez déjà la version **Full** !"
+                    else:
+                        description += f"\n💫 Version **Full** pas encore obtenue"
+            except Exception as e:
+                logging.error(f"[EMBED] Erreur lors de l'ajout des informations d'inventaire: {e}")
+                # Continuer sans les informations d'inventaire en cas d'erreur
 
         embed = discord.Embed(
             title=name,
@@ -694,27 +698,43 @@ class Cards(commands.Cog):
 
     def get_user_card_count(self, user_id: int, category: str, name: str) -> int:
         """Retourne le nombre d'exemplaires d'une carte spécifique possédée par un utilisateur."""
-        user_cards = self.get_user_cards(user_id)
-        return user_cards.count((category, name))
+        try:
+            user_cards = self.get_user_cards(user_id)
+            return user_cards.count((category, name))
+        except Exception as e:
+            logging.error(f"[EMBED] Erreur dans get_user_card_count: {e}")
+            return 0
 
     def is_new_card_for_user(self, user_id: int, category: str, name: str) -> bool:
         """Vérifie si c'est une nouvelle carte pour l'utilisateur (première fois qu'il l'obtient)."""
-        return not self._user_has_card(user_id, category, name)
+        try:
+            return not self._user_has_card(user_id, category, name)
+        except Exception as e:
+            logging.error(f"[EMBED] Erreur dans is_new_card_for_user: {e}")
+            return False
 
     def user_has_full_version(self, user_id: int, category: str, name: str) -> bool:
         """Vérifie si l'utilisateur possède la version Full d'une carte."""
-        # Construire le nom de la carte Full
-        full_name = f"{name} (Full)"
-        return self._user_has_card(user_id, category, full_name)
+        try:
+            # Construire le nom de la carte Full
+            full_name = f"{name} (Full)"
+            return self._user_has_card(user_id, category, full_name)
+        except Exception as e:
+            logging.error(f"[EMBED] Erreur dans user_has_full_version: {e}")
+            return False
 
     def can_have_full_version(self, category: str, name: str) -> bool:
         """Vérifie si une carte peut avoir une version Full."""
-        full_name = f"{name} (Full)"
-        # Vérifier si la carte Full existe dans les fichiers
-        for f in self.upgrade_cards_by_category.get(category, []):
-            if self.normalize_name(f['name'].removesuffix(".png")) == self.normalize_name(full_name):
-                return True
-        return False
+        try:
+            full_name = f"{name} (Full)"
+            # Vérifier si la carte Full existe dans les fichiers
+            for f in self.upgrade_cards_by_category.get(category, []):
+                if self.normalize_name(f['name'].removesuffix(".png")) == self.normalize_name(full_name):
+                    return True
+            return False
+        except Exception as e:
+            logging.error(f"[EMBED] Erreur dans can_have_full_version: {e}")
+            return False
 
     def normalize_name(self, name: str) -> str:
         """Normalise un nom de carte pour la comparaison."""
