@@ -93,6 +93,74 @@ class PaginatedGalleryView(discord.ui.View):
         if self.current_page < total_pages - 1:
             self.current_page += 1
             await self._update_gallery(interaction)
+
+    @discord.ui.button(label="📋 Galerie complète", style=discord.ButtonStyle.primary, row=1)
+    async def show_complete_gallery(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Bouton pour afficher la galerie complète."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            # Générer la galerie complète
+            complete_embeds = self.cog.generate_complete_gallery_embeds(self.user)
+
+            if not complete_embeds:
+                await interaction.followup.send(
+                    "❌ Impossible de générer la galerie complète.",
+                    ephemeral=True
+                )
+                return
+
+            # Envoyer tous les embeds
+            await interaction.followup.send(
+                content="🎴 **Voici votre collection complète :**",
+                embeds=complete_embeds,
+                ephemeral=True
+            )
+
+        except Exception as e:
+            logging.error(f"[GALLERY] Erreur lors de l'affichage de la galerie complète: {e}")
+            await interaction.followup.send(
+                "❌ Une erreur est survenue lors de l'affichage de la galerie complète.",
+                ephemeral=True
+            )
+
+    @discord.ui.button(label="📋 Galerie complète", style=discord.ButtonStyle.primary, row=1)
+    async def show_complete_gallery(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Bouton pour afficher la galerie complète."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            # Générer la galerie complète
+            complete_embeds = self.cog.generate_complete_gallery_embeds(self.user)
+
+            if not complete_embeds:
+                await interaction.followup.send(
+                    "❌ Impossible de générer la galerie complète.",
+                    ephemeral=True
+                )
+                return
+
+            # Envoyer tous les embeds
+            await interaction.followup.send(
+                content="🎴 **Voici votre collection complète :**",
+                embeds=complete_embeds,
+                ephemeral=True
+            )
+
+        except Exception as e:
+            logging.error(f"[GALLERY] Erreur lors de l'affichage de la galerie complète: {e}")
+            await interaction.followup.send(
+                "❌ Une erreur est survenue lors de l'affichage de la galerie complète.",
+                ephemeral=True
+            )
     
     async def _update_gallery(self, interaction: discord.Interaction):
         """Met à jour l'affichage de la galerie."""
@@ -193,7 +261,34 @@ class AdminPaginatedGalleryView(discord.ui.View):
         if self.current_page < total_pages - 1:
             self.current_page += 1
             await self._update_gallery(interaction)
-    
+
+    @discord.ui.button(label="📋 Galerie complète", style=discord.ButtonStyle.primary, row=1)
+    async def show_complete_gallery(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Bouton pour afficher la galerie complète."""
+        await interaction.response.defer()
+
+        try:
+            # Générer la galerie complète
+            complete_embeds = self.cog.generate_complete_gallery_embeds(self.user)
+
+            if not complete_embeds:
+                await interaction.followup.send(
+                    "❌ Impossible de générer la galerie complète."
+                )
+                return
+
+            # Envoyer tous les embeds
+            await interaction.followup.send(
+                content=f"🎴 **Collection complète de {self.user.display_name} :**",
+                embeds=complete_embeds
+            )
+
+        except Exception as e:
+            logging.error(f"[GALLERY] Erreur lors de l'affichage de la galerie complète: {e}")
+            await interaction.followup.send(
+                "❌ Une erreur est survenue lors de l'affichage de la galerie complète."
+            )
+
     async def _update_gallery(self, interaction: discord.Interaction):
         """Met à jour l'affichage de la galerie."""
         try:

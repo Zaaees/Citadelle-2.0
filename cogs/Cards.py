@@ -868,6 +868,277 @@ class Cards(commands.Cog):
             return f"C{discovery_info['discovery_index']}"
         return None
 
+    def generate_complete_gallery_embeds(self, user: discord.abc.User) -> list[discord.Embed] | None:
+        """Génère une galerie complète avec tous les embeds nécessaires (format lisible)."""
+        try:
+            user_cards = self.get_user_cards(user.id)
+            if not user_cards:
+                return None
+
+            # Configuration pour affichage complet
+            MAX_EMBEDS = 10  # Limite Discord
+            MAX_FIELDS_PER_EMBED = 25  # Limite Discord
+            MAX_CHARS_PER_FIELD = 1000  # Limite Discord (1024 avec marge)
+
+            cards_by_cat: dict[str, list[str]] = {}
+            for cat, name in user_cards:
+                cards_by_cat.setdefault(cat, []).append(name)
+
+            # Préparer les catégories triées par taille décroissante
+            categories_data = []
+            for cat, noms in cards_by_cat.items():
+                normales = [n for n in noms if not n.endswith(" (Full)")]
+                fulls = [n for n in noms if n.endswith(" (Full)")]
+
+                normal_counts = {}
+                for n in normales:
+                    normal_counts[n] = normal_counts.get(n, 0) + 1
+
+                full_counts = {}
+                for n in fulls:
+                    full_counts[n] = full_counts.get(n, 0) + 1
+
+                sorted_normal_cards = sorted(normal_counts.items(), key=lambda x: normalize_name(x[0].removesuffix('.png')))
+                sorted_full_cards = sorted(full_counts.items(), key=lambda x: normalize_name(x[0].removesuffix('.png')))
+
+                total_unique_cards = len(normal_counts) + len(full_counts)
+
+                categories_data.append({
+                    'name': cat,
+                    'normal_cards': sorted_normal_cards,
+                    'full_cards': sorted_full_cards,
+                    'total_unique_cards': total_unique_cards
+                })
+
+            # Trier par taille décroissante
+            categories_data.sort(key=lambda x: x['total_unique_cards'], reverse=True)
+
+            # Créer les embeds avec le format original lisible
+            embeds = []
+            current_embed_normal = discord.Embed(
+                title=f"🎴 Collection complète de {user.display_name}",
+                color=discord.Color.blue()
+            )
+            current_embed_full = discord.Embed(
+                title=f"✨ Cartes Full de {user.display_name}",
+                color=discord.Color.gold()
+            )
+
+            current_fields_normal = 0
+            current_fields_full = 0
+            embed_count = 1
+
+            for cat_data in categories_data:
+                cat = cat_data['name']
+
+                # Traiter les cartes normales avec le format original
+                if cat_data['normal_cards']:
+                    lines = []
+                    for n, c in cat_data['normal_cards']:
+                        try:
+                            card_name = n.removesuffix('.png')
+                            identifier = self.get_card_identifier(cat, n)
+                            identifier_text = f" ({identifier})" if identifier else ""
+                            count_text = f' (x{c})' if c > 1 else ''
+                            lines.append(f"- **{card_name}**{identifier_text}{count_text}")
+                        except Exception as e:
+                            logging.error(f"[GALLERY] Erreur lors du traitement de la carte {n}: {e}")
+                            continue
+
+                    if lines:
+                        field_value = "\n".join(lines)
+
+                        # Vérifier si le field rentre dans la limite de caractères
+                        if len(field_value) > MAX_CHARS_PER_FIELD:
+                            # Diviser en plusieurs fields si nécessaire
+                            chunks = []
+                            current_chunk = []
+                            current_length = 0
+
+                            for line in lines:
+                                if current_length + len(line) + 1 > MAX_CHARS_PER_FIELD:
+                                    if current_chunk:
+                                        chunks.append("\n".join(current_chunk))
+                                    current_chunk = [line]
+                                    current_length = len(line)
+                                else:
+                                    current_chunk.append(line)
+                                    current_length += len(line) + 1
+
+                            if current_chunk:
+                                chunks.append("\n".join(current_chunk))
+
+                            # Ajouter chaque chunk comme un field séparé
+                            for i, chunk in enumerate(chunks):
+                                try:
+                                    total_available = len({
+                                        f['name'].removesuffix('.png')
+                                        for f in self.cards_by_category.get(cat, [])
+                                    })
+                                    owned_unique = len(cat_data['normal_cards'])
+
+                                    field_name = f"{cat} : {owned_unique}/{total_available}" if i == 0 else f"{cat} (suite {i+1})"
+
+                                    # Vérifier si on a de la place dans l'embed actuel
+                                    if current_fields_normal >= MAX_FIELDS_PER_EMBED:
+                                        embeds.append(current_embed_normal)
+                                        embed_count += 1
+                                        current_embed_normal = discord.Embed(
+                                            title=f"🎴 Collection de {user.display_name} (partie {embed_count})",
+                                            color=discord.Color.blue()
+                                        )
+                                        current_fields_normal = 0
+
+                                    current_embed_normal.add_field(
+                                        name=field_name,
+                                        value=chunk,
+                                        inline=False
+                                    )
+                                    current_fields_normal += 1
+
+                                except Exception as e:
+                                    logging.error(f"[GALLERY] Erreur lors de l'ajout du champ pour {cat}: {e}")
+                                    continue
+                        else:
+                            # Le field rentre dans la limite
+                            try:
+                                total_available = len({
+                                    f['name'].removesuffix('.png')
+                                    for f in self.cards_by_category.get(cat, [])
+                                })
+                                owned_unique = len(cat_data['normal_cards'])
+
+                                # Vérifier si on a de la place dans l'embed actuel
+                                if current_fields_normal >= MAX_FIELDS_PER_EMBED:
+                                    embeds.append(current_embed_normal)
+                                    embed_count += 1
+                                    current_embed_normal = discord.Embed(
+                                        title=f"🎴 Collection de {user.display_name} (partie {embed_count})",
+                                        color=discord.Color.blue()
+                                    )
+                                    current_fields_normal = 0
+
+                                current_embed_normal.add_field(
+                                    name=f"{cat} : {owned_unique}/{total_available}",
+                                    value=field_value,
+                                    inline=False
+                                )
+                                current_fields_normal += 1
+
+                            except Exception as e:
+                                logging.error(f"[GALLERY] Erreur lors de l'ajout du champ pour {cat}: {e}")
+                                continue
+
+                # Traiter les cartes Full avec le format original
+                if cat_data['full_cards']:
+                    lines = []
+                    for n, c in cat_data['full_cards']:
+                        try:
+                            card_name = n.removesuffix('.png')
+                            count_text = f' (x{c})' if c > 1 else ''
+                            lines.append(f"- **{card_name}**{count_text}")
+                        except Exception as e:
+                            logging.error(f"[GALLERY] Erreur lors du traitement de la carte Full {n}: {e}")
+                            continue
+
+                    if lines:
+                        field_value = "\n".join(lines)
+
+                        # Vérifier si le field rentre dans la limite de caractères
+                        if len(field_value) > MAX_CHARS_PER_FIELD:
+                            # Diviser en plusieurs fields si nécessaire
+                            chunks = []
+                            current_chunk = []
+                            current_length = 0
+
+                            for line in lines:
+                                if current_length + len(line) + 1 > MAX_CHARS_PER_FIELD:
+                                    if current_chunk:
+                                        chunks.append("\n".join(current_chunk))
+                                    current_chunk = [line]
+                                    current_length = len(line)
+                                else:
+                                    current_chunk.append(line)
+                                    current_length += len(line) + 1
+
+                            if current_chunk:
+                                chunks.append("\n".join(current_chunk))
+
+                            # Ajouter chaque chunk comme un field séparé
+                            for i, chunk in enumerate(chunks):
+                                try:
+                                    total_full = len({
+                                        f['name'].removesuffix('.png')
+                                        for f in self.upgrade_cards_by_category.get(cat, [])
+                                    })
+                                    owned_full = len(cat_data['full_cards'])
+
+                                    field_name = f"{cat} (Full) : {owned_full}/{total_full}" if i == 0 else f"{cat} (Full) (suite {i+1})"
+
+                                    # Vérifier si on a de la place dans l'embed actuel
+                                    if current_fields_full >= MAX_FIELDS_PER_EMBED:
+                                        if current_fields_full > 0:  # Seulement si l'embed a du contenu
+                                            embeds.append(current_embed_full)
+                                        embed_count += 1
+                                        current_embed_full = discord.Embed(
+                                            title=f"✨ Cartes Full de {user.display_name} (partie {embed_count})",
+                                            color=discord.Color.gold()
+                                        )
+                                        current_fields_full = 0
+
+                                    current_embed_full.add_field(
+                                        name=field_name,
+                                        value=chunk,
+                                        inline=False
+                                    )
+                                    current_fields_full += 1
+
+                                except Exception as e:
+                                    logging.error(f"[GALLERY] Erreur lors de l'ajout du champ Full pour {cat}: {e}")
+                                    continue
+                        else:
+                            # Le field rentre dans la limite
+                            try:
+                                total_full = len({
+                                    f['name'].removesuffix('.png')
+                                    for f in self.upgrade_cards_by_category.get(cat, [])
+                                })
+                                owned_full = len(cat_data['full_cards'])
+
+                                # Vérifier si on a de la place dans l'embed actuel
+                                if current_fields_full >= MAX_FIELDS_PER_EMBED:
+                                    if current_fields_full > 0:  # Seulement si l'embed a du contenu
+                                        embeds.append(current_embed_full)
+                                    embed_count += 1
+                                    current_embed_full = discord.Embed(
+                                        title=f"✨ Cartes Full de {user.display_name} (partie {embed_count})",
+                                        color=discord.Color.gold()
+                                    )
+                                    current_fields_full = 0
+
+                                current_embed_full.add_field(
+                                    name=f"{cat} (Full) : {owned_full}/{total_full}",
+                                    value=field_value,
+                                    inline=False
+                                )
+                                current_fields_full += 1
+
+                            except Exception as e:
+                                logging.error(f"[GALLERY] Erreur lors de l'ajout du champ Full pour {cat}: {e}")
+                                continue
+
+            # Finaliser les embeds
+            if current_fields_normal > 0:
+                embeds.append(current_embed_normal)
+            if current_fields_full > 0:
+                embeds.append(current_embed_full)
+
+            return embeds if embeds else None
+
+        except Exception as e:
+            logging.error(f"[GALLERY] Erreur dans generate_complete_gallery_embeds: {e}")
+            return None
+
     def generate_paginated_gallery_embeds(self, user: discord.abc.User, page: int = 0) -> tuple[discord.Embed, discord.Embed | None, dict] | None:
         """Construit les embeds de galerie paginés pour l'utilisateur donné avec pagination par catégories complètes."""
         try:
