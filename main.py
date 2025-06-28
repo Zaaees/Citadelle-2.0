@@ -248,7 +248,6 @@ class CustomBot(commands.Bot):
             'cogs.validation',
             'cogs.InactiveUserTracker',
             'cogs.excès',
-            'cogs.scene_todo',
             'cogs.channel_monitor',
         ]
 
