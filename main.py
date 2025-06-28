@@ -249,6 +249,7 @@ class CustomBot(commands.Bot):
             'cogs.InactiveUserTracker',
             'cogs.excès',
             'cogs.scene_todo',
+            'cogs.channel_monitor',
         ]
 
         for ext in extensions:
