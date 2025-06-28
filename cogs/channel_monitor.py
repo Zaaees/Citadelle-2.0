@@ -83,9 +83,16 @@ class ChannelMonitor(commands.Cog):
         self.gspread_client = None
         self.sheet = None
         self.ping_sheet = None
+        # Initialisation asynchrone pour éviter les délais au démarrage
+        self.bot.loop.create_task(self.async_init())
+        self.cleanup_ping_messages.start()
+
+    async def async_init(self):
+        """Initialisation asynchrone du cog."""
+        await self.bot.wait_until_ready()
         self.setup_google_sheets()
         self.load_monitored_channels()
-        self.cleanup_ping_messages.start()
+        await self.setup_persistent_views()
 
     def setup_google_sheets(self):
         """Configure l'accès à Google Sheets."""
@@ -414,10 +421,13 @@ class ChannelMonitor(commands.Cog):
     @app_commands.check(setup_check)
     async def setup_monitoring(self, interaction: discord.Interaction, salon: discord.abc.GuildChannel):
         """Commande pour ajouter un salon à la surveillance."""
-        
+
+        # Déférer la réponse pour éviter l'expiration
+        await interaction.response.defer(ephemeral=True)
+
         # Vérifier les permissions MJ
         if not self.is_mj(interaction.user):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Cette commande est réservée aux MJ.",
                 ephemeral=True
             )
@@ -425,7 +435,7 @@ class ChannelMonitor(commands.Cog):
         
         # Vérifier que c'est un type de salon supporté
         if not isinstance(salon, (discord.TextChannel, discord.Thread, discord.ForumChannel)):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Ce type de salon n'est pas supporté. Seuls les salons texte, fils et forums sont supportés.",
                 ephemeral=True
             )
@@ -434,7 +444,7 @@ class ChannelMonitor(commands.Cog):
         # Créer l'embed de surveillance dans le salon de notification
         notification_channel = self.bot.get_channel(NOTIFICATION_CHANNEL_ID)
         if not notification_channel:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"❌ Erreur: Le salon de notification {NOTIFICATION_CHANNEL_ID} n'a pas été trouvé.",
                 ephemeral=True
             )
@@ -463,7 +473,7 @@ class ChannelMonitor(commands.Cog):
 
             channel_info = self.get_channel_info(salon)
 
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"✅ Le {channel_info} est maintenant surveillé.\n"
                 f"Un embed de surveillance a été créé dans <#{NOTIFICATION_CHANNEL_ID}>.",
                 ephemeral=True
@@ -472,7 +482,7 @@ class ChannelMonitor(commands.Cog):
             self.logger.info(f"MJ {interaction.user.display_name} ({interaction.user.id}) a ajouté le salon {salon.name} ({salon.id}) à la surveillance")
 
         except Exception as e:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"❌ Erreur lors de la création de l'embed de surveillance: {str(e)}",
                 ephemeral=True
             )
@@ -481,17 +491,35 @@ class ChannelMonitor(commands.Cog):
     @setup_monitoring.error
     async def setup_monitoring_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         """Gestionnaire d'erreur pour la commande setup."""
-        if isinstance(error, app_commands.CheckFailure):
-            await interaction.response.send_message(
-                "❌ Cette commande est réservée au Staff (rôle MJ requis).",
-                ephemeral=True
-            )
-        else:
-            await interaction.response.send_message(
-                "❌ Une erreur est survenue lors de l'exécution de la commande.",
-                ephemeral=True
-            )
-            self.logger.error(f"Erreur dans la commande setup: {error}")
+        try:
+            if isinstance(error, app_commands.CheckFailure):
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(
+                        "❌ Cette commande est réservée au Staff (rôle MJ requis).",
+                        ephemeral=True
+                    )
+                else:
+                    await interaction.followup.send(
+                        "❌ Cette commande est réservée au Staff (rôle MJ requis).",
+                        ephemeral=True
+                    )
+            else:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(
+                        "❌ Une erreur est survenue lors de l'exécution de la commande.",
+                        ephemeral=True
+                    )
+                else:
+                    await interaction.followup.send(
+                        "❌ Une erreur est survenue lors de l'exécution de la commande.",
+                        ephemeral=True
+                    )
+                self.logger.error(f"Erreur dans la commande setup: {error}")
+        except discord.NotFound:
+            # L'interaction a expiré, on ne peut plus répondre
+            self.logger.error(f"Interaction expirée pour la commande setup: {error}")
+        except Exception as e:
+            self.logger.error(f"Erreur dans le gestionnaire d'erreur setup: {e}")
     
 
 
@@ -570,11 +598,6 @@ class ChannelMonitor(commands.Cog):
             self.logger.info(f"Configuré {len(self.monitored_channels)} vues persistantes")
         except Exception as e:
             self.logger.error(f"Erreur lors de la configuration des vues persistantes: {e}")
-
-    @commands.Cog.listener()
-    async def on_ready(self):
-        """Appelé quand le bot est prêt."""
-        await self.setup_persistent_views()
 
 async def setup(bot: commands.Bot):
     """Fonction de setup du cog."""
