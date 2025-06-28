@@ -46,15 +46,38 @@ class SceneCloseButton(discord.ui.Button):
             del self.cog.monitored_channels[self.channel_id]
             self.cog.save_monitored_channels()
 
-            # Supprimer immédiatement le message d'embed
+            # Récupérer les informations du salon
+            channel = self.cog.bot.get_channel(self.channel_id)
+            channel_info = self.cog.get_channel_info(channel) if channel else f"Salon ID {self.channel_id}"
+
+            # Envoyer un message public de clôture
             try:
-                await interaction.message.delete()
-                await interaction.response.send_message(
-                    f"✅ Scène clôturée et supprimée par {interaction.user.display_name}.",
-                    ephemeral=True
+                closure_message = await interaction.response.send_message(
+                    f"🔒 **Scène clôturée** - {channel_info} n'est plus surveillé (par {interaction.user.display_name})",
+                    ephemeral=False
                 )
+
+                # Ajouter le message de clôture à Google Sheets pour suppression automatique
+                if self.cog.ping_sheet:
+                    try:
+                        # Récupérer le message envoyé
+                        sent_message = await interaction.original_response()
+                        self.cog.ping_sheet.append_row([
+                            str(sent_message.id),
+                            str(interaction.channel_id),
+                            datetime.now().isoformat()
+                        ])
+                    except Exception as e:
+                        self.cog.logger.error(f"Erreur lors de l'ajout du message de clôture à Google Sheets: {e}")
+
+                # Supprimer l'embed original
+                try:
+                    await interaction.message.delete()
+                except discord.NotFound:
+                    pass
+
             except discord.NotFound:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "✅ Scène clôturée.",
                     ephemeral=True
                 )
