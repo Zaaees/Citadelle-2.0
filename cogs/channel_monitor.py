@@ -318,9 +318,9 @@ class ChannelMonitor(commands.Cog):
             else:
                 return f"fil **{channel.name}** (dans {channel.parent.name if channel.parent else 'salon inconnu'})"
         elif isinstance(channel, discord.TextChannel):
-            return f"salon **{channel.name}**"
+            return f"**{channel.name}**"
         else:
-            return f"salon **{getattr(channel, 'name', 'inconnu')}**"
+            return f"**{getattr(channel, 'name', 'inconnu')}**"
 
     def create_scene_embed(self, channel, mj_user, participants: List[int] = None, last_action_user=None) -> discord.Embed:
         """Crée l'embed de surveillance d'une scène."""
