@@ -1582,6 +1582,98 @@ class Cards(commands.Cog):
             logging.error(f"[BONUS] Erreur lors de la vérification des bonus: {e}")
             return 0
 
+    @app_commands.command(name="analyse_cartes", description="Analyse les statistiques réelles de drop de chaque carte")
+    async def analyse_cartes(self, interaction: discord.Interaction):
+        """Commande d'analyse des statistiques de drop des cartes."""
+        await interaction.response.defer()
+
+        try:
+            # Calculer les statistiques pour chaque catégorie
+            analysis_data = []
+
+            for category in ALL_CATEGORIES:
+                # Nombre de cartes dans cette catégorie
+                normal_cards = self.cards_by_category.get(category, [])
+                full_cards = self.upgrade_cards_by_category.get(category, [])
+
+                normal_count = len(normal_cards)
+                full_count = len(full_cards)
+                total_cards_in_category = normal_count + full_count
+
+                if total_cards_in_category == 0:
+                    continue
+
+                # Probabilité de base de la catégorie
+                category_probability = RARITY_WEIGHTS.get(category, 0)
+
+                # Probabilité réelle par carte normale
+                if normal_count > 0:
+                    normal_card_probability = (category_probability / total_cards_in_category) * (1 - self.drawing_manager._calculate_variant_chance(category))
+                else:
+                    normal_card_probability = 0
+
+                # Probabilité réelle par carte Full (si tirée directement)
+                if full_count > 0:
+                    full_card_probability = (category_probability / total_cards_in_category) * self.drawing_manager._calculate_variant_chance(category)
+                else:
+                    full_card_probability = 0
+
+                analysis_data.append({
+                    'category': category,
+                    'normal_count': normal_count,
+                    'full_count': full_count,
+                    'total_count': total_cards_in_category,
+                    'category_probability': category_probability * 100,  # En pourcentage
+                    'normal_card_probability': normal_card_probability * 100,  # En pourcentage
+                    'full_card_probability': full_card_probability * 100,  # En pourcentage
+                    'variant_chance': self.drawing_manager._calculate_variant_chance(category) * 100  # En pourcentage
+                })
+
+            # Créer l'embed avec les résultats
+            embed = discord.Embed(
+                title="📊 Analyse des statistiques de drop",
+                description="Probabilités réelles de drop par carte individuelle",
+                color=0x3498db
+            )
+
+            for data in analysis_data:
+                field_value = (
+                    f"**Cartes normales :** {data['normal_count']}\n"
+                    f"**Cartes Full :** {data['full_count']}\n"
+                    f"**Total catégorie :** {data['total_count']}\n"
+                    f"**Prob. catégorie :** {data['category_probability']:.3f}%\n"
+                    f"**Prob. par carte normale :** {data['normal_card_probability']:.4f}%\n"
+                    f"**Prob. par carte Full :** {data['full_card_probability']:.4f}%\n"
+                    f"**Chance variante Full :** {data['variant_chance']:.1f}%"
+                )
+
+                embed.add_field(
+                    name=f"🎴 {data['category']}",
+                    value=field_value,
+                    inline=True
+                )
+
+            # Ajouter un résumé
+            total_normal_cards = sum(data['normal_count'] for data in analysis_data)
+            total_full_cards = sum(data['full_count'] for data in analysis_data)
+            total_all_cards = total_normal_cards + total_full_cards
+
+            embed.add_field(
+                name="📈 Résumé global",
+                value=(
+                    f"**Total cartes normales :** {total_normal_cards}\n"
+                    f"**Total cartes Full :** {total_full_cards}\n"
+                    f"**Total général :** {total_all_cards}"
+                ),
+                inline=False
+            )
+
+            await interaction.followup.send(embed=embed)
+
+        except Exception as e:
+            logging.error(f"[ANALYSE] Erreur lors de l'analyse des cartes: {e}")
+            await interaction.followup.send("❌ Erreur lors de l'analyse des statistiques.", ephemeral=True)
+
     async def claim_user_bonuses(self, interaction: discord.Interaction) -> bool:
         """
         Réclame tous les bonus disponibles pour un utilisateur.
