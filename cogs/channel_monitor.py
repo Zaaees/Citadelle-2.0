@@ -15,6 +15,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 import asyncio
 from discord.ext import tasks
+import re
 
 # Configuration
 NOTIFICATION_CHANNEL_ID = 1380704586016362626  # Salon de notification
@@ -89,11 +90,65 @@ class SceneCloseButton(discord.ui.Button):
                 ephemeral=True
             )
 
+class SceneTakeOverButton(discord.ui.Button):
+    """Bouton pour reprendre une scène."""
+
+    def __init__(self, cog, channel_id: int):
+        super().__init__(
+            label="Reprendre la scène",
+            style=discord.ButtonStyle.success,
+            custom_id=f"takeover_scene_{channel_id}"
+        )
+        self.cog = cog
+        self.channel_id = channel_id
+
+    async def callback(self, interaction: discord.Interaction):
+        # Vérifier les permissions MJ
+        if not self.cog.is_mj(interaction.user):
+            await interaction.response.send_message(
+                "❌ Seuls les MJ peuvent reprendre une scène.",
+                ephemeral=True
+            )
+            return
+
+        # Vérifier que la scène est toujours surveillée
+        if self.channel_id in self.cog.monitored_channels:
+            data = self.cog.monitored_channels[self.channel_id]
+            old_mj_id = data['mj_user_id']
+
+            # Vérifier si c'est déjà le MJ responsable
+            if old_mj_id == interaction.user.id:
+                await interaction.response.send_message(
+                    "ℹ️ Vous êtes déjà le MJ responsable de cette scène.",
+                    ephemeral=True
+                )
+                return
+
+            # Mettre à jour le MJ responsable
+            await self.cog.take_over_scene(self.channel_id, interaction.user.id)
+
+            # Récupérer les informations du salon
+            channel = self.cog.bot.get_channel(self.channel_id)
+            channel_info = self.cog.get_channel_info(channel) if channel else f"salon {self.channel_id}"
+
+            await interaction.response.send_message(
+                f"✅ Vous avez repris la responsabilité de {channel_info}.",
+                ephemeral=True
+            )
+
+            self.cog.logger.info(f"MJ {interaction.user.display_name} ({interaction.user.id}) a repris la scène {self.channel_id}")
+        else:
+            await interaction.response.send_message(
+                "❌ Cette scène n'est plus surveillée.",
+                ephemeral=True
+            )
+
 class SceneView(discord.ui.View):
-    """Vue avec le bouton de clôture de scène."""
+    """Vue avec les boutons de gestion de scène."""
 
     def __init__(self, cog, channel_id: int):
         super().__init__(timeout=None)
+        self.add_item(SceneTakeOverButton(cog, channel_id))
         self.add_item(SceneCloseButton(cog, channel_id))
 
 class ChannelMonitor(commands.Cog):
@@ -420,6 +475,33 @@ class ChannelMonitor(commands.Cog):
     def is_mj(self, user: discord.Member) -> bool:
         """Vérifie si l'utilisateur a le rôle MJ."""
         return any(role.id == MJ_ROLE_ID for role in user.roles)
+
+    def parse_discord_url(self, url: str) -> int | None:
+        """
+        Parse une URL Discord pour extraire l'ID du salon/fil/post de forum.
+
+        Formats supportés:
+        - https://discord.com/channels/GUILD_ID/CHANNEL_ID
+        - https://discord.com/channels/GUILD_ID/CHANNEL_ID/MESSAGE_ID
+        - https://ptb.discord.com/channels/GUILD_ID/CHANNEL_ID
+        - https://canary.discord.com/channels/GUILD_ID/CHANNEL_ID
+
+        Args:
+            url: L'URL Discord à parser
+
+        Returns:
+            int: L'ID du salon/fil, ou None si l'URL est invalide
+        """
+        # Pattern pour matcher les URLs Discord
+        pattern = r'https://(?:ptb\.|canary\.)?discord\.com/channels/\d+/(\d+)(?:/\d+)?'
+        match = re.match(pattern, url.strip())
+
+        if match:
+            try:
+                return int(match.group(1))
+            except ValueError:
+                return None
+        return None
     
     def get_channel_info(self, channel) -> str:
         """Retourne une description du salon (nom + type)."""
@@ -545,15 +627,70 @@ class ChannelMonitor(commands.Cog):
 
         except Exception as e:
             self.logger.error(f"Erreur lors de la mise à jour de l'embed de scène: {e}")
-    
+
+    async def take_over_scene(self, channel_id: int, new_mj_id: int):
+        """
+        Transfère la responsabilité d'une scène à un nouveau MJ.
+
+        Args:
+            channel_id: ID du salon surveillé
+            new_mj_id: ID du nouveau MJ responsable
+        """
+        try:
+            if channel_id not in self.monitored_channels:
+                return
+
+            # Mettre à jour les données en mémoire
+            data = self.monitored_channels[channel_id]
+            old_mj_id = data['mj_user_id']
+            data['mj_user_id'] = new_mj_id
+
+            # Sauvegarder dans Google Sheets
+            self.save_monitored_channels()
+
+            # Mettre à jour l'embed
+            message_id = data['message_id']
+            if message_id:
+                notification_channel = self.bot.get_channel(NOTIFICATION_CHANNEL_ID)
+                if notification_channel:
+                    try:
+                        message = await notification_channel.fetch_message(message_id)
+
+                        # Récupérer les informations
+                        channel = self.bot.get_channel(channel_id)
+                        new_mj_user = self.bot.get_user(new_mj_id)
+
+                        if channel and new_mj_user:
+                            # Créer le nouvel embed avec le nouveau MJ
+                            embed = self.create_scene_embed(channel, new_mj_user, data['participants'])
+
+                            # Créer la vue avec les boutons
+                            view = SceneView(self, channel_id)
+
+                            # Mettre à jour le message
+                            await message.edit(embed=embed, view=view)
+
+                            # Ajouter la vue persistante
+                            self.bot.add_view(view, message_id=message_id)
+
+                    except discord.NotFound:
+                        self.logger.warning(f"Message d'embed {message_id} non trouvé lors du transfert de scène")
+                        data['message_id'] = None
+                        self.save_monitored_channels()
+
+            self.logger.info(f"Scène {channel_id} transférée du MJ {old_mj_id} vers le MJ {new_mj_id}")
+
+        except Exception as e:
+            self.logger.error(f"Erreur lors du transfert de scène {channel_id}: {e}")
+
     def setup_check(interaction: discord.Interaction) -> bool:
         """Vérifie si l'utilisateur a le rôle MJ pour utiliser la commande setup."""
         return any(role.id == MJ_ROLE_ID for role in interaction.user.roles)
 
     @app_commands.command(name="setup", description="Commande Staff - Ajouter un salon à la surveillance")
-    @app_commands.describe(salon="Le salon à surveiller")
+    @app_commands.describe(lien_salon="Le lien du salon, fil ou post de forum à surveiller")
     @app_commands.check(setup_check)
-    async def setup_monitoring(self, interaction: discord.Interaction, salon: discord.abc.GuildChannel):
+    async def setup_monitoring(self, interaction: discord.Interaction, lien_salon: str):
         """Commande pour ajouter un salon à la surveillance."""
 
         # Déférer la réponse pour éviter l'expiration
@@ -566,7 +703,26 @@ class ChannelMonitor(commands.Cog):
                 ephemeral=True
             )
             return
-        
+
+        # Parser l'URL pour extraire l'ID du salon
+        channel_id = self.parse_discord_url(lien_salon)
+        if not channel_id:
+            await interaction.followup.send(
+                "❌ Lien Discord invalide. Veuillez fournir un lien valide vers un salon, fil ou post de forum.\n"
+                "Format attendu: `https://discord.com/channels/GUILD_ID/CHANNEL_ID`",
+                ephemeral=True
+            )
+            return
+
+        # Récupérer l'objet salon/fil
+        salon = self.bot.get_channel(channel_id)
+        if not salon:
+            await interaction.followup.send(
+                "❌ Salon, fil ou post de forum non trouvé. Vérifiez que le lien est correct et que le bot a accès au salon.",
+                ephemeral=True
+            )
+            return
+
         # Vérifier que c'est un type de salon supporté
         if not isinstance(salon, (discord.TextChannel, discord.Thread, discord.ForumChannel)):
             await interaction.followup.send(
