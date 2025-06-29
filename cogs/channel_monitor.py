@@ -427,6 +427,7 @@ class ChannelMonitor(commands.Cog):
                         ping_content = (
                             f"⏰ {mj.mention} **Rappel de scène inactive**\n"
                             f"La scène {channel_info} n'a pas eu d'activité depuis **{days_inactive} jours**.\n"
+                            f"📍 Aller au salon : <#{channel_id}>\n"
                             f"Pensez à vérifier si elle nécessite votre attention !"
                         )
 
@@ -510,12 +511,9 @@ class ChannelMonitor(commands.Cog):
         return None
     
     def get_channel_info(self, channel) -> str:
-        """Retourne une description du salon (nom + type)."""
+        """Retourne une description du salon (nom seulement)."""
         if isinstance(channel, discord.Thread):
-            if channel.parent and hasattr(channel.parent, 'type') and channel.parent.type == discord.ChannelType.forum:
-                return f"fil de forum **{channel.name}** (dans {channel.parent.name})"
-            else:
-                return f"fil **{channel.name}** (dans {channel.parent.name if channel.parent else 'salon inconnu'})"
+            return f"**{channel.name}**"
         elif isinstance(channel, discord.TextChannel):
             return f"**{channel.name}**"
         else:
@@ -640,11 +638,12 @@ class ChannelMonitor(commands.Cog):
             timestamp=datetime.now()
         )
 
-        # Nom du salon
+        # Nom du salon avec lien
         channel_info = self.get_channel_info(channel)
+        channel_link = f"<#{channel.id}>"
         embed.add_field(
             name="Salon",
-            value=channel_info,
+            value=f"{channel_info}\n📍 {channel_link}",
             inline=False
         )
 
@@ -1003,8 +1002,9 @@ class ChannelMonitor(commands.Cog):
                     try:
                         embed_message = await notification_channel.fetch_message(data['message_id'])
 
-                        # Créer le message de ping
-                        ping_content = f"{mj.mention} Nouvelle action dans la scène surveillée de **{message.author.display_name}** !"
+                        # Créer le message de ping avec lien vers le salon
+                        channel_info = self.get_channel_info(message.channel)
+                        ping_content = f"{mj.mention} Nouvelle action dans la scène surveillée de **{message.author.display_name}** !\n📍 Aller au salon : <#{channel_id}>"
 
                         # Envoyer le message de ping en réponse à l'embed
                         ping_message = await embed_message.reply(ping_content)
