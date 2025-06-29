@@ -45,6 +45,10 @@ class SceneCloseButton(discord.ui.Button):
         # Retirer le salon de la surveillance
         if self.channel_id in self.cog.monitored_channels:
             del self.cog.monitored_channels[self.channel_id]
+            # Nettoyer également le timestamp de ping pour ce salon
+            if self.channel_id in self.cog.last_ping_times:
+                del self.cog.last_ping_times[self.channel_id]
+                self.cog.logger.debug(f"Timestamp de ping nettoyé pour le salon {self.channel_id}")
             self.cog.save_monitored_channels()
 
             # Récupérer les informations du salon
@@ -157,6 +161,8 @@ class ChannelMonitor(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.monitored_channels: Dict[int, dict] = {}  # {channel_id: {mj_user_id, message_id, participants, last_activity}}
+        self.last_ping_times: Dict[int, datetime] = {}  # {channel_id: datetime} - Suivi des derniers pings par salon
+        self.ping_cooldown_minutes = 5  # Intervalle de 5 minutes entre les pings par salon
         self.logger = logging.getLogger('channel_monitor')
         self.gspread_client = None
         self.sheet = None
@@ -515,6 +521,114 @@ class ChannelMonitor(commands.Cog):
         else:
             return f"**{getattr(channel, 'name', 'inconnu')}**"
 
+    async def ensure_thread_unarchived(self, thread):
+        """
+        S'assure qu'un thread est désarchivé et déverrouillé pour permettre l'interaction.
+
+        Args:
+            thread: Le thread Discord à vérifier/modifier
+
+        Returns:
+            tuple: (success: bool, (was_archived: bool, was_locked: bool))
+        """
+        if not thread or not isinstance(thread, discord.Thread):
+            self.logger.warning(f"Thread fourni est None ou n'est pas un Thread")
+            return False, (False, False)
+
+        was_archived = thread.archived
+        was_locked = thread.locked
+
+        # Si le thread n'est ni archivé ni verrouillé, pas besoin de le modifier
+        if not was_archived and not was_locked:
+            self.logger.info(f"Thread {thread.id} ({thread.name}) est déjà ouvert.")
+            return True, (was_archived, was_locked)
+
+        # Tenter plusieurs fois de désarchiver ou déverrouiller si nécessaire
+        for attempt in range(3):  # Essayer 3 fois
+            try:
+                self.logger.info(f"Tentative #{attempt+1} de réouverture du thread {thread.id} ({thread.name})")
+
+                # Désarchiver et/ou déverrouiller
+                await thread.edit(archived=False, locked=False)
+                await asyncio.sleep(2)  # Attendre que les changements prennent effet
+
+                # Rafraîchir le thread pour vérifier son état
+                try:
+                    # Utiliser fetch_channel au lieu de get_channel pour forcer une actualisation
+                    reloaded_thread = await thread.guild.fetch_channel(thread.id)
+                    if not reloaded_thread.archived and not reloaded_thread.locked:
+                        self.logger.info(f"Thread {thread.id} réouvert avec succès")
+                        return True, (was_archived, was_locked)
+                    else:
+                        self.logger.warning(f"Le thread {thread.id} est toujours fermé après édition")
+                except Exception as e:
+                    self.logger.error(f"Erreur lors du rechargement du thread: {e}")
+
+            except discord.HTTPException as e:
+                self.logger.error(f"Erreur HTTP lors de la réouverture du thread: {e}")
+            except Exception as e:
+                self.logger.error(f"Erreur générale lors de la réouverture du thread: {type(e).__name__}: {e}")
+
+            if attempt < 2:  # Ne pas attendre après la dernière tentative
+                self.logger.info(f"Tentative #{attempt+1} échouée, attente avant réessai...")
+                await asyncio.sleep(3)
+
+        self.logger.error(f"Impossible de rouvrir le thread {thread.id} après 3 tentatives")
+        return False, (was_archived, was_locked)
+
+    def can_send_ping(self, channel_id: int) -> bool:
+        """
+        Vérifie si un ping peut être envoyé pour un salon donné en respectant l'intervalle de cooldown.
+
+        Args:
+            channel_id: ID du salon à vérifier
+
+        Returns:
+            bool: True si un ping peut être envoyé, False sinon
+        """
+        current_time = datetime.now()
+
+        # Si aucun ping n'a été envoyé pour ce salon, on peut envoyer
+        if channel_id not in self.last_ping_times:
+            return True
+
+        # Vérifier si assez de temps s'est écoulé depuis le dernier ping
+        last_ping_time = self.last_ping_times[channel_id]
+        time_since_last_ping = current_time - last_ping_time
+        cooldown_seconds = self.ping_cooldown_minutes * 60
+
+        return time_since_last_ping.total_seconds() >= cooldown_seconds
+
+    def update_last_ping_time(self, channel_id: int):
+        """
+        Met à jour le timestamp du dernier ping pour un salon donné.
+
+        Args:
+            channel_id: ID du salon pour lequel mettre à jour le timestamp
+        """
+        self.last_ping_times[channel_id] = datetime.now()
+        self.logger.debug(f"Timestamp de dernier ping mis à jour pour le salon {channel_id}")
+
+    def get_remaining_cooldown(self, channel_id: int) -> int:
+        """
+        Retourne le temps restant avant de pouvoir envoyer un nouveau ping (en secondes).
+
+        Args:
+            channel_id: ID du salon à vérifier
+
+        Returns:
+            int: Nombre de secondes restantes, 0 si un ping peut être envoyé
+        """
+        if self.can_send_ping(channel_id):
+            return 0
+
+        current_time = datetime.now()
+        last_ping_time = self.last_ping_times[channel_id]
+        time_since_last_ping = current_time - last_ping_time
+        cooldown_seconds = self.ping_cooldown_minutes * 60
+
+        return max(0, cooldown_seconds - int(time_since_last_ping.total_seconds()))
+
     def create_scene_embed(self, channel, mj_user, participants: List[int] = None, last_action_user=None) -> discord.Embed:
         """Crée l'embed de surveillance d'une scène."""
         if participants is None:
@@ -730,7 +844,38 @@ class ChannelMonitor(commands.Cog):
                 ephemeral=True
             )
             return
-        
+
+        # Si c'est un thread, vérifier s'il est fermé et le rouvrir si nécessaire
+        thread_reopened = False
+        if isinstance(salon, discord.Thread):
+            if salon.archived or salon.locked:
+                await interaction.followup.send(
+                    f"🔄 Le fil **{salon.name}** est fermé/archivé. Tentative de réouverture...",
+                    ephemeral=True
+                )
+
+                success, (was_archived, was_locked) = await self.ensure_thread_unarchived(salon)
+
+                if success:
+                    thread_reopened = True
+                    status_msg = []
+                    if was_archived:
+                        status_msg.append("désarchivé")
+                    if was_locked:
+                        status_msg.append("déverrouillé")
+
+                    await interaction.followup.send(
+                        f"✅ Le fil **{salon.name}** a été {' et '.join(status_msg)} avec succès.",
+                        ephemeral=True
+                    )
+                else:
+                    await interaction.followup.send(
+                        f"❌ Impossible de rouvrir le fil **{salon.name}**. "
+                        f"Vérifiez que le bot a les permissions nécessaires ou contactez un administrateur.",
+                        ephemeral=True
+                    )
+                    return
+
         # Créer l'embed de surveillance dans le salon de notification
         notification_channel = self.bot.get_channel(NOTIFICATION_CHANNEL_ID)
         if not notification_channel:
@@ -764,11 +909,13 @@ class ChannelMonitor(commands.Cog):
 
             channel_info = self.get_channel_info(salon)
 
-            await interaction.followup.send(
-                f"✅ Le {channel_info} est maintenant surveillé.\n"
-                f"Un embed de surveillance a été créé dans <#{NOTIFICATION_CHANNEL_ID}>.",
-                ephemeral=True
-            )
+            success_message = f"✅ Le {channel_info} est maintenant surveillé.\n"
+            success_message += f"Un embed de surveillance a été créé dans <#{NOTIFICATION_CHANNEL_ID}>."
+
+            if thread_reopened:
+                success_message += f"\n🔄 Le fil a été automatiquement rouvert pour permettre la surveillance."
+
+            await interaction.followup.send(success_message, ephemeral=True)
 
             self.logger.info(f"MJ {interaction.user.display_name} ({interaction.user.id}) a ajouté le salon {salon.name} ({salon.id}) à la surveillance")
 
@@ -849,35 +996,49 @@ class ChannelMonitor(commands.Cog):
                 self.logger.error(f"Salon de notification {NOTIFICATION_CHANNEL_ID} non trouvé")
                 return
 
-            # Créer un message de ping en réponse à l'embed
-            if data['message_id']:
-                try:
-                    embed_message = await notification_channel.fetch_message(data['message_id'])
+            # Vérifier si un ping peut être envoyé (respecter l'intervalle de 5 minutes)
+            if self.can_send_ping(channel_id):
+                # Créer un message de ping en réponse à l'embed
+                if data['message_id']:
+                    try:
+                        embed_message = await notification_channel.fetch_message(data['message_id'])
 
-                    # Créer le message de ping
-                    ping_content = f"{mj.mention} Nouvelle action dans la scène surveillée de **{message.author.display_name}** !"
+                        # Créer le message de ping
+                        ping_content = f"{mj.mention} Nouvelle action dans la scène surveillée de **{message.author.display_name}** !"
 
-                    # Envoyer le message de ping en réponse à l'embed
-                    ping_message = await embed_message.reply(ping_content)
+                        # Envoyer le message de ping en réponse à l'embed
+                        ping_message = await embed_message.reply(ping_content)
 
-                    # Ajouter le message de ping à Google Sheets pour suppression automatique
-                    if self.ping_sheet:
-                        try:
-                            self.ping_sheet.append_row([
-                                str(ping_message.id),
-                                str(notification_channel.id),
-                                datetime.now().isoformat()
-                            ])
-                        except Exception as e:
-                            self.logger.error(f"Erreur lors de l'ajout du ping à Google Sheets: {e}")
+                        # Mettre à jour le timestamp du dernier ping pour ce salon
+                        self.update_last_ping_time(channel_id)
 
-                    self.logger.info(f"Ping envoyé pour message de {message.author.display_name} dans {message.channel.name}")
+                        # Ajouter le message de ping à Google Sheets pour suppression automatique
+                        if self.ping_sheet:
+                            try:
+                                self.ping_sheet.append_row([
+                                    str(ping_message.id),
+                                    str(notification_channel.id),
+                                    datetime.now().isoformat()
+                                ])
+                            except Exception as e:
+                                self.logger.error(f"Erreur lors de l'ajout du ping à Google Sheets: {e}")
 
-                except discord.NotFound:
-                    self.logger.warning(f"Message d'embed {data['message_id']} non trouvé")
-                    # Retirer le message_id invalide
-                    data['message_id'] = None
-                    self.save_monitored_channels()
+                        self.logger.info(f"Ping envoyé pour message de {message.author.display_name} dans {message.channel.name}")
+
+                    except discord.NotFound:
+                        self.logger.warning(f"Message d'embed {data['message_id']} non trouvé")
+                        # Retirer le message_id invalide
+                        data['message_id'] = None
+                        self.save_monitored_channels()
+            else:
+                # Log que le ping a été ignoré à cause du cooldown
+                remaining_seconds = self.get_remaining_cooldown(channel_id)
+                remaining_minutes = remaining_seconds // 60
+                remaining_seconds_display = remaining_seconds % 60
+                self.logger.debug(
+                    f"Ping ignoré pour {message.channel.name} - Cooldown actif "
+                    f"(reste {remaining_minutes}m {remaining_seconds_display}s)"
+                )
 
         except Exception as e:
             self.logger.error(f"Erreur lors de la notification pour le message {message.id}: {e}")
