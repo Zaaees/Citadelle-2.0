@@ -676,7 +676,18 @@ class Cards(commands.Cog):
         """
         try:
             # Seuils de conversion (nombre de cartes normales pour obtenir une Full)
-            upgrade_thresholds = {"Élèves": 5}
+            # Toutes les catégories peuvent être échangées avec un seuil de 5 cartes
+            upgrade_thresholds = {
+                "Secrète": 5,
+                "Fondateur": 5,
+                "Historique": 5,
+                "Maître": 5,
+                "Black Hole": 5,
+                "Architectes": 5,
+                "Professeurs": 5,
+                "Autre": 5,
+                "Élèves": 5
+            }
 
             # 1) Récupérer tous les doublons de l'utilisateur
             user_cards = self.get_user_cards(user_id)

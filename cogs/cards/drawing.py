@@ -26,6 +26,8 @@ class DrawingManager:
     def draw_cards(self, number: int) -> List[Tuple[str, str]]:
         """
         Effectue un tirage aléatoire de `number` cartes avec rareté adaptative.
+        Ne tire que des cartes normales (pas de cartes Full).
+        Les cartes Full ne peuvent être obtenues que par échange de 5 cartes normales.
 
         Args:
             number: Nombre de cartes à tirer
@@ -51,49 +53,11 @@ class DrawingManager:
             selected_card = random.choice(available_cards)
             card_name = selected_card['name'].removesuffix('.png')
 
-            # Vérifier s'il y a une variante Full disponible
-            full_cards = self.upgrade_cards_by_category.get(category, [])
-            full_variant = next(
-                (f for f in full_cards
-                 if f['name'].removesuffix('.png').removesuffix(' (Full)') == card_name),
-                None
-            )
-
-            # Logique de tirage de variante
-            if full_variant:
-                # Probabilité de tirer la variante Full
-                variant_chance = self._calculate_variant_chance(category)
-                if random.random() < variant_chance:
-                    drawn.append((category, full_variant['name'].removesuffix('.png')))
-                else:
-                    drawn.append((category, card_name))
-            else:
-                drawn.append((category, card_name))
+            # Ajouter uniquement la carte normale (pas de variante Full)
+            drawn.append((category, card_name))
 
         return drawn
-    
-    def _calculate_variant_chance(self, category: str) -> float:
-        """
-        Calcule la probabilité de tirer une variante Full selon la rareté.
-        
-        Args:
-            category: Catégorie de la carte
-        
-        Returns:
-            float: Probabilité entre 0 et 1
-        """
-        variant_chances = {
-            "Secrète": 0.50,
-            "Fondateur": 0.40,
-            "Historique": 0.30,
-            "Maître": 0.25,
-            "Black Hole": 0.25,
-            "Architectes": 0.20,
-            "Professeurs": 0.15,
-            "Autre": 0.10,
-            "Élèves": 0.05
-        }
-        return variant_chances.get(category, 0.05)
+
     
     def select_daily_sacrificial_cards(self, user_id: int, eligible_cards: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
         """
