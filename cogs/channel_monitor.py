@@ -1008,8 +1008,8 @@ class ChannelMonitor(commands.Cog):
         channel_details = self.get_detailed_channel_info(channel)
         channel_link = f"<#{channel.id}>"
 
-        # Construire la description du salon
-        salon_info = f"**{channel_details['name']}**\n📍 {channel_link}"
+        # Construire la description du salon (juste le lien, pas de répétition du nom)
+        salon_info = channel_link
 
         # Ajouter les informations de forum/thread parent si applicable
         if channel_details['type'] == 'forum_post' and channel_details['forum_name']:
@@ -1018,7 +1018,7 @@ class ChannelMonitor(commands.Cog):
             salon_info += f"\n💬 **Salon parent :** {channel_details['parent_name']}"
 
         embed.add_field(
-            name="📍 Salon",
+            name="📍 Scène",
             value=salon_info,
             inline=False
         )
@@ -1094,7 +1094,7 @@ class ChannelMonitor(commands.Cog):
         )
 
         # Informations du salon
-        salon_info = f"**{channel_details['name']}**\n📍 <#{channel_id}>"
+        salon_info = f"<#{channel_id}>"
         if channel_details['type'] == 'forum_post' and channel_details['forum_name']:
             salon_info += f"\n🗂️ **Forum :** {channel_details['forum_name']}"
         elif channel_details['type'] == 'thread' and channel_details['parent_name']:
@@ -1133,7 +1133,7 @@ class ChannelMonitor(commands.Cog):
         )
 
         # Informations du salon
-        salon_info = f"**{channel_details['name']}**\n📍 <#{channel_id}>"
+        salon_info = f"<#{channel_id}>"
         if channel_details['type'] == 'forum_post' and channel_details['forum_name']:
             salon_info += f"\n🗂️ **Forum :** {channel_details['forum_name']}"
         elif channel_details['type'] == 'thread' and channel_details['parent_name']:
@@ -1166,7 +1166,7 @@ class ChannelMonitor(commands.Cog):
 
         if channel:
             channel_details = self.get_detailed_channel_info(channel)
-            salon_info = f"**{channel_details['name']}**\n📍 <#{channel.id}>"
+            salon_info = f"<#{channel.id}>"
             if channel_details['type'] == 'forum_post' and channel_details['forum_name']:
                 salon_info += f"\n🗂️ **Forum :** {channel_details['forum_name']}"
             elif channel_details['type'] == 'thread' and channel_details['parent_name']:
