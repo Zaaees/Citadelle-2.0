@@ -36,10 +36,17 @@ class DepositCardModal(discord.ui.Modal, title="Déposer une carte"):
             card_match = self.cog.find_user_card_by_input(self.user.id, input_text)
             
             if not card_match:
-                await interaction.followup.send(
-                    f"❌ Carte non trouvée dans votre inventaire : **{input_text}**",
-                    ephemeral=True
-                )
+                # Générer des suggestions
+                suggestions = self.cog.get_user_card_suggestions(self.user.id, input_text)
+                error_msg = f"❌ Carte non trouvée dans votre inventaire : **{input_text}**\n"
+                error_msg += f"💡 Utilisez le nom exact de la carte ou son identifiant (ex: C42)"
+
+                if suggestions:
+                    error_msg += f"\n\n🔍 **Suggestions similaires :**\n"
+                    for suggestion in suggestions:
+                        error_msg += f"• {suggestion}\n"
+
+                await interaction.followup.send(error_msg, ephemeral=True)
                 return
             
             category, name = card_match
@@ -253,45 +260,30 @@ class CardNameModal(discord.ui.Modal, title="Afficher une carte"):
     async def on_submit(self, interaction: discord.Interaction):
         """Traite l'affichage de carte."""
         await interaction.response.defer(ephemeral=True)
-        
+
         try:
             input_text = self.card_name.value.strip()
+            logging.info(f"[CARD_DISPLAY] Recherche de carte: '{input_text}' pour utilisateur {self.user.id}")
 
-            # Vérifier si c'est un identifiant (C1, C2, etc.)
-            if input_text.upper().startswith('C') and input_text[1:].isdigit():
-                # Recherche par identifiant
-                discovery_index = int(input_text[1:])
-                discoveries_cache = self.cog.discovery_manager.storage.get_discoveries_cache()
+            # Utiliser la méthode unifiée de recherche
+            card_match = self.cog.find_user_card_by_input(self.user.id, input_text)
 
-                if discoveries_cache:
-                    for row in discoveries_cache[1:]:  # Skip header
-                        if len(row) >= 6 and int(row[5]) == discovery_index:
-                            category, name = row[0], row[1]
-                            break
-                    else:
-                        await interaction.followup.send(
-                            f"❌ Aucune carte trouvée avec l'identifiant '{input_text.upper()}'.",
-                            ephemeral=True
-                        )
-                        return
-                else:
-                    await interaction.followup.send(
-                        "❌ Système de découvertes non disponible.",
-                        ephemeral=True
-                    )
-                    return
-            else:
-                # Recherche par nom dans l'inventaire de l'utilisateur
-                card_match = self.cog.find_user_card_by_input(self.user.id, input_text)
+            if not card_match:
+                # Générer des suggestions
+                suggestions = self.cog.get_user_card_suggestions(self.user.id, input_text)
+                error_msg = f"❌ Carte non trouvée dans votre inventaire : **{input_text}**\n"
+                error_msg += f"💡 Utilisez le nom exact de la carte ou son identifiant (ex: C42)"
 
-                if not card_match:
-                    await interaction.followup.send(
-                        f"❌ Carte non trouvée dans votre inventaire : **{input_text}**",
-                        ephemeral=True
-                    )
-                    return
+                if suggestions:
+                    error_msg += f"\n\n🔍 **Suggestions similaires :**\n"
+                    for suggestion in suggestions:
+                        error_msg += f"• {suggestion}\n"
 
-                category, name = card_match
+                await interaction.followup.send(error_msg, ephemeral=True)
+                return
+
+            category, name = card_match
+            logging.info(f"[CARD_DISPLAY] Carte trouvée: {category}/{name}")
 
             # Rechercher le fichier de la carte
             card_info = self.cog.find_card_by_name(name)
@@ -393,10 +385,17 @@ class TradeOfferCardModal(discord.ui.Modal, title="Proposer un échange"):
             card_match = self.cog.find_user_card_by_input(self.user.id, input_text)
             
             if not card_match:
-                await interaction.followup.send(
-                    f"❌ Carte non trouvée dans votre inventaire : **{input_text}**",
-                    ephemeral=True
-                )
+                # Générer des suggestions
+                suggestions = self.cog.get_user_card_suggestions(self.user.id, input_text)
+                error_msg = f"❌ Carte non trouvée dans votre inventaire : **{input_text}**\n"
+                error_msg += f"💡 Utilisez le nom exact de la carte ou son identifiant (ex: C42)"
+
+                if suggestions:
+                    error_msg += f"\n\n🔍 **Suggestions similaires :**\n"
+                    for suggestion in suggestions:
+                        error_msg += f"• {suggestion}\n"
+
+                await interaction.followup.send(error_msg, ephemeral=True)
                 return
             
             category, name = card_match
@@ -471,10 +470,17 @@ class TradeResponseModal(discord.ui.Modal, title="Réponse à l'échange"):
             card_match = self.cog.find_user_card_by_input(self.target.id, input_text)
             
             if not card_match:
-                await interaction.followup.send(
-                    f"❌ Carte non trouvée dans votre inventaire : **{input_text}**",
-                    ephemeral=True
-                )
+                # Générer des suggestions
+                suggestions = self.cog.get_user_card_suggestions(self.target.id, input_text)
+                error_msg = f"❌ Carte non trouvée dans votre inventaire : **{input_text}**\n"
+                error_msg += f"💡 Utilisez le nom exact de la carte ou son identifiant (ex: C42)"
+
+                if suggestions:
+                    error_msg += f"\n\n🔍 **Suggestions similaires :**\n"
+                    for suggestion in suggestions:
+                        error_msg += f"• {suggestion}\n"
+
+                await interaction.followup.send(error_msg, ephemeral=True)
                 return
             
             return_cat, return_name = card_match
@@ -558,10 +564,17 @@ class TradeOfferCardModal(discord.ui.Modal, title="Proposer un échange"):
             card_match = self.cog.find_user_card_by_input(self.user.id, input_text)
 
             if not card_match:
-                await interaction.followup.send(
-                    f"❌ Carte non trouvée dans votre inventaire : **{input_text}**",
-                    ephemeral=True
-                )
+                # Générer des suggestions
+                suggestions = self.cog.get_user_card_suggestions(self.user.id, input_text)
+                error_msg = f"❌ Carte non trouvée dans votre inventaire : **{input_text}**\n"
+                error_msg += f"💡 Utilisez le nom exact de la carte ou son identifiant (ex: C42)"
+
+                if suggestions:
+                    error_msg += f"\n\n🔍 **Suggestions similaires :**\n"
+                    for suggestion in suggestions:
+                        error_msg += f"• {suggestion}\n"
+
+                await interaction.followup.send(error_msg, ephemeral=True)
                 return
 
             category, name = card_match
@@ -629,42 +642,27 @@ class CardInfoModal(discord.ui.Modal, title="Voir carte et informations"):
 
         try:
             input_text = self.card_name.value.strip()
+            logging.info(f"[CARD_INFO] Recherche de carte: '{input_text}' pour utilisateur {self.user.id}")
 
-            # Vérifier si c'est un identifiant (C1, C2, etc.)
-            if input_text.upper().startswith('C') and input_text[1:].isdigit():
-                # Recherche par identifiant
-                discovery_index = int(input_text[1:])
-                discoveries_cache = self.cog.discovery_manager.storage.get_discoveries_cache()
+            # Utiliser la méthode unifiée de recherche
+            card_match = self.cog.find_user_card_by_input(self.user.id, input_text)
 
-                if discoveries_cache:
-                    for row in discoveries_cache[1:]:  # Skip header
-                        if len(row) >= 6 and int(row[5]) == discovery_index:
-                            category, name = row[0], row[1]
-                            break
-                    else:
-                        await interaction.followup.send(
-                            f"❌ Aucune carte trouvée avec l'identifiant '{input_text.upper()}'.",
-                            ephemeral=True
-                        )
-                        return
-                else:
-                    await interaction.followup.send(
-                        "❌ Système de découvertes non disponible.",
-                        ephemeral=True
-                    )
-                    return
-            else:
-                # Recherche par nom dans l'inventaire de l'utilisateur
-                card_match = self.cog.find_user_card_by_input(self.user.id, input_text)
+            if not card_match:
+                # Générer des suggestions
+                suggestions = self.cog.get_user_card_suggestions(self.user.id, input_text)
+                error_msg = f"❌ Carte non trouvée dans votre inventaire : **{input_text}**\n"
+                error_msg += f"💡 Utilisez le nom exact de la carte ou son identifiant (ex: C42)"
 
-                if not card_match:
-                    await interaction.followup.send(
-                        f"❌ Carte non trouvée dans votre inventaire : **{input_text}**",
-                        ephemeral=True
-                    )
-                    return
+                if suggestions:
+                    error_msg += f"\n\n🔍 **Suggestions similaires :**\n"
+                    for suggestion in suggestions:
+                        error_msg += f"• {suggestion}\n"
 
-                category, name = card_match
+                await interaction.followup.send(error_msg, ephemeral=True)
+                return
+
+            category, name = card_match
+            logging.info(f"[CARD_INFO] Carte trouvée: {category}/{name}")
 
             # Rechercher le fichier de la carte
             card_info = self.cog.find_card_by_name(name)

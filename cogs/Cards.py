@@ -558,6 +558,9 @@ class Cards(commands.Cog):
 
                 # Télécharger l'image
                 file_bytes = self.download_drive_file(file_id)
+                if not file_bytes:
+                    logging.error(f"[FORUM] Impossible de télécharger l'image pour {name} ({cat})")
+                    continue
 
                 # Poster dans le forum (la méthode gère la création de thread si nécessaire)
                 success = await self.forum_manager.post_card_to_forum(
@@ -598,15 +601,17 @@ class Cards(commands.Cog):
         except Exception as e:
             logging.error(f"[PROGRESS] Erreur lors de la mise à jour du message de progression: {e}")
 
-    def download_drive_file(self, file_id: str) -> bytes:
+    def download_drive_file(self, file_id: str) -> bytes | None:
         """Télécharge un fichier depuis Google Drive."""
         try:
+            logging.debug(f"[DRIVE] Téléchargement du fichier {file_id}")
             request = self.drive_service.files().get_media(fileId=file_id)
             file_bytes = request.execute()
+            logging.debug(f"[DRIVE] Fichier téléchargé avec succès: {len(file_bytes)} bytes")
             return file_bytes
         except Exception as e:
             logging.error(f"[DRIVE] Erreur lors du téléchargement du fichier {file_id}: {e}")
-            return b""
+            return None
 
     async def check_for_upgrades(self, interaction: discord.Interaction, user_id: int, drawn_cards: list[tuple[str, str]]):
         """
@@ -749,6 +754,9 @@ class Cards(commands.Cog):
 
                         if file_id:
                             file_bytes = self.download_drive_file(file_id)
+                            if not file_bytes:
+                                logging.error(f"[UPGRADE] Impossible de télécharger l'image pour {full_name}")
+                                continue
                             # Désactiver les infos d'inventaire pour les notifications d'upgrade
                             embed, image_file = self.build_card_embed(cat, full_name, file_bytes, show_inventory_info=False)
                             embed.title = f"🎉 Carte Full obtenue : {full_name}"
@@ -845,16 +853,14 @@ class Cards(commands.Cog):
             full_name = f"{name} (Full)"
             # Vérifier si la carte Full existe dans les fichiers
             for f in self.upgrade_cards_by_category.get(category, []):
-                if self.normalize_name(f['name'].removesuffix(".png")) == self.normalize_name(full_name):
+                if normalize_name(f['name'].removesuffix(".png")) == normalize_name(full_name):
                     return True
             return False
         except Exception as e:
             logging.error(f"[EMBED] Erreur dans can_have_full_version: {e}")
             return False
 
-    def normalize_name(self, name: str) -> str:
-        """Normalise un nom de carte pour la comparaison."""
-        return name.strip().lower().replace(" ", "").replace("(", "").replace(")", "")
+
 
     # ========== MÉTHODES DE CLASSEMENT ==========
 
@@ -966,51 +972,105 @@ class Cards(commands.Cog):
     def find_user_card_by_input(self, user_id: int, input_text: str) -> tuple[str, str] | None:
         """Recherche une carte dans l'inventaire d'un utilisateur par nom ou ID."""
         input_text = input_text.strip()
+        logging.debug(f"[CARD_SEARCH] Recherche pour utilisateur {user_id}: '{input_text}'")
 
         # Vérifier si c'est un identifiant (C1, C2, etc.)
         if input_text.upper().startswith('C') and input_text[1:].isdigit():
             # Recherche par identifiant
             discovery_index = int(input_text[1:])
-            discoveries_cache = self.discovery_manager.storage.get_discoveries_cache()
+            logging.debug(f"[CARD_SEARCH] Recherche par identifiant: C{discovery_index}")
 
-            if discoveries_cache:
+            try:
+                discoveries_cache = self.discovery_manager.storage.get_discoveries_cache()
+                if not discoveries_cache:
+                    logging.warning("[CARD_SEARCH] Cache des découvertes non disponible")
+                    return None
+
                 for row in discoveries_cache[1:]:  # Skip header
-                    if len(row) >= 6 and int(row[5]) == discovery_index:
-                        category, name = row[0], row[1]
-                        # Vérifier que l'utilisateur possède cette carte
-                        owned_cards = self.get_user_cards(user_id)
-                        if any(cat == category and n == name for cat, n in owned_cards):
-                            return (category, name)
-                        return None
-            return None
+                    if len(row) >= 6:
+                        try:
+                            if int(row[5]) == discovery_index:
+                                category, name = row[0], row[1]
+                                logging.debug(f"[CARD_SEARCH] Carte trouvée par ID: {category}/{name}")
+
+                                # Vérifier que l'utilisateur possède cette carte
+                                owned_cards = self.get_user_cards(user_id)
+                                if any(cat == category and n == name for cat, n in owned_cards):
+                                    logging.debug(f"[CARD_SEARCH] Utilisateur possède la carte")
+                                    return (category, name)
+                                else:
+                                    logging.debug(f"[CARD_SEARCH] Utilisateur ne possède pas la carte")
+                                    return None
+                        except (ValueError, IndexError) as e:
+                            logging.warning(f"[CARD_SEARCH] Erreur dans les données de découverte: {e}")
+                            continue
+
+                logging.debug(f"[CARD_SEARCH] Aucune carte trouvée avec l'ID C{discovery_index}")
+                return None
+
+            except Exception as e:
+                logging.error(f"[CARD_SEARCH] Erreur lors de la recherche par ID: {e}")
+                return None
 
         # Recherche par nom
-        if not input_text.lower().endswith(".png"):
-            input_text += ".png"
+        logging.debug(f"[CARD_SEARCH] Recherche par nom: '{input_text}'")
 
-        normalized_input = normalize_name(input_text.removesuffix(".png"))
+        # Normaliser l'input pour la recherche
+        search_input = input_text
+        if not search_input.lower().endswith(".png"):
+            search_input += ".png"
+
+        normalized_input = normalize_name(search_input.removesuffix(".png"))
         owned_cards = self.get_user_cards(user_id)
 
-        match = next(
-            ((cat, name) for cat, name in owned_cards
-             if normalize_name(name.removesuffix(".png")) == normalized_input),
-            None
-        )
-        return match
+        logging.debug(f"[CARD_SEARCH] Input normalisé: '{normalized_input}', cartes possédées: {len(owned_cards)}")
 
-    def get_card_identifier(self, category: str, name: str) -> str | None:
-        """Récupère l'identifiant d'une carte (C1, C2, etc.)."""
-        discovery_info = self.discovery_manager.get_discovery_info(category, name)
-        if discovery_info:
-            return f"C{discovery_info['discovery_index']}"
+        for cat, name in owned_cards:
+            normalized_card_name = normalize_name(name.removesuffix(".png"))
+            if normalized_card_name == normalized_input:
+                logging.debug(f"[CARD_SEARCH] Carte trouvée par nom: {cat}/{name}")
+                return (cat, name)
+
+        logging.debug(f"[CARD_SEARCH] Aucune carte trouvée par nom")
         return None
+
+    def get_user_card_suggestions(self, user_id: int, input_text: str, max_suggestions: int = 5) -> list[str]:
+        """Retourne des suggestions de cartes similaires pour aider l'utilisateur."""
+        try:
+            input_text = input_text.strip()
+            normalized_input = normalize_name(input_text.removesuffix(".png"))
+            owned_cards = self.get_user_cards(user_id)
+
+            suggestions = []
+            for cat, name in owned_cards:
+                normalized_card_name = normalize_name(name.removesuffix(".png"))
+                # Recherche de correspondances partielles
+                if normalized_input in normalized_card_name or normalized_card_name in normalized_input:
+                    display_name = name.removesuffix(".png")
+                    card_id = self.get_card_identifier(cat, name)
+                    if card_id:
+                        suggestions.append(f"{display_name} ({card_id})")
+                    else:
+                        suggestions.append(display_name)
+
+                    if len(suggestions) >= max_suggestions:
+                        break
+
+            return suggestions
+        except Exception as e:
+            logging.error(f"[CARD_SEARCH] Erreur lors de la génération de suggestions: {e}")
+            return []
+
+
 
     def find_card_by_name(self, input_name: str) -> tuple[str, str, str] | None:
         """
         Recherche une carte par nom dans toutes les catégories.
         Retourne (catégorie, nom exact avec extension, file_id) ou None.
         """
+        logging.debug(f"[FIND_CARD] Recherche du fichier pour: '{input_name}'")
         normalized_input = normalize_name(input_name.removesuffix(".png"))
+        logging.debug(f"[FIND_CARD] Input normalisé: '{normalized_input}'")
 
         # Chercher dans les cartes normales et Full
         all_files = {}
@@ -1019,25 +1079,23 @@ class Cards(commands.Cog):
         for cat, files in self.upgrade_cards_by_category.items():
             all_files.setdefault(cat, []).extend(files)
 
+        logging.debug(f"[FIND_CARD] Catégories disponibles: {list(all_files.keys())}")
+        total_files = sum(len(files) for files in all_files.values())
+        logging.debug(f"[FIND_CARD] Total de fichiers à rechercher: {total_files}")
+
         for category, files in all_files.items():
             for file_info in files:
                 file_name = file_info['name']
                 normalized_file = normalize_name(file_name.removesuffix(".png"))
                 if normalized_file == normalized_input:
+                    logging.debug(f"[FIND_CARD] Fichier trouvé: {category}/{file_name} (ID: {file_info['id']})")
                     # Retourner le nom avec extension pour correspondre au format de l'inventaire
                     return category, file_name, file_info['id']
 
+        logging.debug(f"[FIND_CARD] Aucun fichier trouvé pour '{input_name}'")
         return None
 
-    def download_drive_file(self, file_id: str) -> bytes | None:
-        """Télécharge un fichier depuis Google Drive."""
-        try:
-            request = self.drive_service.files().get_media(fileId=file_id)
-            file_bytes = request.execute()
-            return file_bytes
-        except Exception as e:
-            logging.error(f"[DRIVE] Erreur lors du téléchargement du fichier {file_id}: {e}")
-            return None
+
 
     def get_card_id(self, category: str, name: str) -> str | None:
         """Récupère l'ID d'une carte (sera implémenté avec le système d'ID)."""

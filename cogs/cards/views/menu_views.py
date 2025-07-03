@@ -139,8 +139,9 @@ class CardsMenuView(discord.ui.View):
             )
             if file_id:
                 file_bytes = self.cog.download_drive_file(file_id)
-                embed, image_file = self.cog.build_card_embed(cat, name, file_bytes, self.user)
-                embed_msgs.append((embed, image_file))
+                if file_bytes:
+                    embed, image_file = self.cog.build_card_embed(cat, name, file_bytes, self.user)
+                    embed_msgs.append((embed, image_file))
 
         if embed_msgs:
             # Envoyer toutes les cartes directement dans le salon comme messages indépendants
@@ -429,8 +430,9 @@ class SacrificialDrawConfirmationView(discord.ui.View):
                     )
                     if file_id:
                         file_bytes = self.cog.download_drive_file(file_id)
-                        embed, image_file = self.cog.build_card_embed(cat, name, file_bytes, self.user)
-                        embed_msgs.append((embed, image_file))
+                        if file_bytes:
+                            embed, image_file = self.cog.build_card_embed(cat, name, file_bytes, self.user)
+                            embed_msgs.append((embed, image_file))
 
                 if embed_msgs:
                     # Envoyer toutes les cartes directement dans le salon comme messages indépendants
