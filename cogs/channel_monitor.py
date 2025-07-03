@@ -796,14 +796,15 @@ class ChannelMonitor(commands.Cog):
         except Exception as e:
             self.logger.error(f"Erreur lors du transfert de scène {channel_id}: {e}")
 
-    def setup_check(interaction: discord.Interaction) -> bool:
-        """Vérifie si l'utilisateur a le rôle MJ pour utiliser la commande setup."""
+    @staticmethod
+    def scene_check(interaction: discord.Interaction) -> bool:
+        """Vérifie si l'utilisateur a le rôle MJ pour utiliser la commande scene."""
         return any(role.id == MJ_ROLE_ID for role in interaction.user.roles)
 
-    @app_commands.command(name="setup", description="Commande Staff - Ajouter un salon à la surveillance")
+    @app_commands.command(name="scene", description="Commande Staff - Ajouter un salon à la surveillance")
     @app_commands.describe(lien_salon="Le lien du salon, fil ou post de forum à surveiller")
-    @app_commands.check(setup_check)
-    async def setup_monitoring(self, interaction: discord.Interaction, lien_salon: str):
+    @app_commands.check(scene_check)
+    async def scene_monitoring(self, interaction: discord.Interaction, lien_salon: str):
         """Commande pour ajouter un salon à la surveillance."""
 
         # Déférer la réponse pour éviter l'expiration
@@ -925,9 +926,9 @@ class ChannelMonitor(commands.Cog):
             )
             self.logger.error(f"Erreur lors de la création de l'embed: {e}")
 
-    @setup_monitoring.error
-    async def setup_monitoring_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
-        """Gestionnaire d'erreur pour la commande setup."""
+    @scene_monitoring.error
+    async def scene_monitoring_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        """Gestionnaire d'erreur pour la commande scene."""
         try:
             if isinstance(error, app_commands.CheckFailure):
                 if not interaction.response.is_done():
@@ -951,14 +952,156 @@ class ChannelMonitor(commands.Cog):
                         "❌ Une erreur est survenue lors de l'exécution de la commande.",
                         ephemeral=True
                     )
-                self.logger.error(f"Erreur dans la commande setup: {error}")
+                self.logger.error(f"Erreur dans la commande scene: {error}")
         except discord.NotFound:
             # L'interaction a expiré, on ne peut plus répondre
-            self.logger.error(f"Interaction expirée pour la commande setup: {error}")
+            self.logger.error(f"Interaction expirée pour la commande scene: {error}")
         except Exception as e:
-            self.logger.error(f"Erreur dans le gestionnaire d'erreur setup: {e}")
-    
+            self.logger.error(f"Erreur dans le gestionnaire d'erreur scene: {e}")
 
+    @commands.command(name="create_scene")
+    async def create_scene_admin(self, ctx: commands.Context, lien_salon: str, mj_id: int):
+        """
+        Commande admin pour créer une scène avec un MJ désigné.
+
+        Usage: !create_scene <lien_salon> <mj_id>
+
+        Args:
+            lien_salon: Le lien du salon, fil ou post de forum à surveiller
+            mj_id: L'ID du MJ qui sera responsable de la scène
+        """
+        # Vérifier les permissions MJ de l'utilisateur qui lance la commande
+        if not self.is_mj(ctx.author):
+            await ctx.send("❌ Cette commande est réservée aux MJ.", delete_after=10)
+            return
+
+        # Vérifier que le MJ désigné existe et a le rôle MJ
+        designated_mj = self.bot.get_user(mj_id)
+        if not designated_mj:
+            await ctx.send(f"❌ Utilisateur avec l'ID {mj_id} non trouvé.", delete_after=10)
+            return
+
+        # Vérifier que le MJ désigné est membre du serveur et a le rôle MJ
+        guild_member = ctx.guild.get_member(mj_id)
+        if not guild_member:
+            await ctx.send(f"❌ L'utilisateur {designated_mj.display_name} n'est pas membre de ce serveur.", delete_after=10)
+            return
+
+        if not self.is_mj(guild_member):
+            await ctx.send(f"❌ L'utilisateur {designated_mj.display_name} n'a pas le rôle MJ.", delete_after=10)
+            return
+
+        # Parser l'URL pour extraire l'ID du salon
+        channel_id = self.parse_discord_url(lien_salon)
+        if not channel_id:
+            await ctx.send(
+                "❌ Lien Discord invalide. Veuillez fournir un lien valide vers un salon, fil ou post de forum.\n"
+                "Format attendu: `https://discord.com/channels/GUILD_ID/CHANNEL_ID`",
+                delete_after=15
+            )
+            return
+
+        # Récupérer l'objet salon/fil
+        salon = self.bot.get_channel(channel_id)
+        if not salon:
+            await ctx.send(
+                "❌ Salon, fil ou post de forum non trouvé. Vérifiez que le lien est correct et que le bot a accès au salon.",
+                delete_after=10
+            )
+            return
+
+        # Vérifier que c'est un type de salon supporté
+        if not isinstance(salon, (discord.TextChannel, discord.Thread, discord.ForumChannel)):
+            await ctx.send(
+                "❌ Ce type de salon n'est pas supporté. Seuls les salons texte, fils et forums sont supportés.",
+                delete_after=10
+            )
+            return
+
+        # Vérifier si le salon est déjà surveillé
+        if salon.id in self.monitored_channels:
+            current_mj_id = self.monitored_channels[salon.id]['mj_user_id']
+            current_mj = self.bot.get_user(current_mj_id)
+            current_mj_name = current_mj.display_name if current_mj else f"ID {current_mj_id}"
+            await ctx.send(
+                f"❌ Ce salon est déjà surveillé par **{current_mj_name}**.",
+                delete_after=10
+            )
+            return
+
+        # Si c'est un thread, vérifier s'il est fermé et le rouvrir si nécessaire
+        thread_reopened = False
+        if isinstance(salon, discord.Thread):
+            if salon.archived or salon.locked:
+                status_msg = await ctx.send(f"🔄 Le fil **{salon.name}** est fermé/archivé. Tentative de réouverture...")
+
+                success, (was_archived, was_locked) = await self.ensure_thread_unarchived(salon)
+
+                if success:
+                    thread_reopened = True
+                    status_parts = []
+                    if was_archived:
+                        status_parts.append("désarchivé")
+                    if was_locked:
+                        status_parts.append("déverrouillé")
+
+                    await status_msg.edit(content=f"✅ Le fil **{salon.name}** a été {' et '.join(status_parts)} avec succès.")
+                else:
+                    await status_msg.edit(
+                        content=f"❌ Impossible de rouvrir le fil **{salon.name}**. "
+                        f"Vérifiez que le bot a les permissions nécessaires ou contactez un administrateur."
+                    )
+                    return
+
+        # Créer l'embed de surveillance dans le salon de notification
+        notification_channel = self.bot.get_channel(NOTIFICATION_CHANNEL_ID)
+        if not notification_channel:
+            await ctx.send(
+                f"❌ Erreur: Le salon de notification {NOTIFICATION_CHANNEL_ID} n'a pas été trouvé.",
+                delete_after=10
+            )
+            return
+
+        # Créer l'embed initial avec le MJ désigné
+        embed = self.create_scene_embed(salon, designated_mj)
+
+        # Créer la vue avec le bouton de clôture
+        view = SceneView(self, salon.id)
+
+        # Envoyer l'embed dans le salon de notification
+        try:
+            embed_message = await notification_channel.send(embed=embed, view=view)
+
+            # Ajouter le salon à la surveillance avec l'ID du message et le MJ désigné
+            self.monitored_channels[salon.id] = {
+                'mj_user_id': designated_mj.id,  # Utiliser l'ID du MJ désigné
+                'message_id': embed_message.id,
+                'participants': [],
+                'last_activity': datetime.now()
+            }
+            self.save_monitored_channels()
+
+            # Ajouter la vue persistante
+            self.bot.add_view(view, message_id=embed_message.id)
+
+            channel_info = self.get_channel_info(salon)
+
+            success_message = f"✅ Le {channel_info} est maintenant surveillé par **{designated_mj.display_name}**.\n"
+            success_message += f"Un embed de surveillance a été créé dans <#{NOTIFICATION_CHANNEL_ID}>."
+
+            if thread_reopened:
+                success_message += f"\n🔄 Le fil a été automatiquement rouvert pour permettre la surveillance."
+
+            await ctx.send(success_message, delete_after=15)
+
+            self.logger.info(f"Admin {ctx.author.display_name} ({ctx.author.id}) a créé une scène pour le MJ {designated_mj.display_name} ({designated_mj.id}) dans le salon {salon.name} ({salon.id})")
+
+        except Exception as e:
+            await ctx.send(
+                f"❌ Erreur lors de la création de l'embed de surveillance: {str(e)}",
+                delete_after=10
+            )
+            self.logger.error(f"Erreur lors de la création de l'embed admin: {e}")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
