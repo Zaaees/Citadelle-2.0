@@ -707,6 +707,46 @@ class Cards(commands.Cog):
                     continue
                 seuil = upgrade_thresholds[cat]
                 if count >= seuil:
+                    # NOUVELLE LOGIQUE: Vérifier d'abord si la carte Full existe avant de retirer les cartes
+                    full_name = f"{name} (Full)"
+
+                    # Chercher la carte Full correspondante dans toutes les catégories
+                    file_id = None
+
+                    # D'abord chercher dans la catégorie d'origine
+                    available_full_cards = self.upgrade_cards_by_category.get(cat, [])
+                    logging.info(f"[UPGRADE] Recherche de {full_name} dans {cat}. Cartes Full disponibles: {len(available_full_cards)}")
+
+                    if available_full_cards:
+                        for f in available_full_cards:
+                            card_file_name = f['name'].removesuffix(".png")
+                            logging.debug(f"[UPGRADE] Comparaison: '{self.normalize_name(card_file_name)}' vs '{self.normalize_name(full_name)}'")
+                            if self.normalize_name(card_file_name) == self.normalize_name(full_name):
+                                file_id = f['id']
+                                logging.info(f"[UPGRADE] Carte Full trouvée dans {cat}: {card_file_name} (ID: {file_id})")
+                                break
+
+                    # Si pas trouvée dans la catégorie d'origine, chercher dans toutes les autres catégories
+                    if not file_id:
+                        logging.info(f"[UPGRADE] Carte {full_name} non trouvée dans {cat}, recherche dans toutes les catégories...")
+                        for search_cat, full_cards in self.upgrade_cards_by_category.items():
+                            if search_cat == cat:  # Déjà cherché
+                                continue
+                            for f in full_cards:
+                                card_file_name = f['name'].removesuffix(".png")
+                                if self.normalize_name(card_file_name) == self.normalize_name(full_name):
+                                    file_id = f['id']
+                                    logging.info(f"[UPGRADE] Carte Full trouvée dans {search_cat}: {card_file_name} (ID: {file_id})")
+                                    break
+                            if file_id:  # Trouvée, sortir de la boucle externe
+                                break
+
+                    # Si aucune carte Full n'existe, ne pas effectuer l'upgrade
+                    if not file_id:
+                        logging.warning(f"[UPGRADE] Carte Full {full_name} introuvable dans toutes les catégories. Upgrade ignoré pour éviter la perte de cartes.")
+                        continue
+
+                    # Maintenant que nous savons que la carte Full existe, retirer les cartes normales
                     removed = 0
                     for _ in range(seuil):
                         if self.remove_card_from_user(user_id, cat, name):
@@ -719,98 +759,65 @@ class Cards(commands.Cog):
                                 self.add_card_to_user(user_id, cat, name)
                             break
                     else:
-                        full_name = f"{name} (Full)"
+                        # Toutes les cartes ont été retirées avec succès, procéder à l'ajout de la carte Full
+                        file_bytes = self.download_drive_file(file_id)
+                        if not file_bytes:
+                            logging.error(f"[UPGRADE] Impossible de télécharger l'image pour {full_name}")
+                            # Rollback: remettre les cartes retirées
+                            for _ in range(removed):
+                                self.add_card_to_user(user_id, cat, name)
+                            continue
 
-                        # Chercher la carte Full correspondante dans toutes les catégories
-                        file_id = None
+                        # Désactiver les infos d'inventaire pour les notifications d'upgrade
+                        embed, image_file = self.build_card_embed(cat, full_name, file_bytes, show_inventory_info=False)
+                        embed.title = f"🎉 Carte Full obtenue : {full_name}"
+                        embed.description = (
+                            f"<@{user_id}> a échangé **{seuil}× {name}** "
+                            f"contre **{full_name}** !"
+                        )
+                        embed.color = discord.Color.gold()
 
-                        # D'abord chercher dans la catégorie d'origine
-                        available_full_cards = self.upgrade_cards_by_category.get(cat, [])
-                        logging.info(f"[UPGRADE] Recherche de {full_name} dans {cat}. Cartes Full disponibles: {len(available_full_cards)}")
-
-                        if available_full_cards:
-                            for f in available_full_cards:
-                                card_file_name = f['name'].removesuffix(".png")
-                                logging.debug(f"[UPGRADE] Comparaison: '{self.normalize_name(card_file_name)}' vs '{self.normalize_name(full_name)}'")
-                                if self.normalize_name(card_file_name) == self.normalize_name(full_name):
-                                    file_id = f['id']
-                                    logging.info(f"[UPGRADE] Carte Full trouvée dans {cat}: {card_file_name} (ID: {file_id})")
-                                    break
-
-                        # Si pas trouvée dans la catégorie d'origine, chercher dans toutes les autres catégories
-                        if not file_id:
-                            logging.info(f"[UPGRADE] Carte {full_name} non trouvée dans {cat}, recherche dans toutes les catégories...")
-                            for search_cat, full_cards in self.upgrade_cards_by_category.items():
-                                if search_cat == cat:  # Déjà cherché
-                                    continue
-                                for f in full_cards:
-                                    card_file_name = f['name'].removesuffix(".png")
-                                    if self.normalize_name(card_file_name) == self.normalize_name(full_name):
-                                        file_id = f['id']
-                                        logging.info(f"[UPGRADE] Carte Full trouvée dans {search_cat}: {card_file_name} (ID: {file_id})")
-                                        break
-                                if file_id:  # Trouvée, sortir de la boucle externe
-                                    break
-
-                        if file_id:
-                            file_bytes = self.download_drive_file(file_id)
-                            if not file_bytes:
-                                logging.error(f"[UPGRADE] Impossible de télécharger l'image pour {full_name}")
-                                continue
-                            # Désactiver les infos d'inventaire pour les notifications d'upgrade
-                            embed, image_file = self.build_card_embed(cat, full_name, file_bytes, show_inventory_info=False)
-                            embed.title = f"🎉 Carte Full obtenue : {full_name}"
-                            embed.description = (
-                                f"<@{user_id}> a échangé **{seuil}× {name}** "
-                                f"contre **{full_name}** !"
-                            )
-                            embed.color = discord.Color.gold()
-
-                            # Envoyer la notification dans le salon spécifié ou via followup
-                            if notification_channel_id:
-                                try:
-                                    channel = self.bot.get_channel(notification_channel_id)
-                                    if channel:
-                                        await channel.send(embed=embed, file=image_file)
-                                        logging.info(f"[UPGRADE] Notification envoyée dans le salon {notification_channel_id} pour {full_name}")
-                                    else:
-                                        logging.error(f"[UPGRADE] Salon {notification_channel_id} introuvable")
-                                        # Fallback vers followup si le salon n'existe pas
-                                        embed.description = (
-                                            f"Vous avez échangé **{seuil}× {name}** "
-                                            f"contre **{full_name}** !"
-                                        )
-                                        await interaction.followup.send(embed=embed, file=image_file)
-                                except Exception as e:
-                                    logging.error(f"[UPGRADE] Erreur envoi notification salon {notification_channel_id}: {e}")
-                                    # Fallback vers followup en cas d'erreur
+                        # Envoyer la notification dans le salon spécifié ou via followup
+                        if notification_channel_id:
+                            try:
+                                channel = self.bot.get_channel(notification_channel_id)
+                                if channel:
+                                    await channel.send(embed=embed, file=image_file)
+                                    logging.info(f"[UPGRADE] Notification envoyée dans le salon {notification_channel_id} pour {full_name}")
+                                else:
+                                    logging.error(f"[UPGRADE] Salon {notification_channel_id} introuvable")
+                                    # Fallback vers followup si le salon n'existe pas
                                     embed.description = (
                                         f"Vous avez échangé **{seuil}× {name}** "
                                         f"contre **{full_name}** !"
                                     )
                                     await interaction.followup.send(embed=embed, file=image_file)
-                            else:
+                            except Exception as e:
+                                logging.error(f"[UPGRADE] Erreur envoi notification salon {notification_channel_id}: {e}")
+                                # Fallback vers followup en cas d'erreur
                                 embed.description = (
                                     f"Vous avez échangé **{seuil}× {name}** "
                                     f"contre **{full_name}** !"
                                 )
                                 await interaction.followup.send(embed=embed, file=image_file)
-
-                            # Ajouter la carte Full à l'inventaire
-                            if not self.add_card_to_user(user_id, cat, full_name):
-                                logging.error(
-                                    f"[UPGRADE] Échec ajout {full_name} pour {user_id}. Rollback"
-                                )
-                                for _ in range(seuil):
-                                    self.add_card_to_user(user_id, cat, name)
-                            else:
-                                # Mettre à jour le mur des cartes avec la nouvelle carte Full
-                                await self._handle_announce_and_wall(interaction, [(cat, full_name)])
                         else:
-                            logging.error(f"[UPGRADE] Carte Full {full_name} introuvable dans {cat}")
-                            # Rollback
-                            for _ in range(removed):
+                            embed.description = (
+                                f"Vous avez échangé **{seuil}× {name}** "
+                                f"contre **{full_name}** !"
+                            )
+                            await interaction.followup.send(embed=embed, file=image_file)
+
+                        # Ajouter la carte Full à l'inventaire
+                        if not self.add_card_to_user(user_id, cat, full_name):
+                            logging.error(
+                                f"[UPGRADE] Échec ajout {full_name} pour {user_id}. Rollback"
+                            )
+                            for _ in range(seuil):
                                 self.add_card_to_user(user_id, cat, name)
+                        else:
+                            # Mettre à jour le mur des cartes avec la nouvelle carte Full
+                            await self._handle_announce_and_wall(interaction, [(cat, full_name)])
+                            logging.info(f"[UPGRADE] Upgrade réussi: {seuil}× {name} -> {full_name} pour utilisateur {user_id}")
 
         except Exception as e:
             logging.error(f"[UPGRADE] Erreur lors de la vérification des upgrades: {e}")
