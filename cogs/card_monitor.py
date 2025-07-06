@@ -172,17 +172,6 @@ class CardMonitor(commands.Cog):
             # Comparer avec le snapshot précédent
             if self.last_snapshot:
                 await self.compare_and_report(channel, self.last_snapshot, current_data)
-            else:
-                # Premier snapshot, juste informer
-                embed = discord.Embed(
-                    title="📊 Surveillance des cartes initialisée",
-                    description="Premier snapshot des données de cartes créé. La surveillance quotidienne commencera demain.",
-                    color=0x3498db,
-                    timestamp=datetime.now(self.paris_tz)
-                )
-                total_cards = len(current_data['cards'])
-                embed.add_field(name="Cartes actuelles", value=str(total_cards), inline=True)
-                await channel.send(embed=embed)
             
             # Sauvegarder le nouveau snapshot
             self.last_snapshot = current_data
