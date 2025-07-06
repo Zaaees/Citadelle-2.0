@@ -151,12 +151,24 @@ class CardsMenuView(discord.ui.View):
         # ——————————— COMMIT ———————————
         # 1) Ajouter les cartes à l'inventaire
         for cat, name in drawn_cards:
-            self.cog.add_card_to_user(self.user.id, cat, name)
+            self.cog.add_card_to_user(self.user.id, cat, name,
+                                    user_name=self.user.display_name,
+                                    source="tirage_journalier")
 
-        # 2) Enregistrer le tirage journalier (ceci invalide le cache et marque l'utilisateur pour vérification)
+        # 2) Logger le tirage journalier
+        if self.cog.storage.logging_manager:
+            self.cog.storage.logging_manager.log_card_draw(
+                user_id=self.user.id,
+                user_name=self.user.display_name,
+                cards=drawn_cards,
+                draw_type="DAILY",
+                source="tirage_journalier"
+            )
+
+        # 3) Enregistrer le tirage journalier (ceci invalide le cache et marque l'utilisateur pour vérification)
         self.cog.drawing_manager.record_daily_draw(self.user.id)
 
-        # 3) Traiter toutes les vérifications d'upgrade en attente
+        # 4) Traiter toutes les vérifications d'upgrade en attente
         await self.cog.process_all_pending_upgrade_checks(interaction)
 
         return drawn_cards
@@ -446,9 +458,21 @@ class SacrificialDrawConfirmationView(discord.ui.View):
                     )
 
                 # ——————————— COMMIT ———————————
+                # Logger le sacrifice de cartes
+                if self.cog.storage.logging_manager:
+                    self.cog.storage.logging_manager.log_card_sacrifice(
+                        user_id=self.user.id,
+                        user_name=self.user.display_name,
+                        sacrificed_cards=self.selected_cards,
+                        received_cards=drawn_cards,
+                        source="tirage_sacrificiel"
+                    )
+
                 # Maintenant ajouter les cartes tirées à l'inventaire
                 for cat, name in drawn_cards:
-                    self.cog.add_card_to_user(self.user.id, cat, name)
+                    self.cog.add_card_to_user(self.user.id, cat, name,
+                                            user_name=self.user.display_name,
+                                            source="tirage_sacrificiel")
 
                 # Enregistrer le tirage sacrificiel (ceci marque l'utilisateur pour vérification)
                 self.cog.drawing_manager.record_sacrificial_draw(self.user.id)

@@ -65,6 +65,18 @@ class VaultManager:
                                     self.storage.sheet_vault.update(f"A{i+1}", [cleaned_row])
                                     self.storage.refresh_vault_cache()
                                     logging.info(f"[VAULT] Carte incrémentée dans le vault: user_id={user_id}, carte=({category}, {name})")
+
+                                    # Logger l'ajout au vault
+                                    if self.storage.logging_manager:
+                                        self.storage.logging_manager.log_vault_operation(
+                                            user_id=user_id,
+                                            user_name=f"User_{user_id}",
+                                            category=category,
+                                            name=name,
+                                            operation="DEPOSIT",
+                                            source="depot_vault"
+                                        )
+
                                     return True
                             except (ValueError, IndexError) as e:
                                 logging.error(f"[SECURITY] Données corrompues dans add_card_to_vault: {cell}, erreur: {e}")
@@ -78,6 +90,18 @@ class VaultManager:
                         self.storage.sheet_vault.update(f"A{i+1}", [cleaned_row])
                         self.storage.refresh_vault_cache()
                         logging.info(f"[VAULT] Nouvelle entrée ajoutée au vault: user_id={user_id}, carte=({category}, {name})")
+
+                        # Logger l'ajout au vault
+                        if self.storage.logging_manager:
+                            self.storage.logging_manager.log_vault_operation(
+                                user_id=user_id,
+                                user_name=f"User_{user_id}",
+                                category=category,
+                                name=name,
+                                operation="DEPOSIT",
+                                source="depot_vault"
+                            )
+
                         return True
                 
                 # Si la carte n'existe pas encore dans le vault
@@ -85,6 +109,18 @@ class VaultManager:
                 self.storage.sheet_vault.append_row(new_row)
                 self.storage.refresh_vault_cache()
                 logging.info(f"[VAULT] Nouvelle carte créée dans le vault: user_id={user_id}, carte=({category}, {name})")
+
+                # Logger l'ajout au vault
+                if self.storage.logging_manager:
+                    self.storage.logging_manager.log_vault_operation(
+                        user_id=user_id,
+                        user_name=f"User_{user_id}",
+                        category=category,
+                        name=name,
+                        operation="DEPOSIT",
+                        source="depot_vault"
+                    )
+
                 return True
                 
             except Exception as e:
@@ -136,6 +172,18 @@ class VaultManager:
                                     self.storage.sheet_vault.update(f"A{i+1}", [cleaned_row])
                                     self.storage.refresh_vault_cache()
                                     logging.info(f"[VAULT] Carte retirée du vault: user_id={user_id}, carte=({category}, {name})")
+
+                                    # Logger le retrait du vault
+                                    if self.storage.logging_manager:
+                                        self.storage.logging_manager.log_vault_operation(
+                                            user_id=user_id,
+                                            user_name=f"User_{user_id}",
+                                            category=category,
+                                            name=name,
+                                            operation="WITHDRAW",
+                                            source="retrait_vault"
+                                        )
+
                                     return True
                             except (ValueError, IndexError) as e:
                                 logging.error(f"[SECURITY] Données corrompues dans remove_card_from_vault: {cell}, erreur: {e}")
@@ -202,7 +250,25 @@ class VaultManager:
                 vault_cache = self.storage.get_vault_cache()
                 if not vault_cache:
                     return True
-                
+
+                # Récupérer les cartes avant de les supprimer pour le logging
+                user_vault_cards = []
+                for row in vault_cache:
+                    if len(row) < 3:
+                        continue
+                    category, name = row[0], row[1]
+                    for cell in row[2:]:
+                        if not cell:
+                            continue
+                        try:
+                            uid, count = cell.split(":", 1)
+                            uid = uid.strip()
+                            if int(uid) == user_id:
+                                for _ in range(int(count)):
+                                    user_vault_cards.append((category, name))
+                        except (ValueError, IndexError):
+                            continue
+
                 modified = False
                 for i, row in enumerate(vault_cache):
                     if len(row) < 3:
@@ -231,7 +297,16 @@ class VaultManager:
                 if modified:
                     self.storage.refresh_vault_cache()
                     logging.info(f"[VAULT] Vault vidé pour l'utilisateur: user_id={user_id}")
-                
+
+                    # Logger le vidage du vault
+                    if self.storage.logging_manager and user_vault_cards:
+                        self.storage.logging_manager.log_vault_clear(
+                            user_id=user_id,
+                            user_name=f"User_{user_id}",
+                            cards=user_vault_cards,
+                            source="vidage_vault"
+                        )
+
                 return True
                 
             except Exception as e:

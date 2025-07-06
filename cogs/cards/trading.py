@@ -79,6 +79,22 @@ class TradingManager:
             
             logging.info(f"[TRADING] Échange réussi: {offerer_id} <-> {target_id}, cartes: ({offer_cat}, {offer_name}) <-> ({return_cat}, {return_name})")
 
+            # Logger l'échange direct
+            if self.storage.logging_manager:
+                # Récupérer les noms des utilisateurs (approximatif)
+                offerer_name = f"User_{offerer_id}"
+                target_name = f"User_{target_id}"
+
+                self.storage.logging_manager.log_trade_direct(
+                    offerer_id=offerer_id,
+                    offerer_name=offerer_name,
+                    target_id=target_id,
+                    target_name=target_name,
+                    offer_card=(offer_cat, offer_name),
+                    return_card=(return_cat, return_name),
+                    source="echange_direct"
+                )
+
             # Marquer que les vérifications d'upgrade sont nécessaires via le cog principal
             if hasattr(self.storage, '_cog_ref'):
                 self.storage._cog_ref._mark_user_for_upgrade_check(offerer_id)
@@ -143,6 +159,21 @@ class TradingManager:
                 return False
             
             logging.info(f"[TRADING] Échange de vault complet réussi entre {user1_id} et {user2_id}")
+
+            # Logger l'échange de vault
+            if self.storage.logging_manager:
+                user1_name = f"User_{user1_id}"
+                user2_name = f"User_{user2_id}"
+
+                self.storage.logging_manager.log_trade_vault(
+                    user1_id=user1_id,
+                    user1_name=user1_name,
+                    user2_id=user2_id,
+                    user2_name=user2_name,
+                    user1_cards=user1_vault,
+                    user2_cards=user2_vault,
+                    source="echange_vault"
+                )
 
             # Marquer que les vérifications d'upgrade sont nécessaires via le cog principal
             if hasattr(self.storage, '_cog_ref'):

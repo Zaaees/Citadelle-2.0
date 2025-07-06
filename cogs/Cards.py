@@ -166,7 +166,8 @@ class Cards(commands.Cog):
                     continue
         return user_cards
     
-    def add_card_to_user(self, user_id: int, category: str, name: str) -> bool:
+    def add_card_to_user(self, user_id: int, category: str, name: str,
+                        user_name: str = None, source: str = None) -> bool:
         """Ajoute une carte à l'inventaire d'un utilisateur."""
         with self.storage._cards_lock:
             try:
@@ -201,6 +202,17 @@ class Cards(commands.Cog):
                                     # Marquer cet utilisateur pour vérification d'upgrade automatique
                                     self._mark_user_for_upgrade_check(user_id)
 
+                                    # Logger l'ajout de carte
+                                    if self.storage.logging_manager:
+                                        self.storage.logging_manager.log_card_add(
+                                            user_id=user_id,
+                                            user_name=user_name or f"User_{user_id}",
+                                            category=category,
+                                            name=name,
+                                            quantity=1,
+                                            source=source or "add_card_to_user"
+                                        )
+
                                     return True
                             except (ValueError, IndexError):
                                 continue
@@ -216,6 +228,17 @@ class Cards(commands.Cog):
                         # Marquer cet utilisateur pour vérification d'upgrade automatique
                         self._mark_user_for_upgrade_check(user_id)
 
+                        # Logger l'ajout de carte
+                        if self.storage.logging_manager:
+                            self.storage.logging_manager.log_card_add(
+                                user_id=user_id,
+                                user_name=user_name or f"User_{user_id}",
+                                category=category,
+                                name=name,
+                                quantity=1,
+                                source=source or "add_card_to_user"
+                            )
+
                         return True
                 
                 # Si la carte n'existe pas encore
@@ -226,13 +249,25 @@ class Cards(commands.Cog):
                 # Marquer cet utilisateur pour vérification d'upgrade automatique
                 self._mark_user_for_upgrade_check(user_id)
 
+                # Logger l'ajout de carte
+                if self.storage.logging_manager:
+                    self.storage.logging_manager.log_card_add(
+                        user_id=user_id,
+                        user_name=user_name or f"User_{user_id}",
+                        category=category,
+                        name=name,
+                        quantity=1,
+                        source=source or "add_card_to_user"
+                    )
+
                 return True
 
             except Exception as e:
                 logging.error(f"[CARDS] Erreur lors de l'ajout de carte: {e}")
                 return False
     
-    def remove_card_from_user(self, user_id: int, category: str, name: str) -> bool:
+    def remove_card_from_user(self, user_id: int, category: str, name: str,
+                             user_name: str = None, source: str = None) -> bool:
         """Retire une carte de l'inventaire d'un utilisateur."""
         with self.storage._cards_lock:
             try:
@@ -266,6 +301,18 @@ class Cards(commands.Cog):
                                     cleaned_row += [""] * pad
                                     self.storage.sheet_cards.update(f"A{i+1}", [cleaned_row])
                                     self.storage.refresh_cards_cache()
+
+                                    # Logger le retrait de carte
+                                    if self.storage.logging_manager:
+                                        self.storage.logging_manager.log_card_remove(
+                                            user_id=user_id,
+                                            user_name=user_name or f"User_{user_id}",
+                                            category=category,
+                                            name=name,
+                                            quantity=1,
+                                            source=source or "remove_card_from_user"
+                                        )
+
                                     return True
                             except (ValueError, IndexError):
                                 continue
@@ -1785,9 +1832,21 @@ class Cards(commands.Cog):
             # Effectuer les tirages bonus
             drawn_cards = self.drawing_manager.draw_cards(user_bonus)
 
+            # Logger l'utilisation des bonus
+            if self.storage.logging_manager:
+                self.storage.logging_manager.log_bonus_used(
+                    user_id=interaction.user.id,
+                    user_name=interaction.user.display_name,
+                    count=user_bonus,
+                    cards=drawn_cards,
+                    source="reclamation_bonus"
+                )
+
             # Ajouter les cartes à l'inventaire
             for cat, name in drawn_cards:
-                self.add_card_to_user(interaction.user.id, cat, name)
+                self.add_card_to_user(interaction.user.id, cat, name,
+                                    user_name=interaction.user.display_name,
+                                    source="tirage_bonus")
 
             # Supprimer les bonus réclamés
             # Récupérer toutes les lignes et filtrer
@@ -1902,6 +1961,16 @@ class Cards(commands.Cog):
             # Ajouter le bonus à la feuille
             self.storage.sheet_bonus.append_row([str(member.id), str(count), source])
 
+            # Logger l'attribution du bonus
+            if self.storage.logging_manager:
+                self.storage.logging_manager.log_bonus_granted(
+                    user_id=member.id,
+                    user_name=member.display_name,
+                    count=count,
+                    source=source,
+                    granted_by=ctx.author.display_name
+                )
+
             embed = discord.Embed(
                 title="🎁 Bonus accordé",
                 description=f"**{count}** tirage(s) bonus accordé(s) à {member.mention}",
@@ -1931,6 +2000,132 @@ class Cards(commands.Cog):
         except Exception as e:
             logging.error(f"[GIVE_BONUS] Erreur: {e}")
             await ctx.send(f"❌ Erreur lors de l'attribution du bonus: {e}")
+
+    @commands.command(name="logs_cartes")
+    @commands.has_permissions(administrator=True)
+    async def view_cards_logs(self, ctx: commands.Context, user_id: int = None, limit: int = 50):
+        """
+        Affiche les logs de surveillance des cartes.
+        Usage : !logs_cartes [user_id] [limit]
+        """
+        try:
+            if not self.storage.logging_manager:
+                await ctx.send("❌ Le système de logging n'est pas initialisé.")
+                return
+
+            # Récupérer les logs depuis Google Sheets
+            all_logs = self.storage.sheet_logs.get_all_values()
+
+            if len(all_logs) <= 1:  # Seulement l'en-tête
+                await ctx.send("📋 Aucun log trouvé.")
+                return
+
+            # Filtrer par utilisateur si spécifié
+            logs_data = all_logs[1:]  # Exclure l'en-tête
+            if user_id:
+                logs_data = [log for log in logs_data if len(log) >= 3 and log[2] == str(user_id)]
+
+            # Limiter le nombre de résultats
+            logs_data = logs_data[-limit:]  # Prendre les plus récents
+
+            if not logs_data:
+                await ctx.send(f"📋 Aucun log trouvé{f' pour l\'utilisateur {user_id}' if user_id else ''}.")
+                return
+
+            # Créer l'embed
+            embed = discord.Embed(
+                title="📋 Logs de surveillance des cartes",
+                description=f"Affichage des {len(logs_data)} logs les plus récents{f' pour l\'utilisateur {user_id}' if user_id else ''}",
+                color=0x3498db
+            )
+
+            # Ajouter les logs à l'embed (maximum 25 champs)
+            for i, log in enumerate(logs_data[-25:]):
+                if len(log) >= 6:
+                    timestamp = log[0][:19] if log[0] else "N/A"  # Tronquer le timestamp
+                    action = log[1] or "N/A"
+                    user_name = log[3] or f"User_{log[2]}" if len(log) > 2 else "N/A"
+                    card_info = f"{log[5]} ({log[4]})" if len(log) > 5 and log[4] and log[5] else "N/A"
+                    quantity = log[6] if len(log) > 6 and log[6] else "N/A"
+                    details = log[7] if len(log) > 7 and log[7] else "N/A"
+
+                    embed.add_field(
+                        name=f"#{len(logs_data) - len(logs_data[-25:]) + i + 1} - {timestamp}",
+                        value=f"**Action:** {action}\n**Utilisateur:** {user_name}\n**Carte:** {card_info}\n**Quantité:** {quantity}\n**Détails:** {details}",
+                        inline=False
+                    )
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            logging.error(f"[LOGS] Erreur lors de l'affichage des logs: {e}")
+            await ctx.send(f"❌ Erreur lors de l'affichage des logs: {e}")
+
+    @commands.command(name="stats_logs")
+    @commands.has_permissions(administrator=True)
+    async def view_logs_stats(self, ctx: commands.Context):
+        """
+        Affiche les statistiques des logs de surveillance.
+        Usage : !stats_logs
+        """
+        try:
+            if not self.storage.logging_manager:
+                await ctx.send("❌ Le système de logging n'est pas initialisé.")
+                return
+
+            # Récupérer les logs depuis Google Sheets
+            all_logs = self.storage.sheet_logs.get_all_values()
+
+            if len(all_logs) <= 1:  # Seulement l'en-tête
+                await ctx.send("📊 Aucun log trouvé pour les statistiques.")
+                return
+
+            logs_data = all_logs[1:]  # Exclure l'en-tête
+
+            # Compter les actions par type
+            action_counts = {}
+            user_counts = {}
+
+            for log in logs_data:
+                if len(log) >= 3:
+                    action = log[1] or "UNKNOWN"
+                    user_id = log[2] or "UNKNOWN"
+
+                    action_counts[action] = action_counts.get(action, 0) + 1
+                    user_counts[user_id] = user_counts.get(user_id, 0) + 1
+
+            # Créer l'embed des statistiques
+            embed = discord.Embed(
+                title="📊 Statistiques des logs de surveillance",
+                description=f"Total des logs: **{len(logs_data)}**",
+                color=0xe74c3c
+            )
+
+            # Top 10 des actions
+            top_actions = sorted(action_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+            if top_actions:
+                actions_text = "\n".join([f"**{action}:** {count}" for action, count in top_actions])
+                embed.add_field(
+                    name="🎯 Top 10 des actions",
+                    value=actions_text,
+                    inline=True
+                )
+
+            # Top 10 des utilisateurs les plus actifs
+            top_users = sorted(user_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+            if top_users:
+                users_text = "\n".join([f"**{user_id}:** {count}" for user_id, count in top_users])
+                embed.add_field(
+                    name="👥 Top 10 des utilisateurs",
+                    value=users_text,
+                    inline=True
+                )
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            logging.error(f"[LOGS_STATS] Erreur lors de l'affichage des statistiques: {e}")
+            await ctx.send(f"❌ Erreur lors de l'affichage des statistiques: {e}")
 
     @commands.command(name="verifier_integrite", help="Vérifie l'intégrité des données des cartes")
     @commands.has_permissions(administrator=True)

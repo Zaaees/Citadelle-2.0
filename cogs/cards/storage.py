@@ -22,6 +22,9 @@ class CardsStorage:
         # Feuilles de calcul
         self.sheet_cards = self.spreadsheet.sheet1
         self._init_worksheets()
+
+        # Initialiser le gestionnaire de logging après les worksheets
+        self._init_logging()
         
         # Cache et verrous
         self.cards_cache = None
@@ -36,6 +39,9 @@ class CardsStorage:
         self._vault_lock = threading.RLock()
         self._cache_lock = threading.RLock()
         self._discoveries_lock = threading.RLock()
+
+        # Gestionnaire de logging (sera initialisé après les worksheets)
+        self.logging_manager = None
     
     def _init_worksheets(self):
         """Initialise les feuilles de calcul nécessaires."""
@@ -105,6 +111,19 @@ class CardsStorage:
             )
             # Initialiser l'en-tête
             self.sheet_bonus.append_row(["user_id", "count", "source"])
+
+        # Feuille des logs de surveillance
+        try:
+            self.sheet_logs = self.spreadsheet.worksheet("Logs")
+        except gspread.exceptions.WorksheetNotFound:
+            self.sheet_logs = self.spreadsheet.add_worksheet(
+                title="Logs", rows="10000", cols="10"
+            )
+            # Initialiser l'en-tête
+            self.sheet_logs.append_row([
+                "timestamp", "action", "user_id", "user_name", "card_category",
+                "card_name", "quantity", "details", "source", "additional_data"
+            ])
     
     def refresh_cards_cache(self):
         """Rafraîchit le cache des cartes."""
@@ -159,3 +178,13 @@ class CardsStorage:
             if not self.discoveries_cache or now - self.discoveries_cache_time > CACHE_VALIDITY_DURATION:
                 self.refresh_discoveries_cache()
             return self.discoveries_cache
+
+    def _init_logging(self):
+        """Initialise le gestionnaire de logging."""
+        try:
+            from .logging import CardsLoggingManager
+            self.logging_manager = CardsLoggingManager(self)
+            logging.info("[STORAGE] Gestionnaire de logging initialisé")
+        except Exception as e:
+            logging.error(f"[STORAGE] Erreur lors de l'initialisation du logging: {e}")
+            self.logging_manager = None
