@@ -779,7 +779,7 @@ class ChannelMonitor(commands.Cog):
                         if data['message_id']:
                             try:
                                 embed_message = await notification_channel.fetch_message(data['message_id'])
-                                ping_message = await embed_message.reply(embed=reminder_embed)
+                                ping_message = await embed_message.reply(content=mj.mention, embed=reminder_embed)
 
                                 # Ajouter le message de ping à Google Sheets pour suppression automatique
                                 if self.ping_sheet:
@@ -798,7 +798,7 @@ class ChannelMonitor(commands.Cog):
                                 self.logger.warning(f"Message d'embed {data['message_id']} non trouvé pour le rappel")
                         else:
                             # Envoyer l'embed directement si pas d'embed de surveillance
-                            ping_message = await notification_channel.send(embed=reminder_embed)
+                            ping_message = await notification_channel.send(content=mj.mention, embed=reminder_embed)
 
                             # Ajouter le message de ping à Google Sheets pour suppression automatique
                             if self.ping_sheet:
@@ -1757,7 +1757,7 @@ class ChannelMonitor(commands.Cog):
                         ping_embed = self.create_ping_embed(mj, message.author, message.channel, channel_id)
 
                         # Envoyer l'embed de ping en réponse à l'embed de surveillance
-                        ping_message = await embed_message.reply(embed=ping_embed)
+                        ping_message = await embed_message.reply(content=mj.mention, embed=ping_embed)
 
                         # Mettre à jour le timestamp du dernier ping pour ce salon
                         self.update_last_ping_time(channel_id)
