@@ -754,6 +754,11 @@ class Cards(commands.Cog):
                     continue
                 seuil = upgrade_thresholds[cat]
                 if count >= seuil:
+                    # VÉRIFICATION CRITIQUE: S'assurer que l'utilisateur ne possède pas déjà la carte Full
+                    if self.user_has_full_version(user_id, cat, name):
+                        logging.info(f"[UPGRADE] Utilisateur {user_id} possède déjà la carte Full de {name} dans {cat}. Upgrade ignoré, cartes normales conservées.")
+                        continue
+
                     # NOUVELLE LOGIQUE: Vérifier d'abord si la carte Full existe avant de retirer les cartes
                     full_name = f"{name} (Full)"
 
@@ -2029,13 +2034,15 @@ class Cards(commands.Cog):
             logs_data = logs_data[-limit:]  # Prendre les plus récents
 
             if not logs_data:
-                await ctx.send(f"📋 Aucun log trouvé{f' pour l\'utilisateur {user_id}' if user_id else ''}.")
+                user_part = f" pour l'utilisateur {user_id}" if user_id else ""
+                await ctx.send(f"📋 Aucun log trouvé{user_part}.")
                 return
 
             # Créer l'embed
+            user_part = f" pour l'utilisateur {user_id}" if user_id else ""
             embed = discord.Embed(
                 title="📋 Logs de surveillance des cartes",
-                description=f"Affichage des {len(logs_data)} logs les plus récents{f' pour l\'utilisateur {user_id}' if user_id else ''}",
+                description=f"Affichage des {len(logs_data)} logs les plus récents{user_part}",
                 color=0x3498db
             )
 
