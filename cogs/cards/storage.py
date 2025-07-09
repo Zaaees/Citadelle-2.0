@@ -18,13 +18,28 @@ class CardsStorage:
     def __init__(self, gspread_client: gspread.Client, spreadsheet_id: str):
         self.gspread_client = gspread_client
         self.spreadsheet = gspread_client.open_by_key(spreadsheet_id)
-        
+
         # Feuilles de calcul
         self.sheet_cards = self.spreadsheet.sheet1
-        self._init_worksheets()
+
+        # Initialiser le logging manager à None par défaut
+        self.logging_manager = None
+
+        try:
+            self._init_worksheets()
+            logging.info("[STORAGE] ✅ Toutes les feuilles initialisées avec succès")
+        except Exception as e:
+            logging.error(f"[STORAGE] ❌ Erreur critique lors de l'initialisation des feuilles: {e}")
+            import traceback
+            logging.error(f"[STORAGE] Traceback: {traceback.format_exc()}")
 
         # Initialiser le gestionnaire de logging après les worksheets
-        self._init_logging()
+        try:
+            self._init_logging()
+        except Exception as e:
+            logging.error(f"[STORAGE] ❌ Erreur critique lors de l'initialisation du logging: {e}")
+            import traceback
+            logging.error(f"[STORAGE] Traceback: {traceback.format_exc()}")
         
         # Cache et verrous
         self.cards_cache = None
@@ -113,6 +128,7 @@ class CardsStorage:
             self.sheet_bonus.append_row(["user_id", "count", "source"])
 
         # Feuille des logs de surveillance
+        logging.info("[STORAGE] 🔄 Initialisation de la feuille 'Logs'...")
         try:
             self.sheet_logs = self.spreadsheet.worksheet("Logs")
             logging.info("[STORAGE] ✅ Feuille 'Logs' trouvée")
@@ -126,26 +142,41 @@ class CardsStorage:
                         "timestamp", "action", "user_id", "user_name", "card_category",
                         "card_name", "quantity", "details", "source", "additional_data"
                     ])
+                    logging.info("[STORAGE] ✅ En-tête ajouté à la feuille 'Logs'")
                 elif all_values[0] != ["timestamp", "action", "user_id", "user_name", "card_category", "card_name", "quantity", "details", "source", "additional_data"]:
                     logging.warning("[STORAGE] ⚠️ En-tête de la feuille 'Logs' incorrect")
+                    logging.warning(f"[STORAGE] En-tête actuel: {all_values[0]}")
                 else:
                     logging.info(f"[STORAGE] ✅ Feuille 'Logs' correcte avec {len(all_values)} lignes")
             except Exception as e:
                 logging.error(f"[STORAGE] ❌ Erreur lors de la vérification de l'en-tête: {e}")
+                import traceback
+                logging.error(f"[STORAGE] Traceback: {traceback.format_exc()}")
 
         except gspread.exceptions.WorksheetNotFound:
             logging.info("[STORAGE] Feuille 'Logs' non trouvée, création...")
-            self.sheet_logs = self.spreadsheet.add_worksheet(
-                title="Logs", rows="10000", cols="10"
-            )
-            # Initialiser l'en-tête
-            self.sheet_logs.append_row([
-                "timestamp", "action", "user_id", "user_name", "card_category",
-                "card_name", "quantity", "details", "source", "additional_data"
-            ])
-            logging.info("[STORAGE] ✅ Feuille 'Logs' créée avec en-tête")
+            try:
+                self.sheet_logs = self.spreadsheet.add_worksheet(
+                    title="Logs", rows="10000", cols="10"
+                )
+                logging.info("[STORAGE] ✅ Feuille 'Logs' créée")
+
+                # Initialiser l'en-tête
+                self.sheet_logs.append_row([
+                    "timestamp", "action", "user_id", "user_name", "card_category",
+                    "card_name", "quantity", "details", "source", "additional_data"
+                ])
+                logging.info("[STORAGE] ✅ En-tête ajouté à la nouvelle feuille 'Logs'")
+            except Exception as e:
+                logging.error(f"[STORAGE] ❌ Erreur lors de la création de la feuille 'Logs': {e}")
+                import traceback
+                logging.error(f"[STORAGE] Traceback: {traceback.format_exc()}")
+                self.sheet_logs = None
+
         except Exception as e:
-            logging.error(f"[STORAGE] ❌ Erreur lors de l'initialisation de la feuille 'Logs': {e}")
+            logging.error(f"[STORAGE] ❌ Erreur générale lors de l'initialisation de la feuille 'Logs': {e}")
+            import traceback
+            logging.error(f"[STORAGE] Traceback: {traceback.format_exc()}")
             self.sheet_logs = None
     
     def refresh_cards_cache(self):

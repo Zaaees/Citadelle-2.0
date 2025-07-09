@@ -1602,57 +1602,66 @@ class Cards(commands.Cog):
 
             await interaction.response.defer(ephemeral=True)
 
-            # Test du logging manager
-            if not self.storage.logging_manager:
-                await interaction.followup.send(
-                    "❌ **Logging manager non initialisé**\n"
-                    "Le système de logs n'est pas disponible.",
-                    ephemeral=True
-                )
-                return
+            # Diagnostic complet du système
+            diagnostic_msg = "🔍 **Diagnostic du système de logging**\n\n"
 
-            # Test d'écriture de log
-            success = self.storage.logging_manager.log_card_draw(
-                user_id=interaction.user.id,
-                user_name=interaction.user.display_name,
-                cards=[("Test", "Carte de Test")],
-                draw_type="DAILY",
-                source="test_command"
-            )
+            # 1. Vérifier le storage
+            if hasattr(self, 'storage') and self.storage:
+                diagnostic_msg += "✅ Storage: Initialisé\n"
 
-            if success:
-                # Vérifier que les données ont été écrites
-                try:
-                    all_values = self.storage.sheet_logs.get_all_values()
-                    test_entries = [row for row in all_values if str(interaction.user.id) in str(row) and "test_command" in str(row)]
+                # 2. Vérifier la feuille logs
+                if hasattr(self.storage, 'sheet_logs') and self.storage.sheet_logs:
+                    diagnostic_msg += "✅ Feuille Logs: Disponible\n"
 
-                    await interaction.followup.send(
-                        f"✅ **Test de logging réussi**\n"
-                        f"• Logging manager: ✅ Fonctionnel\n"
-                        f"• Écriture dans Google Sheets: ✅ Réussie\n"
-                        f"• Entrées de test trouvées: {len(test_entries)}\n"
-                        f"• Total de lignes dans la feuille: {len(all_values)}",
-                        ephemeral=True
-                    )
-                except Exception as e:
-                    await interaction.followup.send(
-                        f"⚠️ **Test partiellement réussi**\n"
-                        f"• Logging manager: ✅ Fonctionnel\n"
-                        f"• Écriture: ✅ Réussie\n"
-                        f"• Vérification: ❌ Erreur lors de la lecture: {e}",
-                        ephemeral=True
-                    )
+                    # Tester l'accès à la feuille
+                    try:
+                        all_values = self.storage.sheet_logs.get_all_values()
+                        diagnostic_msg += f"✅ Accès lecture: OK ({len(all_values)} lignes)\n"
+                    except Exception as e:
+                        diagnostic_msg += f"❌ Accès lecture: Erreur - {e}\n"
+                else:
+                    diagnostic_msg += "❌ Feuille Logs: Non disponible\n"
+
+                # 3. Vérifier le logging manager
+                if hasattr(self.storage, 'logging_manager') and self.storage.logging_manager:
+                    diagnostic_msg += "✅ Logging Manager: Initialisé\n"
+
+                    # Test d'écriture
+                    try:
+                        success = self.storage.logging_manager.log_card_draw(
+                            user_id=interaction.user.id,
+                            user_name=interaction.user.display_name,
+                            cards=[("Test", "Carte de Test")],
+                            draw_type="DAILY",
+                            source="test_command"
+                        )
+
+                        if success:
+                            diagnostic_msg += "✅ Test d'écriture: Réussi\n"
+
+                            # Vérifier que les données ont été écrites
+                            try:
+                                all_values = self.storage.sheet_logs.get_all_values()
+                                test_entries = [row for row in all_values if str(interaction.user.id) in str(row) and "test_command" in str(row)]
+                                diagnostic_msg += f"✅ Vérification: {len(test_entries)} entrées trouvées\n"
+                            except Exception as e:
+                                diagnostic_msg += f"⚠️ Vérification: Erreur - {e}\n"
+                        else:
+                            diagnostic_msg += "❌ Test d'écriture: Échoué\n"
+
+                    except Exception as e:
+                        diagnostic_msg += f"❌ Test d'écriture: Exception - {e}\n"
+                else:
+                    diagnostic_msg += "❌ Logging Manager: Non initialisé\n"
             else:
-                await interaction.followup.send(
-                    "❌ **Test de logging échoué**\n"
-                    "L'écriture dans Google Sheets a échoué.",
-                    ephemeral=True
-                )
+                diagnostic_msg += "❌ Storage: Non initialisé\n"
+
+            await interaction.followup.send(diagnostic_msg, ephemeral=True)
 
         except Exception as e:
             logging.error(f"[CARDS] Erreur dans test_logs_command: {e}")
             await interaction.followup.send(
-                f"❌ **Erreur lors du test**\n"
+                f"❌ **Erreur lors du diagnostic**\n"
                 f"```{str(e)}```",
                 ephemeral=True
             )
