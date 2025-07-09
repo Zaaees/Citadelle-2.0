@@ -212,6 +212,7 @@ class ChannelMonitor(commands.Cog):
         self.gspread_client = None
         self.sheet = None
         self.ping_sheet = None
+        self.alert_sheet = None
         # Initialisation asynchrone pour éviter les délais au démarrage
         self.bot.loop.create_task(self.async_init())
         self.cleanup_ping_messages.start()
@@ -225,6 +226,8 @@ class ChannelMonitor(commands.Cog):
         await self.setup_persistent_views()
         # Nettoyer immédiatement les messages de ping expirés au démarrage
         await self.cleanup_ping_messages_immediate()
+        # Nettoyer les anciennes alertes d'inactivité
+        self.cleanup_old_alerts()
         # Vérifier l'activité manquée pendant la déconnexion
         await self.check_missed_activity()
         # Mettre à jour tous les embeds existants avec le nouveau format
@@ -271,12 +274,25 @@ class ChannelMonitor(commands.Cog):
                 # Initialiser l'en-tête
                 self.ping_sheet.append_row(["message_id", "channel_id", "timestamp"])
 
+            # Feuille pour le suivi des alertes d'inactivité
+            try:
+                self.alert_sheet = spreadsheet.worksheet("Inactivity Alerts")
+            except gspread.exceptions.WorksheetNotFound:
+                self.alert_sheet = spreadsheet.add_worksheet(
+                    title="Inactivity Alerts",
+                    rows="1000",
+                    cols="4"
+                )
+                # Initialiser l'en-tête
+                self.alert_sheet.append_row(["channel_id", "mj_user_id", "alert_date", "timestamp"])
+
             self.logger.info("[CHANNEL_MONITOR] Connexion Google Sheets établie")
         except Exception as e:
             self.logger.error(f"[CHANNEL_MONITOR] Erreur lors de la configuration Google Sheets: {e}")
             self.gspread_client = None
             self.sheet = None
             self.ping_sheet = None
+            self.alert_sheet = None
 
     def load_monitored_channels(self):
         """Charge la liste des salons surveillés depuis Google Sheets."""
@@ -321,11 +337,20 @@ class ChannelMonitor(commands.Cog):
                         else:
                             last_activity = datetime.now()  # Fallback pour les anciennes données
 
+                        # Récupérer last_alert_sent (colonne 11, index 11)
+                        last_alert_sent = None
+                        if len(row) > 11 and row[11]:
+                            try:
+                                last_alert_sent = datetime.fromisoformat(row[11])
+                            except ValueError:
+                                last_alert_sent = None
+
                         self.monitored_channels[channel_id] = {
                             'mj_user_id': mj_user_id,
                             'message_id': message_id,
                             'participants': participants,
-                            'last_activity': last_activity
+                            'last_activity': last_activity,
+                            'last_alert_sent': last_alert_sent
                         }
                     except ValueError as e:
                         self.logger.warning(f"Ligne invalide ignorée: {row} - Erreur: {e}")
@@ -346,7 +371,7 @@ class ChannelMonitor(commands.Cog):
             self.sheet.clear()
 
             # Réécrire l'en-tête
-            self.sheet.append_row(["channel_id", "mj_user_id", "message_id", "participant_1", "participant_2", "participant_3", "participant_4", "participant_5", "participant_6", "added_at", "last_activity"])
+            self.sheet.append_row(["channel_id", "mj_user_id", "message_id", "participant_1", "participant_2", "participant_3", "participant_4", "participant_5", "participant_6", "added_at", "last_activity", "last_alert_sent"])
 
             # Ajouter toutes les données
             current_time = datetime.now().isoformat()
@@ -372,11 +397,104 @@ class ChannelMonitor(commands.Cog):
                 last_activity = data.get('last_activity', datetime.now())
                 row.append(last_activity.isoformat())
 
+                # Ajouter last_alert_sent
+                last_alert_sent = data.get('last_alert_sent')
+                row.append(last_alert_sent.isoformat() if last_alert_sent else "")
+
                 self.sheet.append_row(row)
 
             self.logger.info(f"Sauvegardé {len(self.monitored_channels)} salons surveillés dans Google Sheets")
         except Exception as e:
             self.logger.error(f"Erreur lors de la sauvegarde des salons surveillés: {e}")
+
+    def has_alert_been_sent_today(self, channel_id: int) -> bool:
+        """Vérifie si une alerte d'inactivité a déjà été envoyée aujourd'hui pour ce salon."""
+        try:
+            data = self.monitored_channels.get(channel_id)
+            if not data:
+                return False
+
+            last_alert_sent = data.get('last_alert_sent')
+            if not last_alert_sent:
+                return False
+
+            # Vérifier si l'alerte a été envoyée aujourd'hui
+            today = datetime.now().date()
+            alert_date = last_alert_sent.date()
+
+            return alert_date == today
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la vérification d'alerte pour le salon {channel_id}: {e}")
+            return False
+
+    def record_alert_sent(self, channel_id: int, mj_user_id: int):
+        """Enregistre qu'une alerte d'inactivité a été envoyée pour ce salon."""
+        try:
+            current_time = datetime.now()
+
+            # Mettre à jour les données en mémoire
+            if channel_id in self.monitored_channels:
+                self.monitored_channels[channel_id]['last_alert_sent'] = current_time
+                self.save_monitored_channels()
+
+            # Enregistrer dans la feuille des alertes
+            if self.alert_sheet:
+                try:
+                    self.alert_sheet.append_row([
+                        str(channel_id),
+                        str(mj_user_id),
+                        current_time.date().isoformat(),
+                        current_time.isoformat()
+                    ])
+                except Exception as e:
+                    self.logger.error(f"Erreur lors de l'enregistrement de l'alerte dans Google Sheets: {e}")
+
+            self.logger.info(f"Alerte d'inactivité enregistrée pour le salon {channel_id}")
+        except Exception as e:
+            self.logger.error(f"Erreur lors de l'enregistrement d'alerte pour le salon {channel_id}: {e}")
+
+    def cleanup_old_alerts(self):
+        """Nettoie les anciennes entrées d'alertes (plus de 30 jours)."""
+        try:
+            if not self.alert_sheet:
+                return
+
+            current_time = datetime.now()
+            thirty_days_ago = current_time - timedelta(days=30)
+
+            all_values = self.alert_sheet.get_all_values()
+            if len(all_values) <= 1:  # Seulement l'en-tête ou vide
+                return
+
+            # Identifier les lignes à supprimer (plus de 30 jours)
+            rows_to_keep = [all_values[0]]  # Garder l'en-tête
+            cleaned_count = 0
+
+            for row in all_values[1:]:
+                if len(row) >= 4 and row[3]:  # Vérifier que timestamp existe
+                    try:
+                        alert_timestamp = datetime.fromisoformat(row[3])
+                        if alert_timestamp >= thirty_days_ago:
+                            rows_to_keep.append(row)
+                        else:
+                            cleaned_count += 1
+                    except ValueError:
+                        # Garder les lignes avec des timestamps invalides
+                        rows_to_keep.append(row)
+                else:
+                    # Garder les lignes incomplètes
+                    rows_to_keep.append(row)
+
+            # Réécrire la feuille si des lignes ont été supprimées
+            if cleaned_count > 0:
+                self.alert_sheet.clear()
+                for row in rows_to_keep:
+                    self.alert_sheet.append_row(row)
+
+                self.logger.info(f"Nettoyé {cleaned_count} anciennes alertes d'inactivité")
+
+        except Exception as e:
+            self.logger.error(f"Erreur lors du nettoyage des anciennes alertes: {e}")
 
     @tasks.loop(hours=1)
     async def cleanup_ping_messages(self):
@@ -435,6 +553,11 @@ class ChannelMonitor(commands.Cog):
 
             if rows_to_delete:
                 self.logger.info(f"Nettoyage périodique: supprimé {messages_deleted} messages de ping expirés et {len(rows_to_delete)} entrées de la base")
+
+            # Nettoyer les anciennes alertes une fois par jour (à la première exécution de chaque jour)
+            current_hour = datetime.now().hour
+            if current_hour == 0:  # Minuit
+                self.cleanup_old_alerts()
 
         except Exception as e:
             self.logger.error(f"Erreur lors du nettoyage périodique des messages de ping: {e}")
@@ -756,6 +879,11 @@ class ChannelMonitor(commands.Cog):
 
                     # Vérifier si la scène est inactive depuis une semaine
                     if last_activity.timestamp() < week_ago:
+                        # Vérifier si une alerte a déjà été envoyée aujourd'hui
+                        if self.has_alert_been_sent_today(channel_id):
+                            self.logger.debug(f"Alerte déjà envoyée aujourd'hui pour le salon {channel_id}, ignoré")
+                            continue
+
                         mj_id = data['mj_user_id']
                         mj = self.bot.get_user(mj_id)
 
@@ -792,6 +920,8 @@ class ChannelMonitor(commands.Cog):
                                     except Exception as e:
                                         self.logger.error(f"Erreur lors de l'ajout du ping de rappel à Google Sheets: {e}")
 
+                                # Enregistrer que l'alerte a été envoyée
+                                self.record_alert_sent(channel_id, mj_id)
                                 self.logger.info(f"Ping de rappel envoyé pour scène inactive: {channel_info} ({days_inactive} jours)")
 
                             except discord.NotFound:
@@ -811,6 +941,8 @@ class ChannelMonitor(commands.Cog):
                                 except Exception as e:
                                     self.logger.error(f"Erreur lors de l'ajout du ping de rappel à Google Sheets: {e}")
 
+                            # Enregistrer que l'alerte a été envoyée
+                            self.record_alert_sent(channel_id, mj_id)
                             self.logger.info(f"Ping de rappel direct envoyé pour scène inactive: {channel_info} ({days_inactive} jours)")
 
                 except Exception as e:
@@ -1485,7 +1617,8 @@ class ChannelMonitor(commands.Cog):
                 'mj_user_id': interaction.user.id,
                 'message_id': embed_message.id,
                 'participants': [],
-                'last_activity': datetime.now()
+                'last_activity': datetime.now(),
+                'last_alert_sent': None
             }
             self.save_monitored_channels()
 
