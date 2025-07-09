@@ -6,10 +6,11 @@ Surveille et enregistre toutes les opérations sur les cartes.
 import logging
 from datetime import datetime
 import pytz
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, TYPE_CHECKING
 import json
 
-from .storage import CardsStorage
+if TYPE_CHECKING:
+    from .storage import CardsStorage
 
 
 class CardsLoggingManager:
@@ -33,7 +34,7 @@ class CardsLoggingManager:
     ACTION_ADMIN_REMOVE = "ADMIN_REMOVE"
     ACTION_CARD_UPGRADE = "CARD_UPGRADE"
     
-    def __init__(self, storage: CardsStorage):
+    def __init__(self, storage: "CardsStorage"):
         self.storage = storage
         self.paris_tz = pytz.timezone("Europe/Paris")
     

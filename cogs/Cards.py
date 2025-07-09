@@ -1666,6 +1666,55 @@ class Cards(commands.Cog):
                 ephemeral=True
             )
 
+    @app_commands.command(name="reinit_logs_cartes", description="[ADMIN] Forcer la réinitialisation du système de logging")
+    async def reinit_logs_command(self, interaction: discord.Interaction):
+        """Commande pour forcer la réinitialisation du logging manager."""
+        try:
+            # Vérifier les permissions admin
+            if not interaction.user.guild_permissions.administrator:
+                await interaction.response.send_message(
+                    "❌ Cette commande est réservée aux administrateurs.",
+                    ephemeral=True
+                )
+                return
+
+            await interaction.response.defer(ephemeral=True)
+
+            # Forcer la réinitialisation du logging manager
+            logging.info("[CARDS] 🔄 Réinitialisation forcée du logging manager...")
+
+            try:
+                self.storage._init_logging()
+
+                if self.storage.logging_manager:
+                    await interaction.followup.send(
+                        "✅ **Réinitialisation réussie**\n"
+                        "Le logging manager a été réinitialisé avec succès.",
+                        ephemeral=True
+                    )
+                else:
+                    await interaction.followup.send(
+                        "❌ **Réinitialisation échouée**\n"
+                        "Le logging manager n'a pas pu être initialisé.\n"
+                        "Vérifiez les logs du bot pour plus de détails.",
+                        ephemeral=True
+                    )
+
+            except Exception as e:
+                await interaction.followup.send(
+                    f"❌ **Erreur lors de la réinitialisation**\n"
+                    f"```{str(e)}```",
+                    ephemeral=True
+                )
+
+        except Exception as e:
+            logging.error(f"[CARDS] Erreur dans reinit_logs_command: {e}")
+            await interaction.followup.send(
+                f"❌ **Erreur lors de la commande**\n"
+                f"```{str(e)}```",
+                ephemeral=True
+            )
+
 # Commande /tirage_journalier supprimée - intégrée dans le bouton "Tirer une carte" du menu /cartes
 
 # Commande /tirage_sacrificiel supprimée - intégrée dans le bouton du menu /cartes

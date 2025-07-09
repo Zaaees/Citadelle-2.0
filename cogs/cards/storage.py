@@ -235,6 +235,8 @@ class CardsStorage:
 
     def _init_logging(self):
         """Initialise le gestionnaire de logging."""
+        logging.info("[STORAGE] 🔄 Début de l'initialisation du logging manager...")
+
         try:
             # Vérifier que la feuille de logs existe avant d'initialiser le manager
             if not hasattr(self, 'sheet_logs') or self.sheet_logs is None:
@@ -242,26 +244,52 @@ class CardsStorage:
                 self.logging_manager = None
                 return
 
-            from .logging import CardsLoggingManager
-            self.logging_manager = CardsLoggingManager(self)
+            logging.info("[STORAGE] 🔄 Importation du CardsLoggingManager...")
+            try:
+                from .logging import CardsLoggingManager
+                logging.info("[STORAGE] ✅ CardsLoggingManager importé avec succès")
+            except Exception as import_error:
+                logging.error(f"[STORAGE] ❌ Erreur d'importation du CardsLoggingManager: {import_error}")
+                import traceback
+                logging.error(f"[STORAGE] Import Traceback: {traceback.format_exc()}")
+                self.logging_manager = None
+                return
+
+            logging.info("[STORAGE] 🔄 Création de l'instance CardsLoggingManager...")
+            try:
+                self.logging_manager = CardsLoggingManager(self)
+                logging.info("[STORAGE] ✅ Instance CardsLoggingManager créée avec succès")
+            except Exception as instance_error:
+                logging.error(f"[STORAGE] ❌ Erreur de création de l'instance CardsLoggingManager: {instance_error}")
+                import traceback
+                logging.error(f"[STORAGE] Instance Traceback: {traceback.format_exc()}")
+                self.logging_manager = None
+                return
+
             logging.info("[STORAGE] ✅ Gestionnaire de logging initialisé avec succès")
 
             # Test rapide d'écriture pour vérifier que tout fonctionne
-            test_success = self.logging_manager._log_action(
-                action="SYSTEM_TEST",
-                user_id=0,
-                user_name="System",
-                details="Test d'initialisation du système de logging",
-                source="storage_init"
-            )
+            logging.info("[STORAGE] 🔄 Test d'écriture de logs...")
+            try:
+                test_success = self.logging_manager._log_action(
+                    action="SYSTEM_TEST",
+                    user_id=0,
+                    user_name="System",
+                    details="Test d'initialisation du système de logging",
+                    source="storage_init"
+                )
 
-            if test_success:
-                logging.info("[STORAGE] ✅ Test d'écriture de logs réussi")
-            else:
-                logging.warning("[STORAGE] ⚠️ Test d'écriture de logs échoué")
+                if test_success:
+                    logging.info("[STORAGE] ✅ Test d'écriture de logs réussi")
+                else:
+                    logging.warning("[STORAGE] ⚠️ Test d'écriture de logs échoué")
+            except Exception as test_error:
+                logging.error(f"[STORAGE] ❌ Erreur lors du test d'écriture: {test_error}")
+                import traceback
+                logging.error(f"[STORAGE] Test Traceback: {traceback.format_exc()}")
 
         except Exception as e:
-            logging.error(f"[STORAGE] ❌ Erreur lors de l'initialisation du logging: {e}")
+            logging.error(f"[STORAGE] ❌ Erreur générale lors de l'initialisation du logging: {e}")
             import traceback
-            logging.error(f"[STORAGE] Traceback: {traceback.format_exc()}")
+            logging.error(f"[STORAGE] General Traceback: {traceback.format_exc()}")
             self.logging_manager = None
