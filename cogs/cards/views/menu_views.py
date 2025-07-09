@@ -157,13 +157,23 @@ class CardsMenuView(discord.ui.View):
 
         # 2) Logger le tirage journalier
         if self.cog.storage.logging_manager:
-            self.cog.storage.logging_manager.log_card_draw(
+            logging.info(f"[DAILY_DRAW] Tentative de logging pour {self.user.display_name} ({self.user.id})")
+            logging.info(f"[DAILY_DRAW] Cartes tirées: {drawn_cards}")
+
+            success = self.cog.storage.logging_manager.log_card_draw(
                 user_id=self.user.id,
                 user_name=self.user.display_name,
                 cards=drawn_cards,
                 draw_type="DAILY",
                 source="tirage_journalier"
             )
+
+            if success:
+                logging.info(f"[DAILY_DRAW] ✅ Logging réussi pour {self.user.display_name}")
+            else:
+                logging.error(f"[DAILY_DRAW] ❌ Échec du logging pour {self.user.display_name}")
+        else:
+            logging.error(f"[DAILY_DRAW] ❌ Logging manager non disponible pour {self.user.display_name}")
 
         # 3) Enregistrer le tirage journalier (ceci invalide le cache et marque l'utilisateur pour vérification)
         self.cog.drawing_manager.record_daily_draw(self.user.id)
@@ -460,13 +470,24 @@ class SacrificialDrawConfirmationView(discord.ui.View):
                 # ——————————— COMMIT ———————————
                 # Logger le sacrifice de cartes
                 if self.cog.storage.logging_manager:
-                    self.cog.storage.logging_manager.log_card_sacrifice(
+                    logging.info(f"[SACRIFICIAL_DRAW] Tentative de logging pour {self.user.display_name} ({self.user.id})")
+                    logging.info(f"[SACRIFICIAL_DRAW] Cartes sacrifiées: {self.selected_cards}")
+                    logging.info(f"[SACRIFICIAL_DRAW] Cartes reçues: {drawn_cards}")
+
+                    success = self.cog.storage.logging_manager.log_card_sacrifice(
                         user_id=self.user.id,
                         user_name=self.user.display_name,
                         sacrificed_cards=self.selected_cards,
                         received_cards=drawn_cards,
                         source="tirage_sacrificiel"
                     )
+
+                    if success:
+                        logging.info(f"[SACRIFICIAL_DRAW] ✅ Logging réussi pour {self.user.display_name}")
+                    else:
+                        logging.error(f"[SACRIFICIAL_DRAW] ❌ Échec du logging pour {self.user.display_name}")
+                else:
+                    logging.error(f"[SACRIFICIAL_DRAW] ❌ Logging manager non disponible pour {self.user.display_name}")
 
                 # Maintenant ajouter les cartes tirées à l'inventaire
                 for cat, name in drawn_cards:

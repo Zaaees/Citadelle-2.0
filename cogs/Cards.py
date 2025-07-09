@@ -1588,6 +1588,75 @@ class Cards(commands.Cog):
 
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
+    @app_commands.command(name="test_logs_cartes", description="[ADMIN] Tester le système de logging des cartes")
+    async def test_logs_command(self, interaction: discord.Interaction):
+        """Commande de test pour vérifier le système de logging."""
+        try:
+            # Vérifier les permissions admin (vous pouvez ajuster selon vos besoins)
+            if not interaction.user.guild_permissions.administrator:
+                await interaction.response.send_message(
+                    "❌ Cette commande est réservée aux administrateurs.",
+                    ephemeral=True
+                )
+                return
+
+            await interaction.response.defer(ephemeral=True)
+
+            # Test du logging manager
+            if not self.storage.logging_manager:
+                await interaction.followup.send(
+                    "❌ **Logging manager non initialisé**\n"
+                    "Le système de logs n'est pas disponible.",
+                    ephemeral=True
+                )
+                return
+
+            # Test d'écriture de log
+            success = self.storage.logging_manager.log_card_draw(
+                user_id=interaction.user.id,
+                user_name=interaction.user.display_name,
+                cards=[("Test", "Carte de Test")],
+                draw_type="DAILY",
+                source="test_command"
+            )
+
+            if success:
+                # Vérifier que les données ont été écrites
+                try:
+                    all_values = self.storage.sheet_logs.get_all_values()
+                    test_entries = [row for row in all_values if str(interaction.user.id) in str(row) and "test_command" in str(row)]
+
+                    await interaction.followup.send(
+                        f"✅ **Test de logging réussi**\n"
+                        f"• Logging manager: ✅ Fonctionnel\n"
+                        f"• Écriture dans Google Sheets: ✅ Réussie\n"
+                        f"• Entrées de test trouvées: {len(test_entries)}\n"
+                        f"• Total de lignes dans la feuille: {len(all_values)}",
+                        ephemeral=True
+                    )
+                except Exception as e:
+                    await interaction.followup.send(
+                        f"⚠️ **Test partiellement réussi**\n"
+                        f"• Logging manager: ✅ Fonctionnel\n"
+                        f"• Écriture: ✅ Réussie\n"
+                        f"• Vérification: ❌ Erreur lors de la lecture: {e}",
+                        ephemeral=True
+                    )
+            else:
+                await interaction.followup.send(
+                    "❌ **Test de logging échoué**\n"
+                    "L'écriture dans Google Sheets a échoué.",
+                    ephemeral=True
+                )
+
+        except Exception as e:
+            logging.error(f"[CARDS] Erreur dans test_logs_command: {e}")
+            await interaction.followup.send(
+                f"❌ **Erreur lors du test**\n"
+                f"```{str(e)}```",
+                ephemeral=True
+            )
+
 # Commande /tirage_journalier supprimée - intégrée dans le bouton "Tirer une carte" du menu /cartes
 
 # Commande /tirage_sacrificiel supprimée - intégrée dans le bouton du menu /cartes

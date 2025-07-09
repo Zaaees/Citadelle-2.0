@@ -115,7 +115,26 @@ class CardsStorage:
         # Feuille des logs de surveillance
         try:
             self.sheet_logs = self.spreadsheet.worksheet("Logs")
+            logging.info("[STORAGE] ✅ Feuille 'Logs' trouvée")
+
+            # Vérifier que l'en-tête existe
+            try:
+                all_values = self.sheet_logs.get_all_values()
+                if not all_values or len(all_values) == 0:
+                    logging.info("[STORAGE] Feuille 'Logs' vide, ajout de l'en-tête")
+                    self.sheet_logs.append_row([
+                        "timestamp", "action", "user_id", "user_name", "card_category",
+                        "card_name", "quantity", "details", "source", "additional_data"
+                    ])
+                elif all_values[0] != ["timestamp", "action", "user_id", "user_name", "card_category", "card_name", "quantity", "details", "source", "additional_data"]:
+                    logging.warning("[STORAGE] ⚠️ En-tête de la feuille 'Logs' incorrect")
+                else:
+                    logging.info(f"[STORAGE] ✅ Feuille 'Logs' correcte avec {len(all_values)} lignes")
+            except Exception as e:
+                logging.error(f"[STORAGE] ❌ Erreur lors de la vérification de l'en-tête: {e}")
+
         except gspread.exceptions.WorksheetNotFound:
+            logging.info("[STORAGE] Feuille 'Logs' non trouvée, création...")
             self.sheet_logs = self.spreadsheet.add_worksheet(
                 title="Logs", rows="10000", cols="10"
             )
@@ -124,6 +143,10 @@ class CardsStorage:
                 "timestamp", "action", "user_id", "user_name", "card_category",
                 "card_name", "quantity", "details", "source", "additional_data"
             ])
+            logging.info("[STORAGE] ✅ Feuille 'Logs' créée avec en-tête")
+        except Exception as e:
+            logging.error(f"[STORAGE] ❌ Erreur lors de l'initialisation de la feuille 'Logs': {e}")
+            self.sheet_logs = None
     
     def refresh_cards_cache(self):
         """Rafraîchit le cache des cartes."""
@@ -182,9 +205,32 @@ class CardsStorage:
     def _init_logging(self):
         """Initialise le gestionnaire de logging."""
         try:
+            # Vérifier que la feuille de logs existe avant d'initialiser le manager
+            if not hasattr(self, 'sheet_logs') or self.sheet_logs is None:
+                logging.error("[STORAGE] ❌ Feuille de logs non disponible pour l'initialisation du logging manager")
+                self.logging_manager = None
+                return
+
             from .logging import CardsLoggingManager
             self.logging_manager = CardsLoggingManager(self)
-            logging.info("[STORAGE] Gestionnaire de logging initialisé")
+            logging.info("[STORAGE] ✅ Gestionnaire de logging initialisé avec succès")
+
+            # Test rapide d'écriture pour vérifier que tout fonctionne
+            test_success = self.logging_manager._log_action(
+                action="SYSTEM_TEST",
+                user_id=0,
+                user_name="System",
+                details="Test d'initialisation du système de logging",
+                source="storage_init"
+            )
+
+            if test_success:
+                logging.info("[STORAGE] ✅ Test d'écriture de logs réussi")
+            else:
+                logging.warning("[STORAGE] ⚠️ Test d'écriture de logs échoué")
+
         except Exception as e:
-            logging.error(f"[STORAGE] Erreur lors de l'initialisation du logging: {e}")
+            logging.error(f"[STORAGE] ❌ Erreur lors de l'initialisation du logging: {e}")
+            import traceback
+            logging.error(f"[STORAGE] Traceback: {traceback.format_exc()}")
             self.logging_manager = None

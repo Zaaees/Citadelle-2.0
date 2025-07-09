@@ -47,7 +47,7 @@ class CardsLoggingManager:
                    source: str = None, additional_data: Dict[str, Any] = None) -> bool:
         """
         Enregistre une action dans la feuille de logs.
-        
+
         Args:
             action: Type d'action (constante ACTION_*)
             user_id: ID de l'utilisateur
@@ -58,13 +58,18 @@ class CardsLoggingManager:
             details: Détails supplémentaires (optionnel)
             source: Source de l'action (optionnel)
             additional_data: Données supplémentaires au format dict (optionnel)
-        
+
         Returns:
             bool: True si l'enregistrement a réussi
         """
         try:
+            # Vérifier que la feuille de logs existe
+            if not hasattr(self.storage, 'sheet_logs') or self.storage.sheet_logs is None:
+                logging.error(f"[LOGS] Feuille de logs non disponible")
+                return False
+
             timestamp = self._get_timestamp()
-            
+
             # Préparer les données
             row_data = [
                 timestamp,
@@ -78,15 +83,21 @@ class CardsLoggingManager:
                 source or "",
                 json.dumps(additional_data) if additional_data else ""
             ]
-            
+
+            logging.debug(f"[LOGS] Tentative d'enregistrement: {action} pour user {user_id}")
+            logging.debug(f"[LOGS] Données à enregistrer: {row_data}")
+
             # Enregistrer dans la feuille
             self.storage.sheet_logs.append_row(row_data)
-            
-            logging.info(f"[LOGS] Action enregistrée: {action} pour user {user_id}")
+
+            logging.info(f"[LOGS] ✅ Action enregistrée avec succès: {action} pour user {user_id}")
             return True
-            
+
         except Exception as e:
-            logging.error(f"[LOGS] Erreur lors de l'enregistrement: {e}")
+            logging.error(f"[LOGS] ❌ Erreur lors de l'enregistrement: {e}")
+            logging.error(f"[LOGS] Action: {action}, User: {user_id}, Card: {card_name}")
+            import traceback
+            logging.error(f"[LOGS] Traceback: {traceback.format_exc()}")
             return False
     
     def log_card_draw(self, user_id: int, user_name: str, cards: list, 
