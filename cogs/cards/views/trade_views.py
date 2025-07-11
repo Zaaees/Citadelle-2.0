@@ -216,10 +216,13 @@ class WithdrawVaultConfirmationView(discord.ui.View):
                     color=0xf39c12
                 )
             
+            # Traiter toutes les vérifications d'upgrade en attente
+            await self.cog.process_all_pending_upgrade_checks(interaction, 1361993326215172218)
+
             # Désactiver tous les boutons
             for child in self.children:
                 child.disabled = True
-            
+
             await interaction.followup.send(embed=embed, ephemeral=True)
             
         except Exception as e:

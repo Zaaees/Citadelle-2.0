@@ -179,7 +179,7 @@ class CardsMenuView(discord.ui.View):
         self.cog.drawing_manager.record_daily_draw(self.user.id)
 
         # 4) Traiter toutes les vérifications d'upgrade en attente
-        await self.cog.process_all_pending_upgrade_checks(interaction)
+        await self.cog.process_all_pending_upgrade_checks(interaction, 1361993326215172218)
 
         return drawn_cards
 
@@ -499,7 +499,7 @@ class SacrificialDrawConfirmationView(discord.ui.View):
                 self.cog.drawing_manager.record_sacrificial_draw(self.user.id)
 
                 # Traiter toutes les vérifications d'upgrade en attente
-                await self.cog.process_all_pending_upgrade_checks(interaction)
+                await self.cog.process_all_pending_upgrade_checks(interaction, 1361993326215172218)
 
                 # Annonce publique et mur des cartes
                 await self.cog._handle_announce_and_wall(interaction, drawn_cards)

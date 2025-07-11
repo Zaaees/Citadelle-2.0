@@ -772,8 +772,8 @@ class Cards(commands.Cog):
                     if available_full_cards:
                         for f in available_full_cards:
                             card_file_name = f['name'].removesuffix(".png")
-                            logging.debug(f"[UPGRADE] Comparaison: '{self.normalize_name(card_file_name)}' vs '{self.normalize_name(full_name)}'")
-                            if self.normalize_name(card_file_name) == self.normalize_name(full_name):
+                            logging.debug(f"[UPGRADE] Comparaison: '{normalize_name(card_file_name)}' vs '{normalize_name(full_name)}'")
+                            if normalize_name(card_file_name) == normalize_name(full_name):
                                 file_id = f['id']
                                 logging.info(f"[UPGRADE] Carte Full trouvée dans {cat}: {card_file_name} (ID: {file_id})")
                                 break
@@ -786,7 +786,7 @@ class Cards(commands.Cog):
                                 continue
                             for f in full_cards:
                                 card_file_name = f['name'].removesuffix(".png")
-                                if self.normalize_name(card_file_name) == self.normalize_name(full_name):
+                                if normalize_name(card_file_name) == normalize_name(full_name):
                                     file_id = f['id']
                                     logging.info(f"[UPGRADE] Carte Full trouvée dans {search_cat}: {card_file_name} (ID: {file_id})")
                                     break
@@ -1900,6 +1900,9 @@ class Cards(commands.Cog):
 
             await interaction.followup.send(embed=embed, ephemeral=True)
 
+            # Traiter toutes les vérifications d'upgrade en attente
+            await self.process_all_pending_upgrade_checks(interaction, 1361993326215172218)
+
             # Annonce publique si nouvelles cartes
             await self._handle_announce_and_wall(interaction, drawn_cards)
 
@@ -2135,6 +2138,141 @@ class Cards(commands.Cog):
         except Exception as e:
             logging.error(f"[LOGS_STATS] Erreur lors de l'affichage des statistiques: {e}")
             await ctx.send(f"❌ Erreur lors de l'affichage des statistiques: {e}")
+
+    @commands.command(name="verifier_full_automatique", help="Vérifie et effectue toutes les conversions Full automatiques")
+    @commands.has_permissions(administrator=True)
+    async def verifier_full_automatique(self, ctx: commands.Context):
+        """Commande d'administration pour vérifier et effectuer toutes les conversions Full automatiques."""
+        await ctx.send("🔄 Vérification et traitement des conversions Full automatiques en cours...")
+
+        try:
+            # Récupérer tous les utilisateurs qui possèdent des cartes
+            unique_counts = self.get_unique_card_counts()
+            all_users = list(unique_counts.keys())
+
+            if not all_users:
+                await ctx.send("❌ Aucun utilisateur avec des cartes trouvé.")
+                return
+
+            total_users = len(all_users)
+            processed_users = 0
+            total_conversions = 0
+            conversion_details = []
+            errors = []
+
+            # Créer une interaction factice pour les conversions
+            # Utiliser le contexte comme base pour l'interaction
+            class FakeInteraction:
+                def __init__(self, ctx):
+                    self.channel = ctx.channel
+                    self.guild = ctx.guild
+                    self.user = ctx.author
+                    self.channel_id = ctx.channel.id
+
+            fake_interaction = FakeInteraction(ctx)
+
+            # Traiter chaque utilisateur
+            for user_id in all_users:
+                try:
+                    # Marquer l'utilisateur pour vérification d'upgrade
+                    self._mark_user_for_upgrade_check(user_id)
+                    processed_users += 1
+
+                    # Afficher le progrès tous les 10 utilisateurs
+                    if processed_users % 10 == 0:
+                        await ctx.send(f"📊 Progression: {processed_users}/{total_users} utilisateurs traités...")
+
+                except Exception as e:
+                    error_msg = f"Erreur pour l'utilisateur {user_id}: {e}"
+                    errors.append(error_msg)
+                    logging.error(f"[ADMIN_FULL_CHECK] {error_msg}")
+
+            # Traiter toutes les vérifications d'upgrade en attente
+            if self._users_needing_upgrade_check:
+                await ctx.send(f"🔄 Traitement des conversions pour {len(self._users_needing_upgrade_check)} utilisateurs...")
+
+                # Compter les conversions avant traitement
+                users_to_check = self._users_needing_upgrade_check.copy()
+
+                for user_id in users_to_check:
+                    try:
+                        # Vérifier les conversions possibles avant traitement
+                        user_cards = self.get_user_cards(user_id)
+                        counts = {}
+                        for cat, name in user_cards:
+                            counts[(cat, name)] = counts.get((cat, name), 0) + 1
+
+                        # Seuils de conversion
+                        upgrade_thresholds = {
+                            "Secrète": 5, "Fondateur": 5, "Historique": 5, "Maître": 5,
+                            "Black Hole": 5, "Architectes": 5, "Professeurs": 5, "Autre": 5, "Élèves": 5
+                        }
+
+                        user_conversions = 0
+                        for (cat, name), count in counts.items():
+                            if cat in upgrade_thresholds and count >= upgrade_thresholds[cat]:
+                                # Vérifier que l'utilisateur n'a pas déjà la carte Full
+                                if not self.user_has_full_version(user_id, cat, name):
+                                    # Vérifier que la carte Full existe
+                                    if self.can_have_full_version(cat, name):
+                                        user_conversions += 1
+                                        conversion_details.append(f"👤 <@{user_id}>: {name} ({cat}) → {name} (Full)")
+
+                        total_conversions += user_conversions
+
+                    except Exception as e:
+                        error_msg = f"Erreur lors du comptage pour l'utilisateur {user_id}: {e}"
+                        errors.append(error_msg)
+                        logging.error(f"[ADMIN_FULL_CHECK] {error_msg}")
+
+                # Effectuer les conversions
+                await self.process_all_pending_upgrade_checks(fake_interaction, ctx.channel.id)
+
+            # Créer le rapport final
+            embed = discord.Embed(
+                title="📊 Rapport de vérification Full automatique",
+                color=0x00ff00 if not errors else 0xff9900
+            )
+
+            embed.add_field(
+                name="📈 Statistiques",
+                value=f"👥 Utilisateurs traités: {processed_users}/{total_users}\n"
+                      f"🔄 Conversions effectuées: {total_conversions}\n"
+                      f"❌ Erreurs: {len(errors)}",
+                inline=False
+            )
+
+            if conversion_details:
+                # Limiter l'affichage à 10 conversions pour éviter les messages trop longs
+                displayed_conversions = conversion_details[:10]
+                conversions_text = "\n".join(displayed_conversions)
+                if len(conversion_details) > 10:
+                    conversions_text += f"\n... et {len(conversion_details) - 10} autres conversions"
+
+                embed.add_field(
+                    name="🎴 Conversions effectuées",
+                    value=conversions_text,
+                    inline=False
+                )
+
+            if errors:
+                # Limiter l'affichage à 5 erreurs
+                displayed_errors = errors[:5]
+                errors_text = "\n".join(displayed_errors)
+                if len(errors) > 5:
+                    errors_text += f"\n... et {len(errors) - 5} autres erreurs"
+
+                embed.add_field(
+                    name="⚠️ Erreurs rencontrées",
+                    value=errors_text,
+                    inline=False
+                )
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            logging.error(f"[ADMIN_FULL_CHECK] Erreur générale: {e}")
+            await ctx.send(f"❌ Erreur lors de la vérification: {e}")
 
     @commands.command(name="verifier_integrite", help="Vérifie l'intégrité des données des cartes")
     @commands.has_permissions(administrator=True)
