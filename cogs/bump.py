@@ -143,7 +143,36 @@ class Bump(commands.Cog):
 
         except Exception as e:
             self.logger.error(f"Error in check_bump: {str(e)}")
-            self.check_bump.restart()
+            # Attendre avant de redémarrer pour éviter les boucles infinies
+            await asyncio.sleep(60)
+            try:
+                if not self.check_bump.is_running():
+                    self.check_bump.restart()
+                    self.logger.info("✅ Tâche check_bump redémarrée après erreur")
+            except Exception as restart_error:
+                self.logger.error(f"❌ Erreur lors du redémarrage de check_bump: {restart_error}")
+
+    @check_bump.error
+    async def check_bump_error(self, error):
+        """Gère les erreurs de la tâche check_bump."""
+        self.logger.error(f"❌ Erreur dans check_bump: {error}")
+        # Redémarrer la tâche après une erreur
+        await asyncio.sleep(120)  # Attendre 2 minutes avant de redémarrer
+        try:
+            if not self.check_bump.is_running():
+                self.check_bump.restart()
+                self.logger.info("✅ Tâche check_bump redémarrée après erreur critique")
+        except Exception as restart_error:
+            self.logger.error(f"❌ Erreur lors du redémarrage de check_bump: {restart_error}")
+
+    async def cog_unload(self):
+        """Nettoie les ressources lors du déchargement du cog."""
+        try:
+            if self.check_bump.is_running():
+                self.check_bump.cancel()
+            self.logger.info("🧹 Tâche du cog bump arrêtée")
+        except Exception as e:
+            self.logger.error(f"❌ Erreur lors de l'arrêt de la tâche bump: {e}")
 
     @commands.command(name="bumpstatus")
     @commands.has_permissions(administrator=True)

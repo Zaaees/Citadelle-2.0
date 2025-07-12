@@ -215,8 +215,7 @@ class ChannelMonitor(commands.Cog):
         self.alert_sheet = None
         # Initialisation asynchrone pour éviter les délais au démarrage
         self.bot.loop.create_task(self.async_init())
-        self.cleanup_ping_messages.start()
-        self.check_inactive_scenes.start()
+        self._start_tasks()
 
     async def async_init(self):
         """Initialisation asynchrone du cog."""
@@ -232,6 +231,43 @@ class ChannelMonitor(commands.Cog):
         await self.check_missed_activity()
         # Mettre à jour tous les embeds existants avec le nouveau format
         await self.update_all_existing_embeds()
+
+    def _start_tasks(self):
+        """Démarre les tâches avec gestion d'erreurs."""
+        try:
+            if not self.cleanup_ping_messages.is_running():
+                self.cleanup_ping_messages.start()
+                self.logger.info("✅ Tâche cleanup_ping_messages démarrée")
+        except Exception as e:
+            self.logger.error(f"❌ Erreur lors du démarrage de cleanup_ping_messages: {e}")
+
+        try:
+            if not self.check_inactive_scenes.is_running():
+                self.check_inactive_scenes.start()
+                self.logger.info("✅ Tâche check_inactive_scenes démarrée")
+        except Exception as e:
+            self.logger.error(f"❌ Erreur lors du démarrage de check_inactive_scenes: {e}")
+
+    def _restart_task_if_needed(self, task, task_name):
+        """Redémarre une tâche si elle n'est pas en cours d'exécution."""
+        try:
+            if not task.is_running():
+                self.logger.warning(f"⚠️ Tâche {task_name} arrêtée, redémarrage...")
+                task.restart()
+                self.logger.info(f"✅ Tâche {task_name} redémarrée")
+        except Exception as e:
+            self.logger.error(f"❌ Erreur lors du redémarrage de {task_name}: {e}")
+
+    async def cog_unload(self):
+        """Nettoie les ressources lors du déchargement du cog."""
+        try:
+            if self.cleanup_ping_messages.is_running():
+                self.cleanup_ping_messages.cancel()
+            if self.check_inactive_scenes.is_running():
+                self.check_inactive_scenes.cancel()
+            self.logger.info("🧹 Tâches du cog channel_monitor arrêtées")
+        except Exception as e:
+            self.logger.error(f"❌ Erreur lors de l'arrêt des tâches: {e}")
 
     def setup_google_sheets(self):
         """Configure l'accès à Google Sheets."""
@@ -561,10 +597,20 @@ class ChannelMonitor(commands.Cog):
 
         except Exception as e:
             self.logger.error(f"Erreur lors du nettoyage périodique des messages de ping: {e}")
+            # Redémarrer la tâche en cas d'erreur critique
+            self._restart_task_if_needed(self.cleanup_ping_messages, "cleanup_ping_messages")
 
     @cleanup_ping_messages.before_loop
     async def before_cleanup_ping_messages(self):
         await self.bot.wait_until_ready()
+
+    @cleanup_ping_messages.error
+    async def cleanup_ping_messages_error(self, error):
+        """Gère les erreurs de la tâche cleanup_ping_messages."""
+        self.logger.error(f"❌ Erreur dans cleanup_ping_messages: {error}")
+        # Redémarrer la tâche après une erreur
+        await asyncio.sleep(60)  # Attendre 1 minute avant de redémarrer
+        self._restart_task_if_needed(self.cleanup_ping_messages, "cleanup_ping_messages")
 
     async def cleanup_ping_messages_immediate(self):
         """Nettoie immédiatement les messages de ping expirés au démarrage."""
@@ -950,10 +996,20 @@ class ChannelMonitor(commands.Cog):
 
         except Exception as e:
             self.logger.error(f"Erreur lors de la vérification des scènes inactives: {e}")
+            # Redémarrer la tâche en cas d'erreur critique
+            self._restart_task_if_needed(self.check_inactive_scenes, "check_inactive_scenes")
 
     @check_inactive_scenes.before_loop
     async def before_check_inactive_scenes(self):
         await self.bot.wait_until_ready()
+
+    @check_inactive_scenes.error
+    async def check_inactive_scenes_error(self, error):
+        """Gère les erreurs de la tâche check_inactive_scenes."""
+        self.logger.error(f"❌ Erreur dans check_inactive_scenes: {error}")
+        # Redémarrer la tâche après une erreur
+        await asyncio.sleep(300)  # Attendre 5 minutes avant de redémarrer
+        self._restart_task_if_needed(self.check_inactive_scenes, "check_inactive_scenes")
 
     def is_mj(self, user: discord.Member) -> bool:
         """Vérifie si l'utilisateur a le rôle MJ."""

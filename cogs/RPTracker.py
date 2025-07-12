@@ -33,11 +33,35 @@ class RPTracker(commands.Cog):
             print("Mise à jour terminée avec succès")
         except Exception as e:
             print(f"Erreur dans la boucle de mise à jour: {e}")
+            # Attendre avant de continuer pour éviter les boucles d'erreurs
+            await asyncio.sleep(300)  # 5 minutes
 
     @update_loop.before_loop
     async def before_update_loop(self):
         await self.bot.wait_until_ready()
         await asyncio.sleep(60)
+
+    @update_loop.error
+    async def update_loop_error(self, error):
+        """Gère les erreurs de la tâche update_loop."""
+        print(f"❌ Erreur critique dans update_loop: {error}")
+        # Redémarrer la tâche après une erreur
+        await asyncio.sleep(600)  # Attendre 10 minutes avant de redémarrer
+        try:
+            if not self.update_loop.is_running():
+                self.update_loop.restart()
+                print("✅ Tâche update_loop redémarrée après erreur critique")
+        except Exception as restart_error:
+            print(f"❌ Erreur lors du redémarrage de update_loop: {restart_error}")
+
+    async def cog_unload(self):
+        """Nettoie les ressources lors du déchargement du cog."""
+        try:
+            if self.update_loop.is_running():
+                self.update_loop.cancel()
+            print("🧹 Tâche du cog RPTracker arrêtée")
+        except Exception as e:
+            print(f"❌ Erreur lors de l'arrêt de la tâche RPTracker: {e}")
 
     async def cog_load(self):
         print("Cog RPTracker en cours de chargement")

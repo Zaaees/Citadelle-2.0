@@ -12,6 +12,8 @@ import asyncio
 import signal
 import json
 from datetime import datetime, timedelta
+from utils.health_monitor import get_health_monitor
+from utils.connection_manager import resource_monitor
 
 # Configuration des logs
 logging.basicConfig(
@@ -63,7 +65,33 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 'last_heartbeat': last_heartbeat.isoformat(),
                 'timestamp': datetime.now().isoformat()
             }
+
+            # Ajouter les métriques avancées si disponibles
+            try:
+                from utils.health_monitor import health_monitor
+                if health_monitor:
+                    advanced_metrics = health_monitor.metrics.get_health_summary()
+                    health_data.update(advanced_metrics)
+            except Exception as e:
+                health_data['advanced_metrics_error'] = str(e)
+
             self.wfile.write(json.dumps(health_data).encode())
+
+        elif self.path == '/health/detailed':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.end_headers()
+
+            try:
+                from utils.health_monitor import health_monitor
+                if health_monitor:
+                    report = health_monitor.get_health_report()
+                    self.wfile.write(report.encode())
+                else:
+                    self.wfile.write(b'Monitoring avance non disponible')
+            except Exception as e:
+                self.wfile.write(f'Erreur: {str(e)}'.encode())
 
         elif self.path == '/ping':
             self.send_response(200)
@@ -139,6 +167,7 @@ def start_http_server():
 def check_bot_health(bot):
     consecutive_failures = 0
     max_consecutive_failures = 3
+    last_task_check = datetime.now()
 
     while True:
         time.sleep(180)  # Vérification toutes les 3 minutes
@@ -174,7 +203,15 @@ def check_bot_health(bot):
                     os._exit(1)
                 continue
 
-            # 4. Vérifier le heartbeat du serveur HTTP
+            # 4. Vérifier les tâches des cogs toutes les 15 minutes
+            if (current_time - last_task_check).total_seconds() > 900:  # 15 minutes
+                check_cog_tasks_health(bot)
+                last_task_check = current_time
+
+            # 5. Nettoyer les ressources périodiquement
+            resource_monitor.check_and_cleanup()
+
+            # 6. Vérifier le heartbeat du serveur HTTP
             time_since_heartbeat = current_time - last_heartbeat
             if time_since_heartbeat > timedelta(minutes=10):
                 logger.warning(f"⚠️ Aucun heartbeat HTTP depuis {time_since_heartbeat}")
@@ -227,6 +264,60 @@ def self_ping():
         except Exception as e:
             logger.error(f"❌ Erreur lors du self-ping: {e}")
 
+def check_cog_tasks_health(bot):
+    """Vérifie la santé des tâches dans les cogs."""
+    try:
+        logger.info("🔍 Vérification de la santé des tâches des cogs...")
+
+        # Vérifier les tâches du cog channel_monitor
+        channel_monitor_cog = bot.get_cog('ChannelMonitor')
+        if channel_monitor_cog:
+            try:
+                if hasattr(channel_monitor_cog, 'cleanup_ping_messages'):
+                    if not channel_monitor_cog.cleanup_ping_messages.is_running():
+                        logger.warning("⚠️ Tâche cleanup_ping_messages arrêtée, tentative de redémarrage...")
+                        channel_monitor_cog._restart_task_if_needed(
+                            channel_monitor_cog.cleanup_ping_messages,
+                            "cleanup_ping_messages"
+                        )
+
+                if hasattr(channel_monitor_cog, 'check_inactive_scenes'):
+                    if not channel_monitor_cog.check_inactive_scenes.is_running():
+                        logger.warning("⚠️ Tâche check_inactive_scenes arrêtée, tentative de redémarrage...")
+                        channel_monitor_cog._restart_task_if_needed(
+                            channel_monitor_cog.check_inactive_scenes,
+                            "check_inactive_scenes"
+                        )
+            except Exception as e:
+                logger.error(f"❌ Erreur lors de la vérification des tâches ChannelMonitor: {e}")
+
+        # Vérifier les tâches du cog bump
+        bump_cog = bot.get_cog('Bump')
+        if bump_cog:
+            try:
+                if hasattr(bump_cog, 'check_bump'):
+                    if not bump_cog.check_bump.is_running():
+                        logger.warning("⚠️ Tâche check_bump arrêtée, tentative de redémarrage...")
+                        bump_cog.check_bump.restart()
+            except Exception as e:
+                logger.error(f"❌ Erreur lors de la vérification des tâches Bump: {e}")
+
+        # Vérifier les tâches du cog RPTracker
+        rp_tracker_cog = bot.get_cog('RPTracker')
+        if rp_tracker_cog:
+            try:
+                if hasattr(rp_tracker_cog, 'update_loop'):
+                    if not rp_tracker_cog.update_loop.is_running():
+                        logger.warning("⚠️ Tâche update_loop arrêtée, tentative de redémarrage...")
+                        rp_tracker_cog.update_loop.restart()
+            except Exception as e:
+                logger.error(f"❌ Erreur lors de la vérification des tâches RPTracker: {e}")
+
+        logger.info("✅ Vérification des tâches des cogs terminée")
+
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de la vérification globale des tâches: {e}")
+
 class CustomBot(commands.Bot):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -234,6 +325,7 @@ class CustomBot(commands.Bot):
         self.health_check_thread = None
         self.self_ping_thread = None
         self.ready_called = False
+        self.health_monitor = get_health_monitor(self)
 
     async def setup_hook(self):
         extensions = [
@@ -288,12 +380,57 @@ class CustomBot(commands.Bot):
         with open('error.log', 'a') as f:
             f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - Erreur dans {event_method}: {traceback.format_exc()}\n")
 
+    async def on_disconnect(self):
+        """Événement appelé lors de la déconnexion."""
+        logger.warning("🔌 Déconnecté de Discord")
+        self.ready_called = False  # Marquer comme non prêt
+        if self.health_monitor:
+            self.health_monitor.metrics.record_connection_event('disconnect')
+
+    async def on_resumed(self):
+        """Événement appelé lors de la reconnexion."""
+        logger.info("🔄 Reconnexion réussie à Discord")
+        self.ready_called = True  # Marquer comme prêt
+
+        if self.health_monitor:
+            self.health_monitor.metrics.record_connection_event('resumed')
+
+        # Vérifier et redémarrer les threads si nécessaire
+        await self._check_and_restart_threads()
+
+    async def _check_and_restart_threads(self):
+        """Vérifie et redémarre les threads si nécessaire."""
+        try:
+            if not self.http_server_thread or not self.http_server_thread.is_alive():
+                logger.warning("⚠️ Thread serveur HTTP mort, redémarrage...")
+                self.start_http_server_thread()
+
+            if not self.health_check_thread or not self.health_check_thread.is_alive():
+                logger.warning("⚠️ Thread surveillance santé mort, redémarrage...")
+                self.start_health_check_thread()
+
+            if not self.self_ping_thread or not self.self_ping_thread.is_alive():
+                logger.warning("⚠️ Thread self-ping mort, redémarrage...")
+                self.start_self_ping_thread()
+
+        except Exception as e:
+            logger.error(f"❌ Erreur lors de la vérification des threads: {e}")
+
 def main():
     intents = discord.Intents.default()
     intents.message_content = True
     intents.members = True
 
-    bot = CustomBot(command_prefix='!', intents=intents)
+    # Configuration plus robuste pour Discord.py
+    bot = CustomBot(
+        command_prefix='!',
+        intents=intents,
+        heartbeat_timeout=60.0,  # Timeout pour le heartbeat
+        guild_ready_timeout=10.0,  # Timeout pour les guildes
+        max_messages=5000,  # Cache plus généreux pour les fonctionnalités existantes
+        chunk_guilds_at_startup=False,  # Éviter de charger tous les membres au démarrage
+        member_cache_flags=discord.MemberCacheFlags.from_intents(intents)  # Cache adapté aux intents
+    )
     bot.start_http_server_thread()
     bot.start_health_check_thread()
     bot.start_self_ping_thread()
@@ -304,36 +441,15 @@ def main():
         logger.info(f'🆔 ID du bot : {bot.user.id}')
         logger.info(f'🏓 Latence actuelle : {bot.latency:.2f}s')
 
+        if bot.health_monitor:
+            bot.health_monitor.metrics.record_connection_event('ready')
+            bot.health_monitor.start_monitoring()
+
         # Vérifier et redémarrer les threads si nécessaire
-        if not bot.http_server_thread or not bot.http_server_thread.is_alive():
-            logger.warning("⚠️ Le thread du serveur HTTP n'est pas en cours d'exécution. Redémarrage...")
-            bot.start_http_server_thread()
-        else:
-            logger.info("✅ Thread serveur HTTP actif")
-
-        if not bot.health_check_thread or not bot.health_check_thread.is_alive():
-            logger.warning("⚠️ Le thread de surveillance de santé n'est pas en cours d'exécution. Redémarrage...")
-            bot.start_health_check_thread()
-        else:
-            logger.info("✅ Thread surveillance santé actif")
-
-        if not bot.self_ping_thread or not bot.self_ping_thread.is_alive():
-            logger.warning("⚠️ Le thread de self-ping n'est pas en cours d'exécution. Redémarrage...")
-            bot.start_self_ping_thread()
-        else:
-            logger.info("✅ Thread self-ping actif")
-
+        await bot._check_and_restart_threads()
         logger.info("🚀 Bot complètement opérationnel !")
 
-    async def on_disconnect():
-        logger.warning("Déconnecté de Discord")
-
-    async def on_resumed():
-        logger.info("Reconnexion réussie à Discord")
-
     bot.add_listener(on_ready, 'on_ready')
-    bot.add_listener(on_disconnect, 'on_disconnect')
-    bot.add_listener(on_resumed, 'on_resumed')
 
     while True:
         try:
