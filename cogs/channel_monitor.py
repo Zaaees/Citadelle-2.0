@@ -1632,6 +1632,68 @@ class ChannelMonitor(commands.Cog):
         except Exception as e:
             self.logger.error(f"Erreur lors du transfert de scène {channel_id}: {e}")
 
+    async def find_user_by_identifier(self, ctx: commands.Context, identifier: str):
+        """
+        Trouve un utilisateur par son ID, nom d'utilisateur ou mention.
+
+        Args:
+            ctx: Le contexte de la commande
+            identifier: L'identifiant de l'utilisateur (ID, nom, mention)
+
+        Returns:
+            discord.User ou None si non trouvé
+        """
+        # Nettoyer l'identifiant (supprimer les espaces)
+        identifier = identifier.strip()
+
+        # Cas 1: Mention d'utilisateur (<@123456789> ou <@!123456789>)
+        mention_match = re.match(r'<@!?(\d+)>', identifier)
+        if mention_match:
+            user_id = int(mention_match.group(1))
+            member = ctx.guild.get_member(user_id)
+            if member:
+                return member
+            # Essayer de récupérer l'utilisateur même s'il n'est pas sur le serveur
+            try:
+                return await self.bot.fetch_user(user_id)
+            except discord.NotFound:
+                return None
+
+        # Cas 2: ID numérique
+        if identifier.isdigit():
+            user_id = int(identifier)
+            member = ctx.guild.get_member(user_id)
+            if member:
+                return member
+            # Essayer de récupérer l'utilisateur même s'il n'est pas sur le serveur
+            try:
+                return await self.bot.fetch_user(user_id)
+            except discord.NotFound:
+                return None
+
+        # Cas 3: Nom d'utilisateur (recherche dans les membres du serveur)
+        # Recherche exacte par display_name
+        for member in ctx.guild.members:
+            if member.display_name.lower() == identifier.lower():
+                return member
+
+        # Recherche exacte par nom d'utilisateur global
+        for member in ctx.guild.members:
+            if member.name.lower() == identifier.lower():
+                return member
+
+        # Recherche partielle par display_name (si pas de correspondance exacte)
+        for member in ctx.guild.members:
+            if identifier.lower() in member.display_name.lower():
+                return member
+
+        # Recherche partielle par nom d'utilisateur global
+        for member in ctx.guild.members:
+            if identifier.lower() in member.name.lower():
+                return member
+
+        return None
+
     @staticmethod
     def scene_check(interaction: discord.Interaction) -> bool:
         """Vérifie si l'utilisateur a le rôle MJ pour utiliser la commande scene."""
@@ -1800,15 +1862,15 @@ class ChannelMonitor(commands.Cog):
             self.logger.error(f"Erreur dans le gestionnaire d'erreur scene: {e}")
 
     @commands.command(name="create_scene")
-    async def create_scene_admin(self, ctx: commands.Context, lien_salon: str, mj_id: int):
+    async def create_scene_admin(self, ctx: commands.Context, lien_salon: str, *, mj_identifier: str):
         """
         Commande admin pour créer une scène avec un MJ désigné.
 
-        Usage: !create_scene <lien_salon> <mj_id>
+        Usage: !create_scene <lien_salon> <nom_ou_id_mj>
 
         Args:
             lien_salon: Le lien du salon, fil ou post de forum à surveiller
-            mj_id: L'ID du MJ qui sera responsable de la scène
+            mj_identifier: Le nom d'utilisateur, l'ID ou la mention du MJ qui sera responsable de la scène
         """
         # Vérifier les permissions MJ de l'utilisateur qui lance la commande
         if not self.is_mj(ctx.author):
@@ -1819,22 +1881,26 @@ class ChannelMonitor(commands.Cog):
             await ctx.send(embed=error_embed, delete_after=10)
             return
 
-        # Vérifier que le MJ désigné existe et a le rôle MJ
-        designated_mj = self.bot.get_user(mj_id)
+        # Rechercher l'utilisateur désigné
+        designated_mj = await self.find_user_by_identifier(ctx, mj_identifier)
         if not designated_mj:
             error_embed = self.create_error_embed(
                 title="Utilisateur introuvable",
-                description=f"Utilisateur avec l'ID {mj_id} non trouvé."
+                description=f"Impossible de trouver l'utilisateur `{mj_identifier}`.\n\n"
+                           f"**Formats acceptés :**\n"
+                           f"• ID utilisateur : `123456789012345678`\n"
+                           f"• Nom d'utilisateur : `Nom Utilisateur`\n"
+                           f"• Mention : `@utilisateur`"
             )
-            await ctx.send(embed=error_embed, delete_after=10)
+            await ctx.send(embed=error_embed, delete_after=15)
             return
 
-        # Vérifier que le MJ désigné est membre du serveur et a le rôle MJ
-        guild_member = ctx.guild.get_member(mj_id)
+        # Vérifier que le MJ désigné est membre du serveur
+        guild_member = ctx.guild.get_member(designated_mj.id)
         if not guild_member:
             error_embed = self.create_error_embed(
                 title="Membre introuvable",
-                description=f"L'utilisateur {designated_mj.display_name} n'est pas membre de ce serveur."
+                description=f"L'utilisateur **{designated_mj.display_name}** n'est pas membre de ce serveur."
             )
             await ctx.send(embed=error_embed, delete_after=10)
             return
@@ -1842,7 +1908,7 @@ class ChannelMonitor(commands.Cog):
         if not self.is_mj(guild_member):
             error_embed = self.create_error_embed(
                 title="Permissions insuffisantes",
-                description=f"L'utilisateur {designated_mj.display_name} n'a pas le rôle MJ."
+                description=f"L'utilisateur **{designated_mj.display_name}** n'a pas le rôle MJ."
             )
             await ctx.send(embed=error_embed, delete_after=10)
             return
