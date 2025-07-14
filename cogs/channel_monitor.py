@@ -296,7 +296,7 @@ class ChannelMonitor(commands.Cog):
                     cols="10"
                 )
                 # Initialiser l'en-tête
-                self.sheet.append_row(["channel_id", "mj_user_id", "message_id", "participant_1", "participant_2", "participant_3", "participant_4", "participant_5", "participant_6", "added_at", "last_activity"])
+                self.sheet.append_row(["channel_id", "mj_user_id", "message_id", "participant_1", "participant_2", "participant_3", "participant_4", "participant_5", "participant_6", "added_at", "last_activity", "last_alert_sent", "last_reminder_message_id"])
 
             # Feuille pour les messages de ping à supprimer
             try:
@@ -381,12 +381,21 @@ class ChannelMonitor(commands.Cog):
                             except ValueError:
                                 last_alert_sent = None
 
+                        # Récupérer last_reminder_message_id (colonne 12, index 12)
+                        last_reminder_message_id = None
+                        if len(row) > 12 and row[12]:
+                            try:
+                                last_reminder_message_id = int(row[12])
+                            except ValueError:
+                                last_reminder_message_id = None
+
                         self.monitored_channels[channel_id] = {
                             'mj_user_id': mj_user_id,
                             'message_id': message_id,
                             'participants': participants,
                             'last_activity': last_activity,
-                            'last_alert_sent': last_alert_sent
+                            'last_alert_sent': last_alert_sent,
+                            'last_reminder_message_id': last_reminder_message_id
                         }
                     except ValueError as e:
                         self.logger.warning(f"Ligne invalide ignorée: {row} - Erreur: {e}")
@@ -407,7 +416,7 @@ class ChannelMonitor(commands.Cog):
             self.sheet.clear()
 
             # Réécrire l'en-tête
-            self.sheet.append_row(["channel_id", "mj_user_id", "message_id", "participant_1", "participant_2", "participant_3", "participant_4", "participant_5", "participant_6", "added_at", "last_activity", "last_alert_sent"])
+            self.sheet.append_row(["channel_id", "mj_user_id", "message_id", "participant_1", "participant_2", "participant_3", "participant_4", "participant_5", "participant_6", "added_at", "last_activity", "last_alert_sent", "last_reminder_message_id"])
 
             # Ajouter toutes les données
             current_time = datetime.now().isoformat()
@@ -437,6 +446,10 @@ class ChannelMonitor(commands.Cog):
                 last_alert_sent = data.get('last_alert_sent')
                 row.append(last_alert_sent.isoformat() if last_alert_sent else "")
 
+                # Ajouter last_reminder_message_id
+                last_reminder_message_id = data.get('last_reminder_message_id')
+                row.append(str(last_reminder_message_id) if last_reminder_message_id else "")
+
                 self.sheet.append_row(row)
 
             self.logger.info(f"Sauvegardé {len(self.monitored_channels)} salons surveillés dans Google Sheets")
@@ -463,7 +476,27 @@ class ChannelMonitor(commands.Cog):
             self.logger.error(f"Erreur lors de la vérification d'alerte pour le salon {channel_id}: {e}")
             return False
 
-    def record_alert_sent(self, channel_id: int, mj_user_id: int):
+    def should_send_new_alert(self, channel_id: int) -> bool:
+        """Vérifie si un nouveau message d'alerte doit être envoyé (renouvellement quotidien)."""
+        try:
+            data = self.monitored_channels.get(channel_id)
+            if not data:
+                return True
+
+            last_alert_sent = data.get('last_alert_sent')
+            if not last_alert_sent:
+                return True
+
+            # Vérifier si plus de 24h se sont écoulées depuis la dernière alerte
+            current_time = datetime.now()
+            time_since_last_alert = current_time - last_alert_sent
+
+            return time_since_last_alert.total_seconds() >= 86400  # 24h en secondes
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la vérification de renouvellement d'alerte pour le salon {channel_id}: {e}")
+            return True
+
+    def record_alert_sent(self, channel_id: int, mj_user_id: int, message_id: int = None):
         """Enregistre qu'une alerte d'inactivité a été envoyée pour ce salon."""
         try:
             current_time = datetime.now()
@@ -471,6 +504,9 @@ class ChannelMonitor(commands.Cog):
             # Mettre à jour les données en mémoire
             if channel_id in self.monitored_channels:
                 self.monitored_channels[channel_id]['last_alert_sent'] = current_time
+                # Enregistrer l'ID du dernier message de rappel pour pouvoir le supprimer plus tard
+                if message_id:
+                    self.monitored_channels[channel_id]['last_reminder_message_id'] = message_id
                 self.save_monitored_channels()
 
             # Enregistrer dans la feuille des alertes
@@ -488,6 +524,43 @@ class ChannelMonitor(commands.Cog):
             self.logger.info(f"Alerte d'inactivité enregistrée pour le salon {channel_id}")
         except Exception as e:
             self.logger.error(f"Erreur lors de l'enregistrement d'alerte pour le salon {channel_id}: {e}")
+
+    async def cleanup_old_reminder_message(self, channel_id: int, notification_channel):
+        """Supprime l'ancien message de rappel s'il existe."""
+        try:
+            data = self.monitored_channels.get(channel_id)
+            if not data:
+                return
+
+            old_message_id = data.get('last_reminder_message_id')
+            if old_message_id:
+                try:
+                    old_message = await notification_channel.fetch_message(old_message_id)
+                    await old_message.delete()
+                    self.logger.info(f"Ancien message de rappel supprimé: {old_message_id}")
+
+                    # Supprimer aussi de la feuille ping_sheet si présent
+                    if self.ping_sheet:
+                        try:
+                            all_values = self.ping_sheet.get_all_values()
+                            for idx, row in enumerate(all_values[1:], start=2):
+                                if len(row) >= 1 and row[0] == str(old_message_id):
+                                    self.ping_sheet.delete_rows(idx)
+                                    break
+                        except Exception as e:
+                            self.logger.error(f"Erreur lors de la suppression de l'ancien ping de la base: {e}")
+
+                except discord.NotFound:
+                    self.logger.debug(f"Ancien message de rappel {old_message_id} déjà supprimé")
+                except Exception as e:
+                    self.logger.error(f"Erreur lors de la suppression de l'ancien message de rappel {old_message_id}: {e}")
+
+                # Nettoyer l'ID du message dans les données
+                data['last_reminder_message_id'] = None
+                self.save_monitored_channels()
+
+        except Exception as e:
+            self.logger.error(f"Erreur lors du nettoyage de l'ancien message de rappel pour le salon {channel_id}: {e}")
 
     def cleanup_old_alerts(self):
         """Nettoie les anciennes entrées d'alertes (plus de 30 jours)."""
@@ -902,9 +975,9 @@ class ChannelMonitor(commands.Cog):
 
         return False
 
-    @tasks.loop(hours=24)
+    @tasks.loop(hours=6)
     async def check_inactive_scenes(self):
-        """Vérifie les scènes inactives depuis une semaine et ping le MJ."""
+        """Vérifie les scènes inactives depuis une semaine et ping le MJ. Exécution toutes les 6h pour plus de fiabilité."""
         try:
             if not self.monitored_channels:
                 return
@@ -925,9 +998,9 @@ class ChannelMonitor(commands.Cog):
 
                     # Vérifier si la scène est inactive depuis une semaine
                     if last_activity.timestamp() < week_ago:
-                        # Vérifier si une alerte a déjà été envoyée aujourd'hui
-                        if self.has_alert_been_sent_today(channel_id):
-                            self.logger.debug(f"Alerte déjà envoyée aujourd'hui pour le salon {channel_id}, ignoré")
+                        # Vérifier si un nouveau message d'alerte doit être envoyé (renouvellement quotidien)
+                        if not self.should_send_new_alert(channel_id):
+                            self.logger.debug(f"Alerte récente déjà envoyée pour le salon {channel_id}, attente du renouvellement")
                             continue
 
                         mj_id = data['mj_user_id']
@@ -945,51 +1018,44 @@ class ChannelMonitor(commands.Cog):
 
                         channel_info = self.get_channel_info(channel)
 
+                        # Supprimer l'ancien message de rappel s'il existe
+                        await self.cleanup_old_reminder_message(channel_id, notification_channel)
+
                         # Créer l'embed de rappel
                         days_inactive = int((current_time - last_activity).days)
                         reminder_embed = self.create_reminder_embed(mj, channel, channel_id, days_inactive)
 
                         # Envoyer l'embed de rappel
+                        ping_message = None
                         if data['message_id']:
                             try:
                                 embed_message = await notification_channel.fetch_message(data['message_id'])
                                 ping_message = await embed_message.reply(content=mj.mention, embed=reminder_embed)
-
-                                # Ajouter le message de ping à Google Sheets pour suppression automatique
-                                if self.ping_sheet:
-                                    try:
-                                        self.ping_sheet.append_row([
-                                            str(ping_message.id),
-                                            str(notification_channel.id),
-                                            datetime.now().isoformat()
-                                        ])
-                                    except Exception as e:
-                                        self.logger.error(f"Erreur lors de l'ajout du ping de rappel à Google Sheets: {e}")
-
-                                # Enregistrer que l'alerte a été envoyée
-                                self.record_alert_sent(channel_id, mj_id)
-                                self.logger.info(f"Ping de rappel envoyé pour scène inactive: {channel_info} ({days_inactive} jours)")
+                                self.logger.info(f"Ping de rappel envoyé en réponse à l'embed pour scène inactive: {channel_info} ({days_inactive} jours)")
 
                             except discord.NotFound:
-                                self.logger.warning(f"Message d'embed {data['message_id']} non trouvé pour le rappel")
+                                self.logger.warning(f"Message d'embed {data['message_id']} non trouvé pour le rappel, envoi direct")
+                                ping_message = await notification_channel.send(content=mj.mention, embed=reminder_embed)
+                                self.logger.info(f"Ping de rappel direct envoyé pour scène inactive: {channel_info} ({days_inactive} jours)")
                         else:
                             # Envoyer l'embed directement si pas d'embed de surveillance
                             ping_message = await notification_channel.send(content=mj.mention, embed=reminder_embed)
-
-                            # Ajouter le message de ping à Google Sheets pour suppression automatique
-                            if self.ping_sheet:
-                                try:
-                                    self.ping_sheet.append_row([
-                                        str(ping_message.id),
-                                        str(notification_channel.id),
-                                        datetime.now().isoformat()
-                                    ])
-                                except Exception as e:
-                                    self.logger.error(f"Erreur lors de l'ajout du ping de rappel à Google Sheets: {e}")
-
-                            # Enregistrer que l'alerte a été envoyée
-                            self.record_alert_sent(channel_id, mj_id)
                             self.logger.info(f"Ping de rappel direct envoyé pour scène inactive: {channel_info} ({days_inactive} jours)")
+
+                        # Ajouter le message de ping à Google Sheets pour suppression automatique
+                        if ping_message and self.ping_sheet:
+                            try:
+                                self.ping_sheet.append_row([
+                                    str(ping_message.id),
+                                    str(notification_channel.id),
+                                    datetime.now().isoformat()
+                                ])
+                            except Exception as e:
+                                self.logger.error(f"Erreur lors de l'ajout du ping de rappel à Google Sheets: {e}")
+
+                        # Enregistrer que l'alerte a été envoyée avec l'ID du message
+                        if ping_message:
+                            self.record_alert_sent(channel_id, mj_id, ping_message.id)
 
                 except Exception as e:
                     self.logger.error(f"Erreur lors de la vérification d'inactivité pour le salon {channel_id}: {e}")
