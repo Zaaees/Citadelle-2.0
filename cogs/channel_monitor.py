@@ -1721,8 +1721,8 @@ class ChannelMonitor(commands.Cog):
         # Si pas trouvé dans le cache, essayer de chercher avec une approche différente
         # Utiliser la recherche par nom avec l'API Discord si possible
         try:
-            # Essayer de chercher parmi tous les membres (peut être lent sur de gros serveurs)
-            async for member in ctx.guild.fetch_members(limit=None):
+            # Essayer de chercher parmi tous les membres (limité pour éviter la lenteur)
+            async for member in ctx.guild.fetch_members(limit=1000):
                 if (member.display_name.lower() == identifier.lower() or
                     member.name.lower() == identifier.lower()):
                     return member
@@ -1982,8 +1982,33 @@ class ChannelMonitor(commands.Cog):
             await ctx.send(embed=error_embed, delete_after=15)
             return
 
+        # Debug logging
+        self.logger.info(f"Utilisateur trouvé: {designated_mj.display_name} (ID: {designated_mj.id}, Type: {type(designated_mj).__name__})")
+
         # Vérifier que le MJ désigné est membre du serveur
-        guild_member = ctx.guild.get_member(designated_mj.id)
+        guild_member = None
+
+        # Si designated_mj est déjà un Member, l'utiliser directement
+        if isinstance(designated_mj, discord.Member):
+            guild_member = designated_mj
+            self.logger.info(f"Utilisateur déjà un Member: {guild_member.display_name}")
+        else:
+            # Sinon, essayer de récupérer le membre depuis le serveur
+            self.logger.info(f"Tentative de récupération du membre {designated_mj.id} depuis le serveur")
+            guild_member = ctx.guild.get_member(designated_mj.id)
+            if guild_member:
+                self.logger.info(f"Membre trouvé dans le cache: {guild_member.display_name}")
+            else:
+                # Essayer de fetch le membre depuis Discord
+                self.logger.info(f"Membre non trouvé dans le cache, tentative de fetch...")
+                try:
+                    guild_member = await ctx.guild.fetch_member(designated_mj.id)
+                    self.logger.info(f"Membre récupéré via fetch: {guild_member.display_name}")
+                except discord.NotFound:
+                    self.logger.warning(f"Membre {designated_mj.id} non trouvé sur le serveur (NotFound)")
+                except discord.HTTPException as e:
+                    self.logger.warning(f"Erreur HTTP lors de la récupération du membre {designated_mj.id}: {e}")
+
         if not guild_member:
             error_embed = self.create_error_embed(
                 title="Membre introuvable",
