@@ -778,6 +778,13 @@ class ChannelMonitor(commands.Cog):
                     channel = self.bot.get_channel(channel_id)
                     mj_user = self.bot.get_user(data['mj_user_id'])
 
+                    # Si le MJ n'est pas dans le cache, essayer de le récupérer
+                    if not mj_user:
+                        try:
+                            mj_user = await self.bot.fetch_user(data['mj_user_id'])
+                        except (discord.NotFound, discord.HTTPException):
+                            pass
+
                     if not channel or not mj_user:
                         self.logger.warning(f"Salon {channel_id} ou MJ {data['mj_user_id']} non trouvé")
                         failed_count += 1
@@ -1284,13 +1291,23 @@ class ChannelMonitor(commands.Cog):
             inline=True
         )
 
-        # Participants
+        # Participants - utilisation synchrone pour éviter de bloquer l'embed
         if participants:
             participant_names = []
+            guild = channel.guild if hasattr(channel, 'guild') else None
+
             for user_id in participants:
+                # Essayer d'abord le cache du bot
                 user = self.bot.get_user(user_id)
                 if user:
                     participant_names.append(user.display_name)
+                elif guild:
+                    # Essayer le cache du serveur
+                    member = guild.get_member(user_id)
+                    if member:
+                        participant_names.append(member.display_name)
+                    else:
+                        participant_names.append(f"Utilisateur {user_id}")
                 else:
                     participant_names.append(f"Utilisateur {user_id}")
 
@@ -1548,6 +1565,13 @@ class ChannelMonitor(commands.Cog):
                 channel = self.bot.get_channel(channel_id)
                 mj_user = self.bot.get_user(data['mj_user_id'])
 
+                # Si le MJ n'est pas dans le cache, essayer de le récupérer
+                if not mj_user:
+                    try:
+                        mj_user = await self.bot.fetch_user(data['mj_user_id'])
+                    except (discord.NotFound, discord.HTTPException):
+                        pass
+
                 if not channel or not mj_user:
                     return
 
@@ -1609,6 +1633,13 @@ class ChannelMonitor(commands.Cog):
                         channel = self.bot.get_channel(channel_id)
                         new_mj_user = self.bot.get_user(new_mj_id)
 
+                        # Si le nouveau MJ n'est pas dans le cache, essayer de le récupérer
+                        if not new_mj_user:
+                            try:
+                                new_mj_user = await self.bot.fetch_user(new_mj_id)
+                            except (discord.NotFound, discord.HTTPException):
+                                pass
+
                         if channel and new_mj_user:
                             # Créer le nouvel embed avec le nouveau MJ
                             embed = self.create_scene_embed(channel, new_mj_user, data['participants'])
@@ -1641,7 +1672,7 @@ class ChannelMonitor(commands.Cog):
             identifier: L'identifiant de l'utilisateur (ID, nom, mention)
 
         Returns:
-            discord.User ou None si non trouvé
+            discord.Member ou None si non trouvé
         """
         # Nettoyer l'identifiant (supprimer les espaces)
         identifier = identifier.strip()
@@ -1650,28 +1681,33 @@ class ChannelMonitor(commands.Cog):
         mention_match = re.match(r'<@!?(\d+)>', identifier)
         if mention_match:
             user_id = int(mention_match.group(1))
+            # Essayer d'abord le cache
             member = ctx.guild.get_member(user_id)
             if member:
                 return member
-            # Essayer de récupérer l'utilisateur même s'il n'est pas sur le serveur
+            # Puis fetch depuis Discord
             try:
-                return await self.bot.fetch_user(user_id)
-            except discord.NotFound:
+                return await ctx.guild.fetch_member(user_id)
+            except (discord.NotFound, discord.HTTPException):
                 return None
 
         # Cas 2: ID numérique
         if identifier.isdigit():
             user_id = int(identifier)
+            # Essayer d'abord le cache
             member = ctx.guild.get_member(user_id)
             if member:
                 return member
-            # Essayer de récupérer l'utilisateur même s'il n'est pas sur le serveur
+            # Puis fetch depuis Discord
             try:
-                return await self.bot.fetch_user(user_id)
-            except discord.NotFound:
+                return await ctx.guild.fetch_member(user_id)
+            except (discord.NotFound, discord.HTTPException):
                 return None
 
         # Cas 3: Nom d'utilisateur (recherche dans les membres du serveur)
+        # Si le cache n'est pas complet, on peut essayer de chercher par chunks
+        # Mais d'abord, essayons avec le cache existant
+
         # Recherche exacte par display_name
         for member in ctx.guild.members:
             if member.display_name.lower() == identifier.lower():
@@ -1681,6 +1717,18 @@ class ChannelMonitor(commands.Cog):
         for member in ctx.guild.members:
             if member.name.lower() == identifier.lower():
                 return member
+
+        # Si pas trouvé dans le cache, essayer de chercher avec une approche différente
+        # Utiliser la recherche par nom avec l'API Discord si possible
+        try:
+            # Essayer de chercher parmi tous les membres (peut être lent sur de gros serveurs)
+            async for member in ctx.guild.fetch_members(limit=None):
+                if (member.display_name.lower() == identifier.lower() or
+                    member.name.lower() == identifier.lower()):
+                    return member
+        except discord.HTTPException:
+            # Si la recherche échoue, continuer avec la recherche partielle dans le cache
+            pass
 
         # Recherche partielle par display_name (si pas de correspondance exacte)
         for member in ctx.guild.members:
@@ -1693,6 +1741,45 @@ class ChannelMonitor(commands.Cog):
                 return member
 
         return None
+
+    async def get_user_info_robust(self, user_id: int, guild: discord.Guild = None):
+        """
+        Récupère les informations d'un utilisateur de manière robuste.
+
+        Args:
+            user_id: L'ID de l'utilisateur
+            guild: Le serveur Discord (optionnel)
+
+        Returns:
+            tuple: (user_object, display_name) ou (None, f"Utilisateur {user_id}")
+        """
+        # Essayer d'abord le cache du bot
+        user = self.bot.get_user(user_id)
+        if user:
+            return user, user.display_name
+
+        # Si on a un serveur, essayer de récupérer le membre
+        if guild:
+            member = guild.get_member(user_id)
+            if member:
+                return member, member.display_name
+
+            # Essayer de fetch le membre depuis Discord
+            try:
+                member = await guild.fetch_member(user_id)
+                return member, member.display_name
+            except (discord.NotFound, discord.HTTPException):
+                pass
+
+        # Essayer de fetch l'utilisateur global
+        try:
+            user = await self.bot.fetch_user(user_id)
+            return user, user.display_name
+        except (discord.NotFound, discord.HTTPException):
+            pass
+
+        # Si tout échoue, retourner un nom par défaut
+        return None, f"Utilisateur {user_id}"
 
     @staticmethod
     def scene_check(interaction: discord.Interaction) -> bool:
@@ -2048,6 +2135,13 @@ class ChannelMonitor(commands.Cog):
             data = self.monitored_channels[channel_id]
             mj_id = data['mj_user_id']
             mj = self.bot.get_user(mj_id)
+
+            # Si le MJ n'est pas dans le cache, essayer de le récupérer
+            if not mj:
+                try:
+                    mj = await self.bot.fetch_user(mj_id)
+                except (discord.NotFound, discord.HTTPException):
+                    pass
 
             if not mj:
                 self.logger.warning(f"MJ avec ID {mj_id} non trouvé pour le salon {channel_id}")
