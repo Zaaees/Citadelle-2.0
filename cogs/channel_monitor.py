@@ -790,8 +790,8 @@ class ChannelMonitor(commands.Cog):
                         failed_count += 1
                         continue
 
-                    # Créer le nouvel embed avec le format amélioré
-                    embed = self.create_scene_embed(channel, mj_user, data.get('participants', []))
+                    # Créer le nouvel embed avec le format amélioré (version asynchrone)
+                    embed = await self.create_scene_embed_async(channel, mj_user, data.get('participants', []))
 
                     # Créer la vue avec le bouton
                     view = SceneView(self, channel_id)
@@ -1575,8 +1575,8 @@ class ChannelMonitor(commands.Cog):
                 if not channel or not mj_user:
                     return
 
-                # Créer le nouvel embed avec les informations à jour
-                embed = self.create_scene_embed(channel, mj_user, data['participants'], action_user)
+                # Créer le nouvel embed avec les informations à jour (version asynchrone)
+                embed = await self.create_scene_embed_async(channel, mj_user, data['participants'], action_user)
 
                 # Créer la vue avec le bouton
                 view = SceneView(self, channel_id)
@@ -1641,8 +1641,8 @@ class ChannelMonitor(commands.Cog):
                                 pass
 
                         if channel and new_mj_user:
-                            # Créer le nouvel embed avec le nouveau MJ
-                            embed = self.create_scene_embed(channel, new_mj_user, data['participants'])
+                            # Créer le nouvel embed avec le nouveau MJ (version asynchrone)
+                            embed = await self.create_scene_embed_async(channel, new_mj_user, data['participants'])
 
                             # Créer la vue avec les boutons
                             view = SceneView(self, channel_id)
@@ -1781,6 +1781,76 @@ class ChannelMonitor(commands.Cog):
         # Si tout échoue, retourner un nom par défaut
         return None, f"Utilisateur {user_id}"
 
+    async def create_scene_embed_async(self, channel, mj_user, participants: List[int] = None, last_action_user=None) -> discord.Embed:
+        """Version asynchrone de create_scene_embed avec récupération robuste des participants."""
+        if participants is None:
+            participants = []
+
+        embed = discord.Embed(
+            title="🎭 Scène surveillée",
+            color=0x3498db,
+            timestamp=datetime.now()
+        )
+
+        # Informations du salon
+        channel_details = self.get_detailed_channel_info(channel)
+        salon_info = f"**{channel_details['name']}**"
+        if channel_details['type'] == 'forum_post' and channel_details['forum_name']:
+            salon_info += f"\n🗂️ **Forum :** {channel_details['forum_name']}"
+        elif channel_details['type'] == 'thread' and channel_details['parent_name']:
+            salon_info += f"\n💬 **Salon parent :** {channel_details['parent_name']}"
+
+        embed.add_field(
+            name="📍 Scène",
+            value=salon_info,
+            inline=False
+        )
+
+        # MJ responsable
+        embed.add_field(
+            name="🎯 MJ responsable",
+            value=f"**{mj_user.display_name}**",
+            inline=True
+        )
+
+        # Participants - version asynchrone avec récupération robuste
+        if participants:
+            participant_names = []
+            guild = channel.guild if hasattr(channel, 'guild') else None
+
+            for user_id in participants:
+                user_obj, display_name = await self.get_user_info_robust(user_id, guild)
+                participant_names.append(display_name)
+
+            embed.add_field(
+                name="👥 Rôlistes participants",
+                value=", ".join(participant_names) if participant_names else "Aucun",
+                inline=True
+            )
+        else:
+            embed.add_field(
+                name="👥 Rôlistes participants",
+                value="Aucun",
+                inline=True
+            )
+
+        # Dernière activité
+        if last_action_user:
+            embed.add_field(
+                name="⚡ Dernière activité",
+                value=f"**{last_action_user.display_name}**",
+                inline=True
+            )
+        else:
+            embed.add_field(
+                name="⚡ Dernière activité",
+                value="Aucune activité récente",
+                inline=True
+            )
+
+        embed.set_footer(text="Système de surveillance des scènes")
+        return embed
+
     @staticmethod
     def scene_check(interaction: discord.Interaction) -> bool:
         """Vérifie si l'utilisateur a le rôle MJ pour utiliser la commande scene."""
@@ -1873,8 +1943,8 @@ class ChannelMonitor(commands.Cog):
             await interaction.followup.send(embed=error_embed, ephemeral=True)
             return
 
-        # Créer l'embed initial
-        embed = self.create_scene_embed(salon, interaction.user)
+        # Créer l'embed initial (version asynchrone)
+        embed = await self.create_scene_embed_async(salon, interaction.user)
 
         # Créer la vue avec le bouton de clôture
         view = SceneView(self, salon.id)
@@ -2099,8 +2169,8 @@ class ChannelMonitor(commands.Cog):
             )
             return
 
-        # Créer l'embed initial avec le MJ désigné
-        embed = self.create_scene_embed(salon, designated_mj)
+        # Créer l'embed initial avec le MJ désigné (version asynchrone)
+        embed = await self.create_scene_embed_async(salon, designated_mj)
 
         # Créer la vue avec le bouton de clôture
         view = SceneView(self, salon.id)
@@ -2244,6 +2314,46 @@ class ChannelMonitor(commands.Cog):
             self.logger.info(f"Configuré {len(self.monitored_channels)} vues persistantes")
         except Exception as e:
             self.logger.error(f"Erreur lors de la configuration des vues persistantes: {e}")
+
+    @commands.command(name="refresh_embeds")
+    async def refresh_embeds_command(self, ctx: commands.Context):
+        """
+        Commande admin pour forcer la mise à jour de tous les embeds de surveillance.
+
+        Usage: !refresh_embeds
+        """
+        # Vérifier les permissions MJ
+        if not self.is_mj(ctx.author):
+            error_embed = self.create_error_embed(
+                title="Accès refusé",
+                description="Cette commande est réservée aux MJ."
+            )
+            await ctx.send(embed=error_embed, delete_after=10)
+            return
+
+        # Message de statut
+        status_message = await ctx.send("🔄 Mise à jour des embeds de surveillance en cours...")
+
+        try:
+            # Forcer la mise à jour de tous les embeds
+            await self.update_all_existing_embeds()
+
+            success_embed = self.create_success_embed(
+                title="Embeds mis à jour",
+                description="Tous les embeds de surveillance ont été mis à jour avec les noms d'utilisateur corrects."
+            )
+            await status_message.edit(content="", embed=success_embed)
+
+            self.logger.info(f"Admin {ctx.author.display_name} a forcé la mise à jour des embeds")
+
+        except Exception as e:
+            error_embed = self.create_error_embed(
+                title="Erreur de mise à jour",
+                description="Une erreur est survenue lors de la mise à jour des embeds.",
+                error_details=str(e)
+            )
+            await status_message.edit(content="", embed=error_embed)
+            self.logger.error(f"Erreur lors de la mise à jour forcée des embeds: {e}")
 
 async def setup(bot: commands.Bot):
     """Fonction de setup du cog."""
