@@ -779,13 +779,20 @@ class ChannelMonitor(commands.Cog):
                     channel = self.bot.get_channel(channel_id)
                     mj_user = self.bot.get_user(data['mj_user_id'])
 
+                    # Si le MJ n'est pas dans le cache, essayer de le récupérer
+                    if not mj_user:
+                        try:
+                            mj_user = await self.bot.fetch_user(data['mj_user_id'])
+                        except (discord.NotFound, discord.HTTPException):
+                            pass
+
                     if not channel or not mj_user:
                         self.logger.warning(f"Salon {channel_id} ou MJ {data['mj_user_id']} non trouvé")
                         failed_count += 1
                         continue
 
-                    # Créer le nouvel embed avec le format amélioré
-                    embed = self.create_scene_embed(channel, mj_user, data.get('participants', []))
+                    # Créer le nouvel embed avec le format amélioré (version asynchrone)
+                    embed = await self.create_scene_embed_async(channel, mj_user, data.get('participants', []))
 
                     # Créer la vue avec le bouton
                     view = SceneView(self, channel_id)
@@ -1339,13 +1346,23 @@ class ChannelMonitor(commands.Cog):
             inline=True
         )
 
-        # Participants
+        # Participants - utilisation synchrone pour éviter de bloquer l'embed
         if participants:
             participant_names = []
+            guild = channel.guild if hasattr(channel, 'guild') else None
+
             for user_id in participants:
+                # Essayer d'abord le cache du bot
                 user = self.bot.get_user(user_id)
                 if user:
                     participant_names.append(user.display_name)
+                elif guild:
+                    # Essayer le cache du serveur
+                    member = guild.get_member(user_id)
+                    if member:
+                        participant_names.append(member.display_name)
+                    else:
+                        participant_names.append(f"Utilisateur {user_id}")
                 else:
                     participant_names.append(f"Utilisateur {user_id}")
 
@@ -1749,11 +1766,18 @@ class ChannelMonitor(commands.Cog):
                 channel = self.bot.get_channel(channel_id)
                 mj_user = self.bot.get_user(data['mj_user_id'])
 
+                # Si le MJ n'est pas dans le cache, essayer de le récupérer
+                if not mj_user:
+                    try:
+                        mj_user = await self.bot.fetch_user(data['mj_user_id'])
+                    except (discord.NotFound, discord.HTTPException):
+                        pass
+
                 if not channel or not mj_user:
                     return
 
-                # Créer le nouvel embed avec les informations à jour
-                embed = self.create_scene_embed(channel, mj_user, data['participants'], action_user)
+                # Créer le nouvel embed avec les informations à jour (version asynchrone)
+                embed = await self.create_scene_embed_async(channel, mj_user, data['participants'], action_user)
 
                 # Créer la vue avec le bouton
                 view = SceneView(self, channel_id)
@@ -1810,9 +1834,16 @@ class ChannelMonitor(commands.Cog):
                         channel = self.bot.get_channel(channel_id)
                         new_mj_user = self.bot.get_user(new_mj_id)
 
+                        # Si le nouveau MJ n'est pas dans le cache, essayer de le récupérer
+                        if not new_mj_user:
+                            try:
+                                new_mj_user = await self.bot.fetch_user(new_mj_id)
+                            except (discord.NotFound, discord.HTTPException):
+                                pass
+
                         if channel and new_mj_user:
-                            # Créer le nouvel embed avec le nouveau MJ
-                            embed = self.create_scene_embed(channel, new_mj_user, data['participants'])
+                            # Créer le nouvel embed avec le nouveau MJ (version asynchrone)
+                            embed = await self.create_scene_embed_async(channel, new_mj_user, data['participants'])
 
                             # Créer la vue avec les boutons
                             view = SceneView(self, channel_id)
@@ -1832,6 +1863,194 @@ class ChannelMonitor(commands.Cog):
 
         except Exception as e:
             self.logger.error(f"Erreur lors du transfert de scène {channel_id}: {e}")
+
+    async def find_user_by_identifier(self, ctx: commands.Context, identifier: str):
+        """
+        Trouve un utilisateur par son ID, nom d'utilisateur ou mention.
+
+        Args:
+            ctx: Le contexte de la commande
+            identifier: L'identifiant de l'utilisateur (ID, nom, mention)
+
+        Returns:
+            discord.Member ou None si non trouvé
+        """
+        # Nettoyer l'identifiant (supprimer les espaces)
+        identifier = identifier.strip()
+
+        # Cas 1: Mention d'utilisateur (<@123456789> ou <@!123456789>)
+        mention_match = re.match(r'<@!?(\d+)>', identifier)
+        if mention_match:
+            user_id = int(mention_match.group(1))
+            # Essayer d'abord le cache
+            member = ctx.guild.get_member(user_id)
+            if member:
+                return member
+            # Puis fetch depuis Discord
+            try:
+                return await ctx.guild.fetch_member(user_id)
+            except (discord.NotFound, discord.HTTPException):
+                return None
+
+        # Cas 2: ID numérique
+        if identifier.isdigit():
+            user_id = int(identifier)
+            # Essayer d'abord le cache
+            member = ctx.guild.get_member(user_id)
+            if member:
+                return member
+            # Puis fetch depuis Discord
+            try:
+                return await ctx.guild.fetch_member(user_id)
+            except (discord.NotFound, discord.HTTPException):
+                return None
+
+        # Cas 3: Nom d'utilisateur (recherche dans les membres du serveur)
+        # Si le cache n'est pas complet, on peut essayer de chercher par chunks
+        # Mais d'abord, essayons avec le cache existant
+
+        # Recherche exacte par display_name
+        for member in ctx.guild.members:
+            if member.display_name.lower() == identifier.lower():
+                return member
+
+        # Recherche exacte par nom d'utilisateur global
+        for member in ctx.guild.members:
+            if member.name.lower() == identifier.lower():
+                return member
+
+        # Si pas trouvé dans le cache, essayer de chercher avec une approche différente
+        # Utiliser la recherche par nom avec l'API Discord si possible
+        try:
+            # Essayer de chercher parmi tous les membres (limité pour éviter la lenteur)
+            async for member in ctx.guild.fetch_members(limit=1000):
+                if (member.display_name.lower() == identifier.lower() or
+                    member.name.lower() == identifier.lower()):
+                    return member
+        except discord.HTTPException:
+            # Si la recherche échoue, continuer avec la recherche partielle dans le cache
+            pass
+
+        # Recherche partielle par display_name (si pas de correspondance exacte)
+        for member in ctx.guild.members:
+            if identifier.lower() in member.display_name.lower():
+                return member
+
+        # Recherche partielle par nom d'utilisateur global
+        for member in ctx.guild.members:
+            if identifier.lower() in member.name.lower():
+                return member
+
+        return None
+
+    async def get_user_info_robust(self, user_id: int, guild: discord.Guild = None):
+        """
+        Récupère les informations d'un utilisateur de manière robuste.
+
+        Args:
+            user_id: L'ID de l'utilisateur
+            guild: Le serveur Discord (optionnel)
+
+        Returns:
+            tuple: (user_object, display_name) ou (None, f"Utilisateur {user_id}")
+        """
+        # Essayer d'abord le cache du bot
+        user = self.bot.get_user(user_id)
+        if user:
+            return user, user.display_name
+
+        # Si on a un serveur, essayer de récupérer le membre
+        if guild:
+            member = guild.get_member(user_id)
+            if member:
+                return member, member.display_name
+
+            # Essayer de fetch le membre depuis Discord
+            try:
+                member = await guild.fetch_member(user_id)
+                return member, member.display_name
+            except (discord.NotFound, discord.HTTPException):
+                pass
+
+        # Essayer de fetch l'utilisateur global
+        try:
+            user = await self.bot.fetch_user(user_id)
+            return user, user.display_name
+        except (discord.NotFound, discord.HTTPException):
+            pass
+
+        # Si tout échoue, retourner un nom par défaut
+        return None, f"Utilisateur {user_id}"
+
+    async def create_scene_embed_async(self, channel, mj_user, participants: List[int] = None, last_action_user=None) -> discord.Embed:
+        """Version asynchrone de create_scene_embed avec récupération robuste des participants."""
+        if participants is None:
+            participants = []
+
+        embed = discord.Embed(
+            title="🎭 Scène surveillée",
+            color=0x3498db,
+            timestamp=datetime.now()
+        )
+
+        # Informations du salon
+        channel_details = self.get_detailed_channel_info(channel)
+        salon_info = f"**{channel_details['name']}**"
+        if channel_details['type'] == 'forum_post' and channel_details['forum_name']:
+            salon_info += f"\n🗂️ **Forum :** {channel_details['forum_name']}"
+        elif channel_details['type'] == 'thread' and channel_details['parent_name']:
+            salon_info += f"\n💬 **Salon parent :** {channel_details['parent_name']}"
+
+        embed.add_field(
+            name="📍 Scène",
+            value=salon_info,
+            inline=False
+        )
+
+        # MJ responsable
+        embed.add_field(
+            name="🎯 MJ responsable",
+            value=f"**{mj_user.display_name}**",
+            inline=True
+        )
+
+        # Participants - version asynchrone avec récupération robuste
+        if participants:
+            participant_names = []
+            guild = channel.guild if hasattr(channel, 'guild') else None
+
+            for user_id in participants:
+                user_obj, display_name = await self.get_user_info_robust(user_id, guild)
+                participant_names.append(display_name)
+
+            embed.add_field(
+                name="👥 Rôlistes participants",
+                value=", ".join(participant_names) if participant_names else "Aucun",
+                inline=True
+            )
+        else:
+            embed.add_field(
+                name="👥 Rôlistes participants",
+                value="Aucun",
+                inline=True
+            )
+
+        # Dernière activité
+        if last_action_user:
+            embed.add_field(
+                name="⚡ Dernière activité",
+                value=f"**{last_action_user.display_name}**",
+                inline=True
+            )
+        else:
+            embed.add_field(
+                name="⚡ Dernière activité",
+                value="Aucune activité récente",
+                inline=True
+            )
+
+        embed.set_footer(text="Système de surveillance des scènes")
+        return embed
 
     @staticmethod
     def scene_check(interaction: discord.Interaction) -> bool:
@@ -1925,8 +2144,8 @@ class ChannelMonitor(commands.Cog):
             await interaction.followup.send(embed=error_embed, ephemeral=True)
             return
 
-        # Créer l'embed initial
-        embed = self.create_scene_embed(salon, interaction.user)
+        # Créer l'embed initial (version asynchrone)
+        embed = await self.create_scene_embed_async(salon, interaction.user)
 
         # Créer la vue avec le bouton de clôture
         view = SceneView(self, salon.id)
@@ -2001,15 +2220,15 @@ class ChannelMonitor(commands.Cog):
             self.logger.error(f"Erreur dans le gestionnaire d'erreur scene: {e}")
 
     @commands.command(name="create_scene")
-    async def create_scene_admin(self, ctx: commands.Context, lien_salon: str, mj_id: int):
+    async def create_scene_admin(self, ctx: commands.Context, lien_salon: str, *, mj_identifier: str):
         """
         Commande admin pour créer une scène avec un MJ désigné.
 
-        Usage: !create_scene <lien_salon> <mj_id>
+        Usage: !create_scene <lien_salon> <nom_ou_id_mj>
 
         Args:
             lien_salon: Le lien du salon, fil ou post de forum à surveiller
-            mj_id: L'ID du MJ qui sera responsable de la scène
+            mj_identifier: Le nom d'utilisateur, l'ID ou la mention du MJ qui sera responsable de la scène
         """
         # Vérifier les permissions MJ de l'utilisateur qui lance la commande
         if not self.is_mj(ctx.author):
@@ -2020,22 +2239,51 @@ class ChannelMonitor(commands.Cog):
             await ctx.send(embed=error_embed, delete_after=10)
             return
 
-        # Vérifier que le MJ désigné existe et a le rôle MJ
-        designated_mj = self.bot.get_user(mj_id)
+        # Rechercher l'utilisateur désigné
+        designated_mj = await self.find_user_by_identifier(ctx, mj_identifier)
         if not designated_mj:
             error_embed = self.create_error_embed(
                 title="Utilisateur introuvable",
-                description=f"Utilisateur avec l'ID {mj_id} non trouvé."
+                description=f"Impossible de trouver l'utilisateur `{mj_identifier}`.\n\n"
+                           f"**Formats acceptés :**\n"
+                           f"• ID utilisateur : `123456789012345678`\n"
+                           f"• Nom d'utilisateur : `Nom Utilisateur`\n"
+                           f"• Mention : `@utilisateur`"
             )
-            await ctx.send(embed=error_embed, delete_after=10)
+            await ctx.send(embed=error_embed, delete_after=15)
             return
 
-        # Vérifier que le MJ désigné est membre du serveur et a le rôle MJ
-        guild_member = ctx.guild.get_member(mj_id)
+        # Debug logging
+        self.logger.info(f"Utilisateur trouvé: {designated_mj.display_name} (ID: {designated_mj.id}, Type: {type(designated_mj).__name__})")
+
+        # Vérifier que le MJ désigné est membre du serveur
+        guild_member = None
+
+        # Si designated_mj est déjà un Member, l'utiliser directement
+        if isinstance(designated_mj, discord.Member):
+            guild_member = designated_mj
+            self.logger.info(f"Utilisateur déjà un Member: {guild_member.display_name}")
+        else:
+            # Sinon, essayer de récupérer le membre depuis le serveur
+            self.logger.info(f"Tentative de récupération du membre {designated_mj.id} depuis le serveur")
+            guild_member = ctx.guild.get_member(designated_mj.id)
+            if guild_member:
+                self.logger.info(f"Membre trouvé dans le cache: {guild_member.display_name}")
+            else:
+                # Essayer de fetch le membre depuis Discord
+                self.logger.info(f"Membre non trouvé dans le cache, tentative de fetch...")
+                try:
+                    guild_member = await ctx.guild.fetch_member(designated_mj.id)
+                    self.logger.info(f"Membre récupéré via fetch: {guild_member.display_name}")
+                except discord.NotFound:
+                    self.logger.warning(f"Membre {designated_mj.id} non trouvé sur le serveur (NotFound)")
+                except discord.HTTPException as e:
+                    self.logger.warning(f"Erreur HTTP lors de la récupération du membre {designated_mj.id}: {e}")
+
         if not guild_member:
             error_embed = self.create_error_embed(
                 title="Membre introuvable",
-                description=f"L'utilisateur {designated_mj.display_name} n'est pas membre de ce serveur."
+                description=f"L'utilisateur **{designated_mj.display_name}** n'est pas membre de ce serveur."
             )
             await ctx.send(embed=error_embed, delete_after=10)
             return
@@ -2043,7 +2291,7 @@ class ChannelMonitor(commands.Cog):
         if not self.is_mj(guild_member):
             error_embed = self.create_error_embed(
                 title="Permissions insuffisantes",
-                description=f"L'utilisateur {designated_mj.display_name} n'a pas le rôle MJ."
+                description=f"L'utilisateur **{designated_mj.display_name}** n'a pas le rôle MJ."
             )
             await ctx.send(embed=error_embed, delete_after=10)
             return
@@ -2122,8 +2370,8 @@ class ChannelMonitor(commands.Cog):
             )
             return
 
-        # Créer l'embed initial avec le MJ désigné
-        embed = self.create_scene_embed(salon, designated_mj)
+        # Créer l'embed initial avec le MJ désigné (version asynchrone)
+        embed = await self.create_scene_embed_async(salon, designated_mj)
 
         # Créer la vue avec le bouton de clôture
         view = SceneView(self, salon.id)
@@ -2183,6 +2431,13 @@ class ChannelMonitor(commands.Cog):
             data = self.monitored_channels[channel_id]
             mj_id = data['mj_user_id']
             mj = self.bot.get_user(mj_id)
+
+            # Si le MJ n'est pas dans le cache, essayer de le récupérer
+            if not mj:
+                try:
+                    mj = await self.bot.fetch_user(mj_id)
+                except (discord.NotFound, discord.HTTPException):
+                    pass
 
             if not mj:
                 self.logger.warning(f"MJ avec ID {mj_id} non trouvé pour le salon {channel_id}")
@@ -2254,6 +2509,46 @@ class ChannelMonitor(commands.Cog):
             self.logger.info(f"Configuré {len(self.monitored_channels)} vues persistantes")
         except Exception as e:
             self.logger.error(f"Erreur lors de la configuration des vues persistantes: {e}")
+
+    @commands.command(name="refresh_embeds")
+    async def refresh_embeds_command(self, ctx: commands.Context):
+        """
+        Commande admin pour forcer la mise à jour de tous les embeds de surveillance.
+
+        Usage: !refresh_embeds
+        """
+        # Vérifier les permissions MJ
+        if not self.is_mj(ctx.author):
+            error_embed = self.create_error_embed(
+                title="Accès refusé",
+                description="Cette commande est réservée aux MJ."
+            )
+            await ctx.send(embed=error_embed, delete_after=10)
+            return
+
+        # Message de statut
+        status_message = await ctx.send("🔄 Mise à jour des embeds de surveillance en cours...")
+
+        try:
+            # Forcer la mise à jour de tous les embeds
+            await self.update_all_existing_embeds()
+
+            success_embed = self.create_success_embed(
+                title="Embeds mis à jour",
+                description="Tous les embeds de surveillance ont été mis à jour avec les noms d'utilisateur corrects."
+            )
+            await status_message.edit(content="", embed=success_embed)
+
+            self.logger.info(f"Admin {ctx.author.display_name} a forcé la mise à jour des embeds")
+
+        except Exception as e:
+            error_embed = self.create_error_embed(
+                title="Erreur de mise à jour",
+                description="Une erreur est survenue lors de la mise à jour des embeds.",
+                error_details=str(e)
+            )
+            await status_message.edit(content="", embed=error_embed)
+            self.logger.error(f"Erreur lors de la mise à jour forcée des embeds: {e}")
 
 async def setup(bot: commands.Bot):
     """Fonction de setup du cog."""
