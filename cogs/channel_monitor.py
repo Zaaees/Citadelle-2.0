@@ -206,8 +206,9 @@ class ChannelMonitor(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.monitored_channels: Dict[int, dict] = {}  # {channel_id: {mj_user_id, message_id, participants, last_activity}}
-        self.last_ping_times: Dict[int, datetime] = {}  # {channel_id: datetime} - Suivi des derniers pings par salon
-        self.ping_cooldown_minutes = 5  # Intervalle de 5 minutes entre les pings par salon
+        self.last_ping_times: Dict[int, dict] = {}  # {channel_id: {user_id: datetime, last_user_id: int}} - Suivi des derniers pings par salon et utilisateur
+        self.ping_cooldown_minutes_same_user = 30  # Intervalle de 30 minutes si même utilisateur
+        self.ping_cooldown_minutes_different_user = 5  # Intervalle de 5 minutes si utilisateur différent
         self.logger = logging.getLogger('channel_monitor')
         self.gspread_client = None
         self.sheet = None
@@ -1021,41 +1022,64 @@ class ChannelMonitor(commands.Cog):
                         # Supprimer l'ancien message de rappel s'il existe
                         await self.cleanup_old_reminder_message(channel_id, notification_channel)
 
-                        # Créer l'embed de rappel
+                        # Envoyer le rappel d'inactivité (MP avec fallback salon)
                         days_inactive = int((current_time - last_activity).days)
-                        reminder_embed = self.create_reminder_embed(mj, channel, channel_id, days_inactive)
+                        reminder_sent = False
+                        reminder_message = None
 
-                        # Envoyer l'embed de rappel
-                        ping_message = None
                         if data['message_id']:
                             try:
                                 embed_message = await notification_channel.fetch_message(data['message_id'])
-                                ping_message = await embed_message.reply(content=mj.mention, embed=reminder_embed)
-                                self.logger.info(f"Ping de rappel envoyé en réponse à l'embed pour scène inactive: {channel_info} ({days_inactive} jours)")
+                                reminder_sent, reminder_message = await self.send_reminder_notification(
+                                    mj, channel, channel_id, days_inactive,
+                                    notification_channel, embed_message
+                                )
 
                             except discord.NotFound:
                                 self.logger.warning(f"Message d'embed {data['message_id']} non trouvé pour le rappel, envoi direct")
-                                ping_message = await notification_channel.send(content=mj.mention, embed=reminder_embed)
-                                self.logger.info(f"Ping de rappel direct envoyé pour scène inactive: {channel_info} ({days_inactive} jours)")
+                                # Fallback : envoyer directement sur le salon
+                                try:
+                                    fallback_embed = self.create_reminder_embed(mj, channel, channel_id, days_inactive, is_dm=False)
+                                    reminder_message = await notification_channel.send(content=mj.mention, embed=fallback_embed)
+                                    reminder_sent = True
+                                    self.logger.info(f"Ping de rappel direct envoyé pour scène inactive: {channel_info} ({days_inactive} jours)")
+
+                                    # Ajouter à Google Sheets pour suppression
+                                    if self.ping_sheet:
+                                        try:
+                                            self.ping_sheet.append_row([
+                                                str(reminder_message.id),
+                                                str(notification_channel.id),
+                                                datetime.now().isoformat()
+                                            ])
+                                        except Exception as e:
+                                            self.logger.error(f"Erreur lors de l'ajout du rappel direct à Google Sheets: {e}")
+                                except Exception as e:
+                                    self.logger.error(f"Erreur lors de l'envoi du rappel direct: {e}")
                         else:
                             # Envoyer l'embed directement si pas d'embed de surveillance
-                            ping_message = await notification_channel.send(content=mj.mention, embed=reminder_embed)
-                            self.logger.info(f"Ping de rappel direct envoyé pour scène inactive: {channel_info} ({days_inactive} jours)")
-
-                        # Ajouter le message de ping à Google Sheets pour suppression automatique
-                        if ping_message and self.ping_sheet:
                             try:
-                                self.ping_sheet.append_row([
-                                    str(ping_message.id),
-                                    str(notification_channel.id),
-                                    datetime.now().isoformat()
-                                ])
-                            except Exception as e:
-                                self.logger.error(f"Erreur lors de l'ajout du ping de rappel à Google Sheets: {e}")
+                                fallback_embed = self.create_reminder_embed(mj, channel, channel_id, days_inactive, is_dm=False)
+                                reminder_message = await notification_channel.send(content=mj.mention, embed=fallback_embed)
+                                reminder_sent = True
+                                self.logger.info(f"Ping de rappel direct envoyé pour scène inactive: {channel_info} ({days_inactive} jours)")
 
-                        # Enregistrer que l'alerte a été envoyée avec l'ID du message
-                        if ping_message:
-                            self.record_alert_sent(channel_id, mj_id, ping_message.id)
+                                # Ajouter à Google Sheets pour suppression
+                                if self.ping_sheet:
+                                    try:
+                                        self.ping_sheet.append_row([
+                                            str(reminder_message.id),
+                                            str(notification_channel.id),
+                                            datetime.now().isoformat()
+                                        ])
+                                    except Exception as e:
+                                        self.logger.error(f"Erreur lors de l'ajout du rappel direct à Google Sheets: {e}")
+                            except Exception as e:
+                                self.logger.error(f"Erreur lors de l'envoi du rappel direct: {e}")
+
+                        # Enregistrer que l'alerte a été envoyée avec l'ID du message (seulement si c'était un message public)
+                        if reminder_sent and reminder_message and hasattr(reminder_message, 'guild'):
+                            self.record_alert_sent(channel_id, mj_id, reminder_message.id)
 
                 except Exception as e:
                     self.logger.error(f"Erreur lors de la vérification d'inactivité pour le salon {channel_id}: {e}")
@@ -1194,12 +1218,15 @@ class ChannelMonitor(commands.Cog):
         self.logger.error(f"Impossible de rouvrir le thread {thread.id} après 3 tentatives")
         return False, (was_archived, was_locked)
 
-    def can_send_ping(self, channel_id: int) -> bool:
+    def can_send_ping(self, channel_id: int, user_id: int) -> bool:
         """
         Vérifie si un ping peut être envoyé pour un salon donné en respectant l'intervalle de cooldown.
+        - 30 minutes si c'est le même utilisateur qui écrit
+        - 5 minutes si c'est un utilisateur différent
 
         Args:
             channel_id: ID du salon à vérifier
+            user_id: ID de l'utilisateur qui écrit
 
         Returns:
             bool: True si un ping peut être envoyé, False sinon
@@ -1210,41 +1237,69 @@ class ChannelMonitor(commands.Cog):
         if channel_id not in self.last_ping_times:
             return True
 
-        # Vérifier si assez de temps s'est écoulé depuis le dernier ping
-        last_ping_time = self.last_ping_times[channel_id]
-        time_since_last_ping = current_time - last_ping_time
-        cooldown_seconds = self.ping_cooldown_minutes * 60
+        ping_data = self.last_ping_times[channel_id]
+        last_user_id = ping_data.get('last_user_id')
+        last_ping_time = ping_data.get('last_ping_time')
 
+        # Si pas de données de ping précédent, on peut envoyer
+        if not last_ping_time:
+            return True
+
+        # Déterminer l'intervalle de cooldown selon l'utilisateur
+        if last_user_id == user_id:
+            # Même utilisateur : 30 minutes
+            cooldown_seconds = self.ping_cooldown_minutes_same_user * 60
+        else:
+            # Utilisateur différent : 5 minutes
+            cooldown_seconds = self.ping_cooldown_minutes_different_user * 60
+
+        # Vérifier si assez de temps s'est écoulé depuis le dernier ping
+        time_since_last_ping = current_time - last_ping_time
         return time_since_last_ping.total_seconds() >= cooldown_seconds
 
-    def update_last_ping_time(self, channel_id: int):
+    def update_last_ping_time(self, channel_id: int, user_id: int):
         """
-        Met à jour le timestamp du dernier ping pour un salon donné.
+        Met à jour le timestamp du dernier ping pour un salon donné avec l'utilisateur.
 
         Args:
             channel_id: ID du salon pour lequel mettre à jour le timestamp
+            user_id: ID de l'utilisateur qui a déclenché le ping
         """
-        self.last_ping_times[channel_id] = datetime.now()
-        self.logger.debug(f"Timestamp de dernier ping mis à jour pour le salon {channel_id}")
+        self.last_ping_times[channel_id] = {
+            'last_ping_time': datetime.now(),
+            'last_user_id': user_id
+        }
+        self.logger.debug(f"Timestamp de dernier ping mis à jour pour le salon {channel_id} (utilisateur {user_id})")
 
-    def get_remaining_cooldown(self, channel_id: int) -> int:
+    def get_remaining_cooldown(self, channel_id: int, user_id: int) -> int:
         """
         Retourne le temps restant avant de pouvoir envoyer un nouveau ping (en secondes).
 
         Args:
             channel_id: ID du salon à vérifier
+            user_id: ID de l'utilisateur qui écrit
 
         Returns:
             int: Nombre de secondes restantes, 0 si un ping peut être envoyé
         """
-        if self.can_send_ping(channel_id):
+        if self.can_send_ping(channel_id, user_id):
             return 0
 
         current_time = datetime.now()
-        last_ping_time = self.last_ping_times[channel_id]
-        time_since_last_ping = current_time - last_ping_time
-        cooldown_seconds = self.ping_cooldown_minutes * 60
+        ping_data = self.last_ping_times[channel_id]
+        last_ping_time = ping_data.get('last_ping_time')
+        last_user_id = ping_data.get('last_user_id')
 
+        if not last_ping_time:
+            return 0
+
+        # Déterminer l'intervalle de cooldown selon l'utilisateur
+        if last_user_id == user_id:
+            cooldown_seconds = self.ping_cooldown_minutes_same_user * 60
+        else:
+            cooldown_seconds = self.ping_cooldown_minutes_different_user * 60
+
+        time_since_last_ping = current_time - last_ping_time
         return max(0, cooldown_seconds - int(time_since_last_ping.total_seconds()))
 
     def create_scene_embed(self, channel, mj_user, participants: List[int] = None, last_action_user=None) -> discord.Embed:
@@ -1324,7 +1379,7 @@ class ChannelMonitor(commands.Cog):
 
         return embed
 
-    def create_ping_embed(self, mj_user, action_user, channel, channel_id: int) -> discord.Embed:
+    def create_ping_embed(self, mj_user, action_user, channel, channel_id: int, is_dm: bool = False) -> discord.Embed:
         """Crée un embed pour les notifications de ping d'activité."""
         channel_details = self.get_detailed_channel_info(channel)
 
@@ -1341,11 +1396,19 @@ class ChannelMonitor(commands.Cog):
             inline=True
         )
 
-        embed.add_field(
-            name="🎯 MJ notifié",
-            value=f"{mj_user.mention}",
-            inline=True
-        )
+        # Adapter le contenu selon si c'est un MP ou un message public
+        if is_dm:
+            embed.add_field(
+                name="🎯 Notification",
+                value="Vous surveillez cette scène",
+                inline=True
+            )
+        else:
+            embed.add_field(
+                name="🎯 MJ notifié",
+                value=f"{mj_user.mention}",
+                inline=True
+            )
 
         # Informations du salon
         salon_info = f"<#{channel_id}>"
@@ -1360,11 +1423,129 @@ class ChannelMonitor(commands.Cog):
             inline=False
         )
 
-        embed.set_footer(text="Système de surveillance des scènes")
+        # Ajouter un lien direct vers le salon pour les MP
+        if is_dm:
+            embed.add_field(
+                name="🔗 Accès rapide",
+                value=f"[Aller au salon]({channel.jump_url})",
+                inline=False
+            )
+
+        footer_text = "Système de surveillance des scènes"
+        if not is_dm:
+            footer_text += " • Ce message sera supprimé dans 24h"
+
+        embed.set_footer(text=footer_text)
 
         return embed
 
-    def create_reminder_embed(self, mj_user, channel, channel_id: int, days_inactive: int) -> discord.Embed:
+    async def send_ping_notification(self, mj_user, action_user, channel, channel_id: int, notification_channel, embed_message) -> bool:
+        """
+        Envoie une notification de ping, d'abord en MP puis en fallback sur le salon.
+
+        Args:
+            mj_user: L'utilisateur MJ à notifier
+            action_user: L'utilisateur qui a déclenché l'activité
+            channel: Le salon surveillé
+            channel_id: ID du salon surveillé
+            notification_channel: Le salon de notification (fallback)
+            embed_message: Le message d'embed de surveillance
+
+        Returns:
+            bool: True si la notification a été envoyée avec succès
+        """
+        ping_sent = False
+        ping_message = None
+
+        # Tentative d'envoi en message privé
+        try:
+            dm_embed = self.create_ping_embed(mj_user, action_user, channel, channel_id, is_dm=True)
+            ping_message = await mj_user.send(embed=dm_embed)
+            ping_sent = True
+            self.logger.info(f"Ping envoyé en MP à {mj_user.display_name} pour activité de {action_user.display_name} dans {channel.name}")
+
+        except discord.Forbidden:
+            # MP fermés ou bloqués, fallback vers le salon
+            self.logger.debug(f"MP fermés pour {mj_user.display_name}, fallback vers le salon")
+            try:
+                public_embed = self.create_ping_embed(mj_user, action_user, channel, channel_id, is_dm=False)
+                ping_message = await embed_message.reply(content=mj_user.mention, embed=public_embed)
+                ping_sent = True
+                self.logger.info(f"Ping envoyé sur le salon (fallback) pour {mj_user.display_name} - activité de {action_user.display_name} dans {channel.name}")
+
+                # Ajouter le message de ping public à Google Sheets pour suppression automatique
+                if self.ping_sheet:
+                    try:
+                        self.ping_sheet.append_row([
+                            str(ping_message.id),
+                            str(notification_channel.id),
+                            datetime.now().isoformat()
+                        ])
+                    except Exception as e:
+                        self.logger.error(f"Erreur lors de l'ajout du ping fallback à Google Sheets: {e}")
+
+            except Exception as e:
+                self.logger.error(f"Erreur lors de l'envoi du ping fallback: {e}")
+
+        except Exception as e:
+            self.logger.error(f"Erreur lors de l'envoi du ping en MP: {e}")
+
+        return ping_sent
+
+    async def send_reminder_notification(self, mj_user, channel, channel_id: int, days_inactive: int, notification_channel, embed_message) -> bool:
+        """
+        Envoie une notification de rappel d'inactivité, d'abord en MP puis en fallback sur le salon.
+
+        Args:
+            mj_user: L'utilisateur MJ à notifier
+            channel: Le salon surveillé
+            channel_id: ID du salon surveillé
+            days_inactive: Nombre de jours d'inactivité
+            notification_channel: Le salon de notification (fallback)
+            embed_message: Le message d'embed de surveillance
+
+        Returns:
+            bool: True si la notification a été envoyée avec succès
+        """
+        reminder_sent = False
+        reminder_message = None
+
+        # Tentative d'envoi en message privé
+        try:
+            dm_embed = self.create_reminder_embed(mj_user, channel, channel_id, days_inactive, is_dm=True)
+            reminder_message = await mj_user.send(embed=dm_embed)
+            reminder_sent = True
+            self.logger.info(f"Rappel d'inactivité envoyé en MP à {mj_user.display_name} pour {channel.name} ({days_inactive} jours)")
+
+        except discord.Forbidden:
+            # MP fermés ou bloqués, fallback vers le salon
+            self.logger.debug(f"MP fermés pour {mj_user.display_name}, fallback vers le salon pour rappel")
+            try:
+                public_embed = self.create_reminder_embed(mj_user, channel, channel_id, days_inactive, is_dm=False)
+                reminder_message = await embed_message.reply(content=mj_user.mention, embed=public_embed)
+                reminder_sent = True
+                self.logger.info(f"Rappel d'inactivité envoyé sur le salon (fallback) pour {mj_user.display_name} - {channel.name} ({days_inactive} jours)")
+
+                # Ajouter le message de rappel public à Google Sheets pour suppression automatique
+                if self.ping_sheet:
+                    try:
+                        self.ping_sheet.append_row([
+                            str(reminder_message.id),
+                            str(notification_channel.id),
+                            datetime.now().isoformat()
+                        ])
+                    except Exception as e:
+                        self.logger.error(f"Erreur lors de l'ajout du rappel fallback à Google Sheets: {e}")
+
+            except Exception as e:
+                self.logger.error(f"Erreur lors de l'envoi du rappel fallback: {e}")
+
+        except Exception as e:
+            self.logger.error(f"Erreur lors de l'envoi du rappel en MP: {e}")
+
+        return reminder_sent, reminder_message
+
+    def create_reminder_embed(self, mj_user, channel, channel_id: int, days_inactive: int, is_dm: bool = False) -> discord.Embed:
         """Crée un embed pour les rappels de scènes inactives."""
         channel_details = self.get_detailed_channel_info(channel)
 
@@ -1374,11 +1555,19 @@ class ChannelMonitor(commands.Cog):
             timestamp=datetime.now()
         )
 
-        embed.add_field(
-            name="🎯 MJ responsable",
-            value=f"{mj_user.mention}",
-            inline=True
-        )
+        # Adapter le contenu selon si c'est un MP ou un message public
+        if is_dm:
+            embed.add_field(
+                name="🎯 Notification",
+                value="Vous surveillez cette scène",
+                inline=True
+            )
+        else:
+            embed.add_field(
+                name="🎯 MJ responsable",
+                value=f"{mj_user.mention}",
+                inline=True
+            )
 
         embed.add_field(
             name="⏳ Inactivité",
@@ -1399,13 +1588,25 @@ class ChannelMonitor(commands.Cog):
             inline=False
         )
 
+        # Ajouter un lien direct vers le salon pour les MP
+        if is_dm:
+            embed.add_field(
+                name="🔗 Accès rapide",
+                value=f"[Aller au salon]({channel.jump_url})",
+                inline=False
+            )
+
         embed.add_field(
             name="💡 Action recommandée",
             value="Pensez à vérifier si cette scène nécessite votre attention !",
             inline=False
         )
 
-        embed.set_footer(text="Système de surveillance des scènes")
+        footer_text = "Système de surveillance des scènes"
+        if not is_dm:
+            footer_text += " • Ce message sera supprimé dans 24h"
+
+        embed.set_footer(text=footer_text)
 
         return embed
 
@@ -2001,34 +2202,22 @@ class ChannelMonitor(commands.Cog):
                 self.logger.error(f"Salon de notification {NOTIFICATION_CHANNEL_ID} non trouvé")
                 return
 
-            # Vérifier si un ping peut être envoyé (respecter l'intervalle de 5 minutes)
-            if self.can_send_ping(channel_id):
-                # Créer un embed de ping en réponse à l'embed de surveillance
+            # Vérifier si un ping peut être envoyé (respecter l'intervalle selon l'utilisateur)
+            if self.can_send_ping(channel_id, message.author.id):
+                # Envoyer la notification de ping (MP avec fallback salon)
                 if data['message_id']:
                     try:
                         embed_message = await notification_channel.fetch_message(data['message_id'])
 
-                        # Créer l'embed de ping
-                        ping_embed = self.create_ping_embed(mj, message.author, message.channel, channel_id)
+                        # Envoyer la notification (MP ou fallback salon)
+                        ping_sent = await self.send_ping_notification(
+                            mj, message.author, message.channel, channel_id,
+                            notification_channel, embed_message
+                        )
 
-                        # Envoyer l'embed de ping en réponse à l'embed de surveillance
-                        ping_message = await embed_message.reply(content=mj.mention, embed=ping_embed)
-
-                        # Mettre à jour le timestamp du dernier ping pour ce salon
-                        self.update_last_ping_time(channel_id)
-
-                        # Ajouter le message de ping à Google Sheets pour suppression automatique
-                        if self.ping_sheet:
-                            try:
-                                self.ping_sheet.append_row([
-                                    str(ping_message.id),
-                                    str(notification_channel.id),
-                                    datetime.now().isoformat()
-                                ])
-                            except Exception as e:
-                                self.logger.error(f"Erreur lors de l'ajout du ping à Google Sheets: {e}")
-
-                        self.logger.info(f"Ping envoyé pour message de {message.author.display_name} dans {message.channel.name}")
+                        if ping_sent:
+                            # Mettre à jour le timestamp du dernier ping pour ce salon avec l'utilisateur
+                            self.update_last_ping_time(channel_id, message.author.id)
 
                     except discord.NotFound:
                         self.logger.warning(f"Message d'embed {data['message_id']} non trouvé")
@@ -2037,11 +2226,17 @@ class ChannelMonitor(commands.Cog):
                         self.save_monitored_channels()
             else:
                 # Log que le ping a été ignoré à cause du cooldown
-                remaining_seconds = self.get_remaining_cooldown(channel_id)
+                remaining_seconds = self.get_remaining_cooldown(channel_id, message.author.id)
                 remaining_minutes = remaining_seconds // 60
                 remaining_seconds_display = remaining_seconds % 60
+
+                # Déterminer le type de cooldown pour le log
+                ping_data = self.last_ping_times.get(channel_id, {})
+                last_user_id = ping_data.get('last_user_id')
+                cooldown_type = "même utilisateur (30m)" if last_user_id == message.author.id else "utilisateur différent (5m)"
+
                 self.logger.debug(
-                    f"Ping ignoré pour {message.channel.name} - Cooldown actif "
+                    f"Ping ignoré pour {message.channel.name} - Cooldown actif ({cooldown_type}) "
                     f"(reste {remaining_minutes}m {remaining_seconds_display}s)"
                 )
 
