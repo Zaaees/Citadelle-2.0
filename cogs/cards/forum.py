@@ -137,28 +137,42 @@ class ForumManager:
                 return False
             
             # Obtenir ou créer le thread de catégorie
+            logging.info(f"[FORUM] Recherche/création du thread pour {category}")
             thread = await self.get_or_create_category_thread(forum_channel, category)
             if not thread:
+                logging.error(f"[FORUM] Impossible d'obtenir le thread pour {category}")
                 return False
-            
+
+            logging.info(f"[FORUM] Thread trouvé/créé: {thread.name} (ID: {thread.id})")
+
             # Créer le message de découverte
             display_name = name.removesuffix('.png')
             message = f"**{display_name}** (#{discovery_index})\n"
             message += f"Découvert par: {discoverer_name}"
-            
+
             # Créer le fichier Discord
+            logging.info(f"[FORUM] Création du fichier Discord pour {name} ({len(file_bytes)} bytes)")
             file = discord.File(
                 fp=discord.utils._BytesIOProxy(file_bytes),
                 filename=f"{name}.png" if not name.endswith('.png') else name
             )
-            
+
             # Poster dans le thread
-            await thread.send(content=message, file=file)
-            logging.info(f"[FORUM] Carte postée: {name} ({category}) par {discoverer_name}")
+            logging.info(f"[FORUM] Posting automatique de {name} dans {category}")
+            sent_message = await thread.send(content=message, file=file)
+            logging.info(f"[FORUM] ✅ Carte postée automatiquement: {name} ({category}) par {discoverer_name} - Message ID: {sent_message.id}")
             return True
-            
+
+        except discord.HTTPException as e:
+            logging.error(f"[FORUM] Erreur HTTP Discord lors du post automatique de {name}: {e}")
+            return False
+        except discord.Forbidden as e:
+            logging.error(f"[FORUM] Permissions insuffisantes pour poster automatiquement {name}: {e}")
+            return False
         except Exception as e:
-            logging.error(f"[FORUM] Erreur lors du post de la carte {name}: {e}")
+            logging.error(f"[FORUM] Erreur générale lors du post automatique de {name}: {e}")
+            import traceback
+            logging.error(f"[FORUM] Traceback: {traceback.format_exc()}")
             return False
     
     async def initialize_forum_structure(self) -> Tuple[List[str], List[str]]:

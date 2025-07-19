@@ -2480,6 +2480,25 @@ class Cards(commands.Cog):
             logging.error(f"[TEST_THREAD_SEARCH] Erreur: {e}")
             await ctx.send(f"❌ Erreur lors du test: {e}")
 
+    @commands.command(name="test_decouverte_auto", help="Teste le système de découverte automatique")
+    @commands.has_permissions(administrator=True)
+    async def test_decouverte_auto(self, ctx: commands.Context, category: str, card_name: str):
+        """Teste le système de découverte automatique avec une carte spécifique."""
+        try:
+            await ctx.send(f"🧪 Test de découverte automatique: **{card_name}** ({category})")
+
+            # Simuler une découverte
+            fake_drawn_cards = [(category, card_name)]
+
+            # Appeler la méthode de posting automatique
+            await self._handle_forum_posting(ctx, fake_drawn_cards)
+
+            await ctx.send("✅ Test de découverte automatique terminé - Vérifiez les logs pour les détails")
+
+        except Exception as e:
+            logging.error(f"[TEST_DECOUVERTE_AUTO] Erreur: {e}")
+            await ctx.send(f"❌ Erreur lors du test de découverte automatique: {e}")
+
     @commands.command(name="galerie", help="Affiche la galerie de cartes d'un utilisateur")
     @commands.has_permissions(administrator=True)
     async def galerie_admin(self, ctx: commands.Context, member: discord.Member = None):
