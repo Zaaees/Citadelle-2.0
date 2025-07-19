@@ -1947,6 +1947,114 @@ class Cards(commands.Cog):
             logging.error(f"[RECONSTRUIRE_SECRETES] Erreur: {e}")
             await ctx.send(f"❌ Erreur lors de la reconstruction des cartes secrètes: {e}")
 
+    @commands.command(name="peupler_secretes", help="Peuple le thread des cartes secrètes sans le vider")
+    @commands.has_permissions(administrator=True)
+    async def peupler_secretes(self, ctx: commands.Context):
+        """Commande pour peupler le thread des cartes secrètes sans le vider."""
+        await ctx.send("🔧 Peuplement du thread **Secrète** en cours...")
+
+        try:
+            from .cards.config import CARD_FORUM_CHANNEL_ID
+            forum_channel = self.bot.get_channel(CARD_FORUM_CHANNEL_ID)
+
+            if not isinstance(forum_channel, discord.ForumChannel):
+                await ctx.send(f"❌ Canal {CARD_FORUM_CHANNEL_ID} n'est pas un ForumChannel")
+                return
+
+            # Obtenir le thread des cartes secrètes
+            thread = await self.forum_manager.get_or_create_category_thread(forum_channel, "Secrète")
+            if not thread:
+                await ctx.send("❌ Impossible de trouver ou créer le thread Secrète")
+                return
+
+            await ctx.send(f"✅ Thread trouvé: {thread.name} (ID: {thread.id})")
+
+            # Préparer les fichiers de cartes
+            all_files = {}
+            for cat, files in self.cards_by_category.items():
+                all_files.setdefault(cat, []).extend(files)
+            for cat, files in self.upgrade_cards_by_category.items():
+                all_files.setdefault(cat, []).extend(files)
+
+            # Récupérer les découvertes secrètes
+            discoveries_cache = self.discovery_manager.storage.get_discoveries_cache()
+
+            if not discoveries_cache or len(discoveries_cache) <= 1:
+                await ctx.send("❌ Aucune découverte trouvée dans le Google Sheet")
+                return
+
+            # Filtrer et trier les découvertes pour les cartes secrètes
+            discovery_rows = discoveries_cache[1:]  # Skip header
+            category_discoveries = [row for row in discovery_rows if len(row) >= 6 and row[0] == "Secrète"]
+            category_discoveries.sort(key=lambda row: int(row[5]) if row[5].isdigit() else 0)
+
+            await ctx.send(f"📊 {len(category_discoveries)} cartes secrètes découvertes trouvées")
+
+            if not category_discoveries:
+                await ctx.send("⚠️ Aucune carte secrète découverte dans le Google Sheet")
+                return
+
+            posted_count = 0
+            error_count = 0
+
+            # Poster chaque carte découverte
+            for row in category_discoveries:
+                cat, name, discoverer_id_str, discoverer_name, timestamp, discovery_index = row
+                discovery_index = int(discovery_index)
+
+                # Trouver le fichier de la carte
+                file_id = next(
+                    (f['id'] for f in all_files.get(cat, []) if f['name'].removesuffix(".png") == name),
+                    None
+                )
+                if not file_id:
+                    await ctx.send(f"⚠️ Fichier non trouvé pour: {name}")
+                    error_count += 1
+                    continue
+
+                # Télécharger l'image
+                try:
+                    file_bytes = self.download_drive_file(file_id)
+                    if not file_bytes:
+                        await ctx.send(f"⚠️ Impossible de télécharger: {name}")
+                        error_count += 1
+                        continue
+
+                    # Créer le message de découverte
+                    display_name = name.removesuffix('.png')
+                    message = f"**{display_name}** (#{discovery_index})\n"
+                    message += f"Découvert par: {discoverer_name}"
+
+                    # Créer le fichier Discord
+                    file = discord.File(
+                        fp=discord.utils._BytesIOProxy(file_bytes),
+                        filename=f"{name}.png" if not name.endswith('.png') else name
+                    )
+
+                    # Poster dans le thread
+                    sent_message = await thread.send(content=message, file=file)
+                    posted_count += 1
+
+                    if posted_count <= 5:  # Afficher les 5 premiers pour feedback
+                        await ctx.send(f"✅ Posté: {display_name}")
+
+                    # Petite pause pour éviter le rate limiting
+                    await asyncio.sleep(0.5)
+
+                except Exception as e:
+                    await ctx.send(f"❌ Erreur pour {name}: {str(e)[:100]}")
+                    error_count += 1
+
+            # Résultats finaux
+            await ctx.send("🎉 Peuplement terminé!")
+            await ctx.send(f"📊 **Résultats:**")
+            await ctx.send(f"• Cartes postées: {posted_count}")
+            await ctx.send(f"• Erreurs: {error_count}")
+
+        except Exception as e:
+            logging.error(f"[PEUPLER_SECRETES] Erreur: {e}")
+            await ctx.send(f"❌ Erreur lors du peuplement: {e}")
+
     @commands.command(name="diagnostic_forum", help="Diagnostique l'état du forum des cartes")
     @commands.has_permissions(administrator=True)
     async def diagnostic_forum(self, ctx: commands.Context):

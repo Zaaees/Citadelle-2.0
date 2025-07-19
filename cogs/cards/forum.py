@@ -329,28 +329,36 @@ class ForumManager:
             # Supprimer tous les messages du thread (sauf le premier message initial)
             try:
                 messages_to_delete = []
+                message_count = 0
                 async for message in thread.history(limit=None):
+                    message_count += 1
                     # Garder le premier message (message initial du thread)
                     if message.id != thread.id:
                         messages_to_delete.append(message)
 
-                # Supprimer les messages par lots pour éviter le rate limiting
-                for i in range(0, len(messages_to_delete), 10):
-                    batch = messages_to_delete[i:i+10]
-                    for message in batch:
-                        try:
-                            await message.delete()
-                            await asyncio.sleep(0.2)  # Pause pour éviter le rate limiting
-                        except discord.NotFound:
-                            pass  # Message déjà supprimé
-                        except Exception as e:
-                            logging.warning(f"[FORUM] Erreur lors de la suppression du message: {e}")
+                logging.info(f"[FORUM] Thread {category}: {message_count} messages totaux, {len(messages_to_delete)} à supprimer")
 
-                logging.info(f"[FORUM] Thread {category} vidé, {len(messages_to_delete)} messages supprimés")
+                if messages_to_delete:
+                    # Supprimer les messages par lots pour éviter le rate limiting
+                    for i in range(0, len(messages_to_delete), 10):
+                        batch = messages_to_delete[i:i+10]
+                        for message in batch:
+                            try:
+                                await message.delete()
+                                await asyncio.sleep(0.2)  # Pause pour éviter le rate limiting
+                            except discord.NotFound:
+                                pass  # Message déjà supprimé
+                            except Exception as e:
+                                logging.warning(f"[FORUM] Erreur lors de la suppression du message {message.id}: {e}")
+
+                    logging.info(f"[FORUM] Thread {category} vidé, {len(messages_to_delete)} messages supprimés")
+                else:
+                    logging.info(f"[FORUM] Thread {category} était déjà vide (sauf message initial)")
 
             except Exception as e:
                 logging.error(f"[FORUM] Erreur lors du vidage du thread {category}: {e}")
-                return 0, 1
+                # Ne pas retourner d'erreur, continuer avec la reconstruction
+                logging.info(f"[FORUM] Continuation de la reconstruction malgré l'erreur de vidage")
 
             # Reconstruire le thread avec les cartes de cette catégorie
             discoveries_cache = self.discovery_manager.storage.get_discoveries_cache()
@@ -391,13 +399,15 @@ class ForumManager:
                 # Télécharger l'image et poster dans le forum
                 try:
                     if drive_service:
+                        logging.info(f"[FORUM] Téléchargement de {name} (ID: {file_id})")
                         file_bytes = self._download_drive_file(drive_service, file_id)
                         if not file_bytes:
-                            logging.error(f"[FORUM] Impossible de télécharger {name} ({cat})")
+                            logging.error(f"[FORUM] Impossible de télécharger {name} ({cat}) - fichier vide")
                             error_count += 1
                             continue
+                        logging.info(f"[FORUM] Fichier téléchargé: {len(file_bytes)} bytes")
                     else:
-                        logging.warning(f"[FORUM] Service Drive non fourni, skip {name}")
+                        logging.error(f"[FORUM] Service Drive non fourni pour {name}")
                         error_count += 1
                         continue
 
@@ -406,6 +416,8 @@ class ForumManager:
                     message = f"**{display_name}** (#{discovery_index})\n"
                     message += f"Découvert par: {discoverer_name}"
 
+                    logging.info(f"[FORUM] Création du fichier Discord pour {name}")
+
                     # Créer le fichier Discord
                     file = discord.File(
                         fp=discord.utils._BytesIOProxy(file_bytes),
@@ -413,15 +425,24 @@ class ForumManager:
                     )
 
                     # Poster dans le thread
-                    await thread.send(content=message, file=file)
+                    logging.info(f"[FORUM] Posting de {name} dans le thread {thread.name} (ID: {thread.id})")
+                    sent_message = await thread.send(content=message, file=file)
                     posted_count += 1
-                    logging.info(f"[FORUM] Carte repostée: {name} ({cat})")
+                    logging.info(f"[FORUM] ✅ Carte repostée avec succès: {name} ({cat}) - Message ID: {sent_message.id}")
 
                     # Petite pause pour éviter le rate limiting
                     await asyncio.sleep(0.5)
 
+                except discord.HTTPException as e:
+                    logging.error(f"[FORUM] Erreur HTTP Discord lors du post de {name}: {e}")
+                    error_count += 1
+                except discord.Forbidden as e:
+                    logging.error(f"[FORUM] Permissions insuffisantes pour poster {name}: {e}")
+                    error_count += 1
                 except Exception as e:
-                    logging.error(f"[FORUM] Erreur lors du repost de {name}: {e}")
+                    logging.error(f"[FORUM] Erreur générale lors du repost de {name}: {e}")
+                    import traceback
+                    logging.error(f"[FORUM] Traceback: {traceback.format_exc()}")
                     error_count += 1
 
             logging.info(f"[FORUM] Reconstruction du thread {category} terminée: {posted_count} cartes postées, {error_count} erreurs")
