@@ -2022,19 +2022,58 @@ class Cards(commands.Cog):
                         error_count += 1
                         continue
 
-                    # Créer le message de découverte
+                    # Créer l'embed élégant pour la carte
                     display_name = name.removesuffix('.png')
-                    message = f"**{display_name}** (#{discovery_index})\n"
-                    message += f"Découvert par: {discoverer_name}"
+
+                    # Couleurs par catégorie pour les embeds
+                    category_colors = {
+                        "Secrète": 0x9b59b6,      # Violet
+                        "Fondateur": 0xe74c3c,    # Rouge
+                        "Historique": 0xf39c12,   # Orange
+                        "Maître": 0x3498db,       # Bleu
+                        "Black Hole": 0x2c3e50,   # Noir/Gris foncé
+                        "Architectes": 0x1abc9c,  # Turquoise
+                        "Professeurs": 0x27ae60,  # Vert
+                        "Autre": 0x95a5a6,        # Gris
+                        "Élèves": 0xf1c40f,       # Jaune
+                        "Full": 0xfd79a8          # Rose
+                    }
+
+                    embed = discord.Embed(
+                        title=display_name,
+                        color=category_colors.get(cat, 0x95a5a6)
+                    )
+
+                    embed.add_field(
+                        name="🎯 Découverte",
+                        value=f"#{discovery_index}",
+                        inline=True
+                    )
+
+                    embed.add_field(
+                        name="👤 Découvreur",
+                        value=discoverer_name,
+                        inline=True
+                    )
+
+                    embed.add_field(
+                        name="🏷️ Catégorie",
+                        value=cat,
+                        inline=True
+                    )
+
+                    # Ajouter l'image comme attachment
+                    filename = f"{name}.png" if not name.endswith('.png') else name
+                    embed.set_image(url=f"attachment://{filename}")
 
                     # Créer le fichier Discord
                     file = discord.File(
                         fp=io.BytesIO(file_bytes),
-                        filename=f"{name}.png" if not name.endswith('.png') else name
+                        filename=filename
                     )
 
-                    # Poster dans le thread
-                    sent_message = await thread.send(content=message, file=file)
+                    # Poster dans le thread avec embed
+                    sent_message = await thread.send(embed=embed, file=file)
                     posted_count += 1
 
                     if posted_count <= 5:  # Afficher les 5 premiers pour feedback

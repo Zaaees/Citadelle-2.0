@@ -15,12 +15,26 @@ from .discovery import DiscoveryManager
 
 class ForumManager:
     """Gestionnaire du forum des cartes."""
-    
+
     def __init__(self, bot, discovery_manager: DiscoveryManager):
         self.bot = bot
         self.discovery_manager = discovery_manager
         self.category_threads = {}  # Cache for category thread IDs
         self.thread_cache_time = 0
+
+        # Couleurs par catégorie pour les embeds
+        self.category_colors = {
+            "Secrète": 0x9b59b6,      # Violet
+            "Fondateur": 0xe74c3c,    # Rouge
+            "Historique": 0xf39c12,   # Orange
+            "Maître": 0x3498db,       # Bleu
+            "Black Hole": 0x2c3e50,   # Noir/Gris foncé
+            "Architectes": 0x1abc9c,  # Turquoise
+            "Professeurs": 0x27ae60,  # Vert
+            "Autre": 0x95a5a6,        # Gris
+            "Élèves": 0xf1c40f,       # Jaune
+            "Full": 0xfd79a8          # Rose
+        }
     
     def get_all_card_categories(self) -> List[str]:
         """Retourne la liste complète des catégories de cartes, incluant 'Full'."""
@@ -115,6 +129,50 @@ class ForumManager:
         
         message += "---\n"
         return message
+
+    def create_card_embed(self, name: str, category: str, discoverer_name: str, discovery_index: int) -> discord.Embed:
+        """
+        Crée un embed élégant pour une carte découverte.
+
+        Args:
+            name: Nom de la carte
+            category: Catégorie de la carte
+            discoverer_name: Nom du découvreur
+            discovery_index: Index de découverte
+
+        Returns:
+            discord.Embed: Embed formaté pour la carte
+        """
+        display_name = name.removesuffix('.png')
+
+        embed = discord.Embed(
+            title=display_name,
+            color=self.category_colors.get(category, 0x95a5a6)
+        )
+
+        embed.add_field(
+            name="🎯 Découverte",
+            value=f"#{discovery_index}",
+            inline=True
+        )
+
+        embed.add_field(
+            name="👤 Découvreur",
+            value=discoverer_name,
+            inline=True
+        )
+
+        embed.add_field(
+            name="🏷️ Catégorie",
+            value=category,
+            inline=True
+        )
+
+        # Ajouter l'image comme attachment
+        filename = f"{name}.png" if not name.endswith('.png') else name
+        embed.set_image(url=f"attachment://{filename}")
+
+        return embed
     
     async def post_card_to_forum(self, category: str, name: str, file_bytes: bytes,
                                discoverer_name: str, discovery_index: int) -> bool:
@@ -146,21 +204,20 @@ class ForumManager:
 
             logging.info(f"[FORUM] Thread trouvé/créé: {thread.name} (ID: {thread.id})")
 
-            # Créer le message de découverte
-            display_name = name.removesuffix('.png')
-            message = f"**{display_name}** (#{discovery_index})\n"
-            message += f"Découvert par: {discoverer_name}"
+            # Créer l'embed élégant pour la carte
+            embed = self.create_card_embed(name, category, discoverer_name, discovery_index)
+            filename = f"{name}.png" if not name.endswith('.png') else name
 
             # Créer le fichier Discord
             logging.info(f"[FORUM] Création du fichier Discord pour {name} ({len(file_bytes)} bytes)")
             file = discord.File(
                 fp=io.BytesIO(file_bytes),
-                filename=f"{name}.png" if not name.endswith('.png') else name
+                filename=filename
             )
 
-            # Poster dans le thread
+            # Poster dans le thread avec embed
             logging.info(f"[FORUM] Posting automatique de {name} dans {category}")
-            sent_message = await thread.send(content=message, file=file)
+            sent_message = await thread.send(embed=embed, file=file)
             logging.info(f"[FORUM] ✅ Carte postée automatiquement: {name} ({category}) par {discoverer_name} - Message ID: {sent_message.id}")
             return True
 
@@ -426,22 +483,21 @@ class ForumManager:
                         error_count += 1
                         continue
 
-                    # Créer le message de découverte
-                    display_name = name.removesuffix('.png')
-                    message = f"**{display_name}** (#{discovery_index})\n"
-                    message += f"Découvert par: {discoverer_name}"
+                    # Créer l'embed élégant pour la carte
+                    embed = self.create_card_embed(name, cat, discoverer_name, discovery_index)
+                    filename = f"{name}.png" if not name.endswith('.png') else name
 
                     logging.info(f"[FORUM] Création du fichier Discord pour {name}")
 
                     # Créer le fichier Discord
                     file = discord.File(
                         fp=io.BytesIO(file_bytes),
-                        filename=f"{name}.png" if not name.endswith('.png') else name
+                        filename=filename
                     )
 
-                    # Poster dans le thread
+                    # Poster dans le thread avec embed
                     logging.info(f"[FORUM] Posting de {name} dans le thread {thread.name} (ID: {thread.id})")
-                    sent_message = await thread.send(content=message, file=file)
+                    sent_message = await thread.send(embed=embed, file=file)
                     posted_count += 1
                     logging.info(f"[FORUM] ✅ Carte repostée avec succès: {name} ({cat}) - Message ID: {sent_message.id}")
 
