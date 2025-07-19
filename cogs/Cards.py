@@ -2224,6 +2224,154 @@ class Cards(commands.Cog):
             logging.error(f"[DEBUG_DECOUVERTES] Erreur: {e}")
             await ctx.send(f"❌ Erreur lors du debug des découvertes: {e}")
 
+    @commands.command(name="test_thread_search", help="Test la recherche de threads dans le forum")
+    @commands.has_permissions(administrator=True)
+    async def test_thread_search(self, ctx: commands.Context, category: str = "Secrète"):
+        """Teste la recherche de threads pour une catégorie donnée."""
+        try:
+            await ctx.send(f"🔍 Test de recherche du thread **{category}**...")
+
+            from .cards.config import CARD_FORUM_CHANNEL_ID
+            forum_channel = self.bot.get_channel(CARD_FORUM_CHANNEL_ID)
+
+            if not isinstance(forum_channel, discord.ForumChannel):
+                await ctx.send(f"❌ Canal {CARD_FORUM_CHANNEL_ID} n'est pas un ForumChannel")
+                return
+
+            results = {
+                "cache": None,
+                "active_threads": [],
+                "archived_threads": [],
+                "fetch_archived": []
+            }
+
+            # 1. Vérifier le cache
+            if category in self.forum_manager.category_threads:
+                thread_id = self.forum_manager.category_threads[category]
+                try:
+                    thread = await forum_channel.fetch_thread(thread_id)
+                    results["cache"] = {
+                        "found": True,
+                        "id": thread.id,
+                        "name": thread.name,
+                        "archived": thread.archived
+                    }
+                except discord.NotFound:
+                    results["cache"] = {"found": False, "error": "Thread not found"}
+            else:
+                results["cache"] = {"found": False, "error": "Not in cache"}
+
+            # 2. Chercher dans les threads actifs
+            for thread in forum_channel.threads:
+                if thread.name == category:
+                    results["active_threads"].append({
+                        "id": thread.id,
+                        "name": thread.name,
+                        "archived": thread.archived,
+                        "message_count": thread.message_count
+                    })
+
+            # 3. Chercher dans les threads archivés
+            try:
+                async for thread in forum_channel.archived_threads(limit=None):
+                    if thread.name == category:
+                        results["archived_threads"].append({
+                            "id": thread.id,
+                            "name": thread.name,
+                            "archived": thread.archived,
+                            "message_count": thread.message_count
+                        })
+            except Exception as e:
+                results["archived_threads"] = [{"error": str(e)}]
+
+            # 4. Utiliser fetch_archived_threads
+            try:
+                all_threads = await forum_channel.fetch_archived_threads(limit=None)
+                for thread in all_threads.threads:
+                    if thread.name == category:
+                        results["fetch_archived"].append({
+                            "id": thread.id,
+                            "name": thread.name,
+                            "archived": thread.archived,
+                            "message_count": getattr(thread, 'message_count', 0)
+                        })
+            except Exception as e:
+                results["fetch_archived"] = [{"error": str(e)}]
+
+            # Afficher les résultats
+            embed = discord.Embed(
+                title=f"🔍 Recherche Thread: {category}",
+                color=0xe67e22
+            )
+
+            # Cache
+            cache_info = results["cache"]
+            if cache_info["found"]:
+                embed.add_field(
+                    name="💾 Cache",
+                    value=f"✅ Trouvé (ID: {cache_info['id']}, Archivé: {cache_info.get('archived', 'N/A')})",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="💾 Cache",
+                    value=f"❌ {cache_info['error']}",
+                    inline=False
+                )
+
+            # Threads actifs
+            if results["active_threads"]:
+                active_info = results["active_threads"][0]
+                embed.add_field(
+                    name="🟢 Threads Actifs",
+                    value=f"✅ Trouvé (ID: {active_info['id']}, Messages: {active_info['message_count']})",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="🟢 Threads Actifs",
+                    value="❌ Non trouvé",
+                    inline=False
+                )
+
+            # Threads archivés
+            if results["archived_threads"] and not isinstance(results["archived_threads"][0], dict) or "error" not in results["archived_threads"][0]:
+                archived_info = results["archived_threads"][0] if results["archived_threads"] else None
+                if archived_info:
+                    embed.add_field(
+                        name="📦 Threads Archivés",
+                        value=f"✅ Trouvé (ID: {archived_info['id']}, Messages: {archived_info['message_count']})",
+                        inline=False
+                    )
+                else:
+                    embed.add_field(
+                        name="📦 Threads Archivés",
+                        value="❌ Non trouvé",
+                        inline=False
+                    )
+            else:
+                error_msg = results["archived_threads"][0].get("error", "Non trouvé") if results["archived_threads"] else "Non trouvé"
+                embed.add_field(
+                    name="📦 Threads Archivés",
+                    value=f"❌ {error_msg}",
+                    inline=False
+                )
+
+            await ctx.send(embed=embed)
+
+            # Test de la méthode get_or_create_category_thread
+            await ctx.send("🧪 Test de get_or_create_category_thread...")
+            thread = await self.forum_manager.get_or_create_category_thread(forum_channel, category)
+
+            if thread:
+                await ctx.send(f"✅ get_or_create_category_thread a trouvé/créé le thread: {thread.name} (ID: {thread.id})")
+            else:
+                await ctx.send("❌ get_or_create_category_thread a échoué")
+
+        except Exception as e:
+            logging.error(f"[TEST_THREAD_SEARCH] Erreur: {e}")
+            await ctx.send(f"❌ Erreur lors du test: {e}")
+
     @commands.command(name="galerie", help="Affiche la galerie de cartes d'un utilisateur")
     @commands.has_permissions(administrator=True)
     async def galerie_admin(self, ctx: commands.Context, member: discord.Member = None):

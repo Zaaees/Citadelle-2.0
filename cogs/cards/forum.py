@@ -465,16 +465,36 @@ class ForumManager:
                 })
                 thread_names.append(thread.name)
 
-            # Analyser les threads archivés (limité pour éviter les timeouts)
-            async for thread in forum_channel.archived_threads(limit=50):
-                diagnosis["archived_threads"].append({
-                    "name": thread.name,
-                    "id": thread.id,
-                    "message_count": thread.message_count,
-                    "archived": thread.archived,
-                    "locked": thread.locked
-                })
-                thread_names.append(thread.name)
+            # Analyser TOUS les threads archivés (pas de limite)
+            try:
+                async for thread in forum_channel.archived_threads(limit=None):
+                    diagnosis["archived_threads"].append({
+                        "name": thread.name,
+                        "id": thread.id,
+                        "message_count": thread.message_count,
+                        "archived": thread.archived,
+                        "locked": thread.locked
+                    })
+                    thread_names.append(thread.name)
+            except Exception as e:
+                logging.warning(f"[FORUM] Erreur lors de la récupération des threads archivés: {e}")
+
+            # Essayer aussi de récupérer via l'API différemment
+            try:
+                # Récupérer tous les threads du forum (actifs et archivés)
+                all_threads = await forum_channel.fetch_archived_threads(limit=None)
+                for thread in all_threads.threads:
+                    if thread.name not in thread_names:  # Éviter les doublons
+                        diagnosis["archived_threads"].append({
+                            "name": thread.name,
+                            "id": thread.id,
+                            "message_count": getattr(thread, 'message_count', 0),
+                            "archived": thread.archived,
+                            "locked": getattr(thread, 'locked', False)
+                        })
+                        thread_names.append(thread.name)
+            except Exception as e:
+                logging.warning(f"[FORUM] Erreur lors de fetch_archived_threads: {e}")
 
             # Identifier les catégories manquantes et dupliquées
             expected_categories = set(diagnosis["expected_categories"])
