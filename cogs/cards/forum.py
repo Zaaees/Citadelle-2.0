@@ -6,6 +6,7 @@ Gère la création de threads, le posting des cartes découvertes, etc.
 import asyncio
 import logging
 import discord
+import io
 from typing import Dict, Optional, List, Tuple
 
 from .config import CARD_FORUM_CHANNEL_ID, ALL_CATEGORIES
@@ -153,7 +154,7 @@ class ForumManager:
             # Créer le fichier Discord
             logging.info(f"[FORUM] Création du fichier Discord pour {name} ({len(file_bytes)} bytes)")
             file = discord.File(
-                fp=discord.utils._BytesIOProxy(file_bytes),
+                fp=io.BytesIO(file_bytes),
                 filename=f"{name}.png" if not name.endswith('.png') else name
             )
 
@@ -434,7 +435,7 @@ class ForumManager:
 
                     # Créer le fichier Discord
                     file = discord.File(
-                        fp=discord.utils._BytesIOProxy(file_bytes),
+                        fp=io.BytesIO(file_bytes),
                         filename=f"{name}.png" if not name.endswith('.png') else name
                     )
 

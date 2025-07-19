@@ -9,6 +9,7 @@ import discord
 import os
 import json
 import logging
+import io
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 import gspread
@@ -2027,7 +2028,7 @@ class Cards(commands.Cog):
 
                     # Créer le fichier Discord
                     file = discord.File(
-                        fp=discord.utils._BytesIOProxy(file_bytes),
+                        fp=io.BytesIO(file_bytes),
                         filename=f"{name}.png" if not name.endswith('.png') else name
                     )
 
