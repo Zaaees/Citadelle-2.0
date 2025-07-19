@@ -2041,31 +2041,24 @@ class Cards(commands.Cog):
                     display_name = name.removesuffix('.png')
 
                     embed = discord.Embed(
-                        title=display_name,
+                        title=f"🎴 {display_name}",
+                        description=f"**Catégorie:** {cat}",
                         color=0x9b59b6  # Violet pour les cartes secrètes
-                    )
-
-                    embed.add_field(
-                        name="🎯 Découverte",
-                        value=f"#{discovery_index}",
-                        inline=True
-                    )
-
-                    embed.add_field(
-                        name="👤 Découvreur",
-                        value=discoverer_name,
-                        inline=True
-                    )
-
-                    embed.add_field(
-                        name="🏷️ Catégorie",
-                        value=cat,
-                        inline=True
                     )
 
                     # Ajouter l'image dans l'embed
                     if image_url:
                         embed.set_image(url=image_url)
+
+                    # Ajouter les informations de découverte dans le footer
+                    # Déterminer le suffixe ordinal
+                    if discovery_index % 10 == 1 and discovery_index % 100 != 11:
+                        suffix = "ère"
+                    else:
+                        suffix = "ème"
+
+                    footer_text = f"Découvert par : {discoverer_name}\n→ {discovery_index}{suffix} carte découverte"
+                    embed.set_footer(text=footer_text)
 
                     # Poster l'embed
                     sent_message = await thread.send(embed=embed)

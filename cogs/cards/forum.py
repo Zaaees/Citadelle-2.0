@@ -146,32 +146,26 @@ class ForumManager:
         """
         display_name = name.removesuffix('.png')
 
+        # Créer l'embed avec titre et catégorie
         embed = discord.Embed(
-            title=display_name,
+            title=f"🎴 {display_name}",
+            description=f"**Catégorie:** {category}",
             color=self.category_colors.get(category, 0x95a5a6)
-        )
-
-        embed.add_field(
-            name="🎯 Découverte",
-            value=f"#{discovery_index}",
-            inline=True
-        )
-
-        embed.add_field(
-            name="👤 Découvreur",
-            value=discoverer_name,
-            inline=True
-        )
-
-        embed.add_field(
-            name="🏷️ Catégorie",
-            value=category,
-            inline=True
         )
 
         # Ajouter l'image si une URL est fournie
         if image_url:
             embed.set_image(url=image_url)
+
+        # Ajouter les informations de découverte dans le footer
+        # Déterminer le suffixe ordinal
+        if discovery_index % 10 == 1 and discovery_index % 100 != 11:
+            suffix = "ère"
+        else:
+            suffix = "ème"
+
+        footer_text = f"Découvert par : {discoverer_name}\n→ {discovery_index}{suffix} carte découverte"
+        embed.set_footer(text=footer_text)
 
         return embed
     
