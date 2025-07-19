@@ -1487,47 +1487,7 @@ class Cards(commands.Cog):
         # Cette méthode sera connectée avec le système d'inventaire
         pass
 
-    async def _handle_announce_and_wall(self, interaction: discord.Interaction, drawn_cards: list[tuple[str, str]]):
-        """Gère les annonces publiques et le mur des cartes."""
-        try:
-            discovered_cards = self.discovery_manager.get_discovered_cards()
-            new_cards = [card for card in drawn_cards if card not in discovered_cards]
 
-            if not new_cards:
-                return
-
-            # Poster les nouvelles cartes dans le forum
-            all_files = {}
-            for cat, files in self.cards_by_category.items():
-                all_files.setdefault(cat, []).extend(files)
-            for cat, files in self.upgrade_cards_by_category.items():
-                all_files.setdefault(cat, []).extend(files)
-
-            for cat, name in new_cards:
-                file_id = next(
-                    (f['id'] for f in all_files.get(cat, [])
-                     if f['name'].removesuffix(".png") == name),
-                    None
-                )
-                if not file_id:
-                    continue
-
-                # Enregistrer la découverte
-                discovery_index = self.discovery_manager.log_discovery(
-                    cat, name, interaction.user.id, interaction.user.display_name
-                )
-
-                # Télécharger l'image
-                file_bytes = self.download_drive_file(file_id)
-                if file_bytes:
-                    # Poster dans le forum
-                    await self.forum_manager.post_card_to_forum(
-                        cat, name, file_bytes,
-                        interaction.user.display_name, discovery_index
-                    )
-
-        except Exception as e:
-            logging.error(f"[ANNOUNCE] Erreur lors de l'annonce: {e}")
 
     # ========== COMMANDES DISCORD ==========
 
@@ -1896,6 +1856,169 @@ class Cards(commands.Cog):
         except Exception as e:
             await ctx.send(f"❌ Erreur lors de l'initialisation: {e}")
             logging.error(f"[FORUM_INIT] Erreur: {e}")
+
+    @commands.command(name="reconstruire_mur", help="Reconstruit complètement le mur de cartes du forum")
+    @commands.has_permissions(administrator=True)
+    async def reconstruire_mur(self, ctx: commands.Context, category: str = None):
+        """
+        Commande pour reconstruire le mur de cartes du forum.
+
+        Args:
+            category: Catégorie spécifique à reconstruire (optionnel)
+        """
+        if category:
+            await ctx.send(f"🔧 Reconstruction du thread **{category}** en cours...")
+        else:
+            await ctx.send("🔧 Reconstruction complète du mur de cartes en cours...")
+
+        try:
+            # Préparer les fichiers de cartes
+            all_files = {}
+            for cat, files in self.cards_by_category.items():
+                all_files.setdefault(cat, []).extend(files)
+            for cat, files in self.upgrade_cards_by_category.items():
+                all_files.setdefault(cat, []).extend(files)
+
+            if category:
+                # Reconstruire une catégorie spécifique
+                if category not in all_files:
+                    await ctx.send(f"❌ Catégorie **{category}** non trouvée.")
+                    return
+
+                posted_count, error_count = await self.forum_manager.clear_and_rebuild_category_thread(
+                    category, all_files, self.drive_service
+                )
+
+                if posted_count > 0:
+                    await ctx.send(f"✅ Thread **{category}** reconstruit avec succès!")
+                    await ctx.send(f"📊 {posted_count} cartes postées, {error_count} erreurs")
+                else:
+                    await ctx.send(f"⚠️ Aucune carte trouvée pour la catégorie **{category}**")
+            else:
+                # Reconstruction complète
+                await ctx.send("⚠️ **Attention**: Cette opération va vider et reconstruire tous les threads du forum.")
+                await ctx.send("🔄 Initialisation de la structure du forum...")
+
+                # D'abord initialiser la structure
+                created_threads, existing_threads = await self.forum_manager.initialize_forum_structure()
+
+                await ctx.send("📝 Population des threads avec toutes les cartes découvertes...")
+                posted_count, error_count = await self.forum_manager.populate_forum_threads(
+                    all_files, self.drive_service
+                )
+
+                await ctx.send("🎉 Reconstruction du mur terminée!")
+                await ctx.send(f"📊 **Résultats:**")
+                await ctx.send(f"• Threads créés: {len(created_threads)}")
+                await ctx.send(f"• Threads existants: {len(existing_threads)}")
+                await ctx.send(f"• Cartes postées: {posted_count}")
+                await ctx.send(f"• Erreurs: {error_count}")
+
+        except Exception as e:
+            logging.error(f"[RECONSTRUIRE_MUR] Erreur: {e}")
+            await ctx.send(f"❌ Erreur lors de la reconstruction: {e}")
+
+    @commands.command(name="reconstruire_secretes", help="Reconstruit spécifiquement le thread des cartes secrètes")
+    @commands.has_permissions(administrator=True)
+    async def reconstruire_secretes(self, ctx: commands.Context):
+        """Commande pour reconstruire spécifiquement le thread des cartes secrètes."""
+        await ctx.send("🔧 Reconstruction du thread **Secrète** en cours...")
+
+        try:
+            # Préparer les fichiers de cartes
+            all_files = {}
+            for cat, files in self.cards_by_category.items():
+                all_files.setdefault(cat, []).extend(files)
+            for cat, files in self.upgrade_cards_by_category.items():
+                all_files.setdefault(cat, []).extend(files)
+
+            # Reconstruire le thread des cartes secrètes
+            posted_count, error_count = await self.forum_manager.clear_and_rebuild_category_thread(
+                "Secrète", all_files, self.drive_service
+            )
+
+            if posted_count > 0:
+                await ctx.send("✅ Thread **Secrète** reconstruit avec succès!")
+                await ctx.send(f"📊 {posted_count} cartes secrètes postées, {error_count} erreurs")
+            else:
+                await ctx.send("⚠️ Aucune carte secrète découverte trouvée")
+
+        except Exception as e:
+            logging.error(f"[RECONSTRUIRE_SECRETES] Erreur: {e}")
+            await ctx.send(f"❌ Erreur lors de la reconstruction des cartes secrètes: {e}")
+
+    @commands.command(name="diagnostic_forum", help="Diagnostique l'état du forum des cartes")
+    @commands.has_permissions(administrator=True)
+    async def diagnostic_forum(self, ctx: commands.Context):
+        """Commande pour diagnostiquer l'état du forum des cartes."""
+        await ctx.send("🔍 Diagnostic du forum des cartes en cours...")
+
+        try:
+            diagnosis = await self.forum_manager.diagnose_forum_state()
+
+            if "error" in diagnosis:
+                await ctx.send(f"❌ Erreur lors du diagnostic: {diagnosis['error']}")
+                return
+
+            # Afficher les résultats du diagnostic
+            embed = discord.Embed(
+                title="🔍 Diagnostic du Forum des Cartes",
+                color=0x3498db
+            )
+
+            # Threads actifs
+            active_count = len(diagnosis["active_threads"])
+            embed.add_field(
+                name="📈 Threads Actifs",
+                value=f"{active_count} threads actifs",
+                inline=True
+            )
+
+            # Threads archivés
+            archived_count = len(diagnosis["archived_threads"])
+            embed.add_field(
+                name="📦 Threads Archivés",
+                value=f"{archived_count} threads archivés (50 premiers)",
+                inline=True
+            )
+
+            # Catégories manquantes
+            missing = diagnosis["missing_categories"]
+            if missing:
+                embed.add_field(
+                    name="⚠️ Catégories Manquantes",
+                    value=", ".join(missing),
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="✅ Catégories",
+                    value="Toutes les catégories sont présentes",
+                    inline=False
+                )
+
+            # Doublons
+            duplicates = diagnosis["duplicate_categories"]
+            if duplicates:
+                embed.add_field(
+                    name="🔄 Doublons Détectés",
+                    value=", ".join(duplicates),
+                    inline=False
+                )
+
+            await ctx.send(embed=embed)
+
+            # Détails des threads actifs si peu nombreux
+            if active_count <= 10:
+                details = "**Threads Actifs:**\n"
+                for thread in diagnosis["active_threads"]:
+                    status = "🔒" if thread["locked"] else "📂" if thread["archived"] else "✅"
+                    details += f"{status} **{thread['name']}** - {thread['message_count']} messages\n"
+                await ctx.send(details)
+
+        except Exception as e:
+            logging.error(f"[DIAGNOSTIC_FORUM] Erreur: {e}")
+            await ctx.send(f"❌ Erreur lors du diagnostic: {e}")
 
     @commands.command(name="galerie", help="Affiche la galerie de cartes d'un utilisateur")
     @commands.has_permissions(administrator=True)
