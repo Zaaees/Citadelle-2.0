@@ -2022,26 +2022,27 @@ class Cards(commands.Cog):
                         error_count += 1
                         continue
 
-                    # Créer l'embed élégant pour la carte
-                    display_name = name.removesuffix('.png')
+                    # D'abord poster l'image pour obtenir son URL
+                    filename = f"{name}.png" if not name.endswith('.png') else name
 
-                    # Couleurs par catégorie pour les embeds
-                    category_colors = {
-                        "Secrète": 0x9b59b6,      # Violet
-                        "Fondateur": 0xe74c3c,    # Rouge
-                        "Historique": 0xf39c12,   # Orange
-                        "Maître": 0x3498db,       # Bleu
-                        "Black Hole": 0x2c3e50,   # Noir/Gris foncé
-                        "Architectes": 0x1abc9c,  # Turquoise
-                        "Professeurs": 0x27ae60,  # Vert
-                        "Autre": 0x95a5a6,        # Gris
-                        "Élèves": 0xf1c40f,       # Jaune
-                        "Full": 0xfd79a8          # Rose
-                    }
+                    # Créer le fichier Discord
+                    file = discord.File(
+                        fp=io.BytesIO(file_bytes),
+                        filename=filename
+                    )
+
+                    # Poster d'abord l'image seule pour obtenir l'URL
+                    temp_message = await thread.send(file=file)
+
+                    # Récupérer l'URL de l'image uploadée
+                    image_url = temp_message.attachments[0].url if temp_message.attachments else None
+
+                    # Créer l'embed élégant avec l'URL de l'image
+                    display_name = name.removesuffix('.png')
 
                     embed = discord.Embed(
                         title=display_name,
-                        color=category_colors.get(cat, 0x95a5a6)
+                        color=0x9b59b6  # Violet pour les cartes secrètes
                     )
 
                     embed.add_field(
@@ -2062,18 +2063,18 @@ class Cards(commands.Cog):
                         inline=True
                     )
 
-                    # Ajouter l'image comme attachment
-                    filename = f"{name}.png" if not name.endswith('.png') else name
-                    embed.set_image(url=f"attachment://{filename}")
+                    # Ajouter l'image dans l'embed
+                    if image_url:
+                        embed.set_image(url=image_url)
 
-                    # Créer le fichier Discord
-                    file = discord.File(
-                        fp=io.BytesIO(file_bytes),
-                        filename=filename
-                    )
+                    # Poster l'embed
+                    sent_message = await thread.send(embed=embed)
 
-                    # Poster dans le thread avec embed
-                    sent_message = await thread.send(embed=embed, file=file)
+                    # Supprimer le message temporaire avec juste l'image
+                    try:
+                        await temp_message.delete()
+                    except:
+                        pass  # Pas grave si on ne peut pas supprimer
                     posted_count += 1
 
                     if posted_count <= 5:  # Afficher les 5 premiers pour feedback

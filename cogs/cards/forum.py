@@ -130,7 +130,7 @@ class ForumManager:
         message += "---\n"
         return message
 
-    def create_card_embed(self, name: str, category: str, discoverer_name: str, discovery_index: int) -> discord.Embed:
+    def create_card_embed(self, name: str, category: str, discoverer_name: str, discovery_index: int, image_url: str = None) -> discord.Embed:
         """
         Crée un embed élégant pour une carte découverte.
 
@@ -139,6 +139,7 @@ class ForumManager:
             category: Catégorie de la carte
             discoverer_name: Nom du découvreur
             discovery_index: Index de découverte
+            image_url: URL de l'image (optionnel)
 
         Returns:
             discord.Embed: Embed formaté pour la carte
@@ -168,9 +169,9 @@ class ForumManager:
             inline=True
         )
 
-        # Ajouter l'image comme attachment
-        filename = f"{name}.png" if not name.endswith('.png') else name
-        embed.set_image(url=f"attachment://{filename}")
+        # Ajouter l'image si une URL est fournie
+        if image_url:
+            embed.set_image(url=image_url)
 
         return embed
     
@@ -204,20 +205,34 @@ class ForumManager:
 
             logging.info(f"[FORUM] Thread trouvé/créé: {thread.name} (ID: {thread.id})")
 
-            # Créer l'embed élégant pour la carte
-            embed = self.create_card_embed(name, category, discoverer_name, discovery_index)
+            # D'abord poster l'image pour obtenir son URL
             filename = f"{name}.png" if not name.endswith('.png') else name
 
-            # Créer le fichier Discord
             logging.info(f"[FORUM] Création du fichier Discord pour {name} ({len(file_bytes)} bytes)")
             file = discord.File(
                 fp=io.BytesIO(file_bytes),
                 filename=filename
             )
 
-            # Poster dans le thread avec embed
-            logging.info(f"[FORUM] Posting automatique de {name} dans {category}")
-            sent_message = await thread.send(embed=embed, file=file)
+            # Poster d'abord l'image seule pour obtenir l'URL
+            logging.info(f"[FORUM] Upload de l'image {name} dans {category}")
+            temp_message = await thread.send(file=file)
+
+            # Récupérer l'URL de l'image uploadée
+            image_url = temp_message.attachments[0].url if temp_message.attachments else None
+
+            # Créer l'embed avec l'URL de l'image
+            embed = self.create_card_embed(name, category, discoverer_name, discovery_index, image_url)
+
+            # Poster l'embed
+            logging.info(f"[FORUM] Posting automatique de l'embed pour {name} dans {category}")
+            sent_message = await thread.send(embed=embed)
+
+            # Supprimer le message temporaire avec juste l'image
+            try:
+                await temp_message.delete()
+            except:
+                pass  # Pas grave si on ne peut pas supprimer
             logging.info(f"[FORUM] ✅ Carte postée automatiquement: {name} ({category}) par {discoverer_name} - Message ID: {sent_message.id}")
             return True
 
@@ -483,8 +498,7 @@ class ForumManager:
                         error_count += 1
                         continue
 
-                    # Créer l'embed élégant pour la carte
-                    embed = self.create_card_embed(name, cat, discoverer_name, discovery_index)
+                    # D'abord poster l'image pour obtenir son URL
                     filename = f"{name}.png" if not name.endswith('.png') else name
 
                     logging.info(f"[FORUM] Création du fichier Discord pour {name}")
@@ -495,9 +509,25 @@ class ForumManager:
                         filename=filename
                     )
 
-                    # Poster dans le thread avec embed
-                    logging.info(f"[FORUM] Posting de {name} dans le thread {thread.name} (ID: {thread.id})")
-                    sent_message = await thread.send(embed=embed, file=file)
+                    # Poster d'abord l'image seule pour obtenir l'URL
+                    logging.info(f"[FORUM] Upload de l'image {name} dans le thread {thread.name}")
+                    temp_message = await thread.send(file=file)
+
+                    # Récupérer l'URL de l'image uploadée
+                    image_url = temp_message.attachments[0].url if temp_message.attachments else None
+
+                    # Créer l'embed avec l'URL de l'image
+                    embed = self.create_card_embed(name, cat, discoverer_name, discovery_index, image_url)
+
+                    # Poster l'embed
+                    logging.info(f"[FORUM] Posting de l'embed pour {name} dans le thread {thread.name} (ID: {thread.id})")
+                    sent_message = await thread.send(embed=embed)
+
+                    # Supprimer le message temporaire avec juste l'image
+                    try:
+                        await temp_message.delete()
+                    except:
+                        pass  # Pas grave si on ne peut pas supprimer
                     posted_count += 1
                     logging.info(f"[FORUM] ✅ Carte repostée avec succès: {name} ({cat}) - Message ID: {sent_message.id}")
 
