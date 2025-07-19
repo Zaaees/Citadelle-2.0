@@ -22,21 +22,21 @@ class CardsMenuView(discord.ui.View):
         # Vérifier s'il y a des bonus non réclamés et ajouter le bouton si nécessaire
         unclaimed_bonus_count = self.cog.get_user_unclaimed_bonus_count(user.id)
         if unclaimed_bonus_count > 0:
-            self.add_bonus_claim_button(unclaimed_bonus_count)
+            self.add_bonus_draw_button(unclaimed_bonus_count)
 
-    def add_bonus_claim_button(self, bonus_count: int):
-        """Ajoute le bouton de réclamation des bonus en rouge."""
+    def add_bonus_draw_button(self, bonus_count: int):
+        """Ajoute le bouton de tirage bonus en rouge."""
         bonus_button = discord.ui.Button(
-            label=f"🎁 Réclamer {bonus_count} bonus",
+            label=f"🎁 Tirage bonus ({bonus_count})",
             style=discord.ButtonStyle.danger,  # Rouge pour la visibilité
-            custom_id="claim_bonus",
+            custom_id="bonus_draw",
             row=3  # Placer le bouton bonus sur la quatrième ligne
         )
-        bonus_button.callback = self.claim_bonus_callback
+        bonus_button.callback = self.bonus_draw_callback
         self.add_item(bonus_button)
 
-    async def claim_bonus_callback(self, interaction: discord.Interaction):
-        """Callback pour le bouton de réclamation des bonus."""
+    async def bonus_draw_callback(self, interaction: discord.Interaction):
+        """Callback pour le bouton de tirage bonus."""
         if interaction.user.id != self.user.id:
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
@@ -49,17 +49,38 @@ class CardsMenuView(discord.ui.View):
             )
             return
 
-        # Assigner automatiquement le rôle de collectionneur de cartes
-        await self.cog.ensure_card_collector_role(interaction)
+        # Répondre immédiatement avec un message éphémère
+        await interaction.response.send_message(
+            "🎁 **Tirage bonus en cours...**",
+            ephemeral=True
+        )
 
-        await interaction.response.defer(ephemeral=True)
+        try:
+            # Vérifier si l'utilisateur a des bonus disponibles
+            bonus_count = self.cog.get_user_unclaimed_bonus_count(self.user.id)
+            if bonus_count <= 0:
+                await interaction.followup.send(
+                    "🚫 Vous n'avez aucun tirage bonus disponible.",
+                    ephemeral=True
+                )
+                return
 
-        # Utiliser la méthode de réclamation des bonus du cog
-        success = await self.cog.claim_user_bonuses(interaction)
+            # Effectuer le tirage bonus (qui gère déjà l'affichage)
+            drawn_cards = await self.perform_bonus_draw(interaction)
 
-        if not success:
+            if not drawn_cards:
+                await interaction.followup.send(
+                    "❌ Une erreur est survenue lors du tirage bonus.",
+                    ephemeral=True
+                )
+                return
+
+            # L'affichage est déjà géré dans perform_bonus_draw() avec les images des cartes
+
+        except Exception as e:
+            logging.error(f"[MENU] Erreur lors du tirage bonus: {e}")
             await interaction.followup.send(
-                "❌ Vous n'avez aucun tirage bonus à réclamer.",
+                "❌ Une erreur est survenue lors du tirage bonus.",
                 ephemeral=True
             )
     
@@ -177,6 +198,70 @@ class CardsMenuView(discord.ui.View):
 
         # 3) Enregistrer le tirage journalier (ceci invalide le cache et marque l'utilisateur pour vérification)
         self.cog.drawing_manager.record_daily_draw(self.user.id)
+
+        # 4) Traiter toutes les vérifications d'upgrade en attente
+        await self.cog.process_all_pending_upgrade_checks(interaction, 1361993326215172218)
+
+        return drawn_cards
+
+    async def perform_bonus_draw(self, interaction: discord.Interaction) -> list[tuple[str, str]]:
+        """
+        Effectue un tirage bonus de 3 cartes pour l'utilisateur avec affichage original.
+        Utilise un seul bonus à la fois.
+        """
+        # Effectuer le tirage bonus de 3 cartes (même logique que le tirage journalier)
+        drawn_cards = self.cog.drawing_manager.draw_cards(3)
+
+        # Annonce publique si nouvelles cartes
+        discovered_cards = self.cog.discovery_manager.get_discovered_cards()
+        new_cards = [c for c in drawn_cards if c not in discovered_cards]
+        if new_cards:
+            await self.cog._handle_announce_and_wall(interaction, new_cards)
+
+        # 1) Ajouter les cartes à l'inventaire
+        for cat, name in drawn_cards:
+            self.cog.add_card_to_user(self.user.id, cat, name,
+                                    user_name=self.user.display_name,
+                                    source="tirage_bonus")
+
+        # Affichage des cartes tirées avec images
+        for cat, name in drawn_cards:
+            try:
+                file_bytes = self.cog.get_card_image(cat, name)
+                if file_bytes:
+                    await self.cog.display_card_with_image(
+                        interaction.channel, cat, name, file_bytes,
+                        user=self.user, show_inventory_info=True
+                    )
+                else:
+                    logging.warning(f"[BONUS_DRAW] Image non trouvée pour {name} ({cat})")
+            except Exception as e:
+                logging.error(f"[BONUS_DRAW] Erreur lors de l'affichage de {name}: {e}")
+
+        # 2) Logger le tirage bonus
+        if self.cog.storage.logging_manager:
+            logging.info(f"[BONUS_DRAW] Tentative de logging pour {self.user.display_name} ({self.user.id})")
+            logging.info(f"[BONUS_DRAW] Cartes tirées: {drawn_cards}")
+
+            success = self.cog.storage.logging_manager.log_card_draw(
+                user_id=self.user.id,
+                user_name=self.user.display_name,
+                cards=drawn_cards,
+                draw_type="BONUS",
+                source="tirage_bonus"
+            )
+
+            if success:
+                logging.info(f"[BONUS_DRAW] ✅ Logging réussi pour {self.user.display_name}")
+            else:
+                logging.error(f"[BONUS_DRAW] ❌ Échec du logging pour {self.user.display_name}")
+        else:
+            logging.error(f"[BONUS_DRAW] ❌ Logging manager non disponible pour {self.user.display_name}")
+
+        # 3) Décrémenter un bonus (nouvelle logique)
+        success = await self.cog.consume_single_bonus(self.user.id, self.user.display_name)
+        if not success:
+            logging.error(f"[BONUS_DRAW] ❌ Échec de la consommation du bonus pour {self.user.display_name}")
 
         # 4) Traiter toutes les vérifications d'upgrade en attente
         await self.cog.process_all_pending_upgrade_checks(interaction, 1361993326215172218)

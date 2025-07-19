@@ -1804,116 +1804,77 @@ class Cards(commands.Cog):
             logging.error(f"[ANALYSE] Erreur lors de l'analyse des cartes: {e}")
             await interaction.followup.send("❌ Erreur lors de l'analyse des statistiques.", ephemeral=True)
 
-    async def claim_user_bonuses(self, interaction: discord.Interaction) -> bool:
+
+
+    async def consume_single_bonus(self, user_id: int, user_name: str) -> bool:
         """
-        Réclame tous les bonus disponibles pour un utilisateur.
+        Consomme un seul bonus pour un utilisateur.
+        Décrémente le premier bonus trouvé ou le supprime s'il n'en reste qu'un.
 
         Args:
-            interaction: L'interaction Discord
+            user_id: ID de l'utilisateur
+            user_name: Nom d'affichage de l'utilisateur
 
         Returns:
-            bool: True si des bonus ont été réclamés avec succès
+            bool: True si un bonus a été consommé avec succès
         """
-        user_id_str = str(interaction.user.id)
+        user_id_str = str(user_id)
 
         try:
             # Lecture des bonus
-            all_rows = self.storage.sheet_bonus.get_all_values()[1:]  # skip header
+            all_data = self.storage.sheet_bonus.get_all_values()
+            if not all_data:
+                return False
 
-            user_bonus = 0
-            bonus_sources = []
+            header = all_data[0] if all_data else ["user_id", "count", "source"]
+            updated_data = [header]
+            bonus_consumed = False
 
-            for row in all_rows:
-                if len(row) >= 3 and row[0] == user_id_str:
+            for row in all_data[1:]:  # Skip header
+                if len(row) >= 3 and row[0] == user_id_str and not bonus_consumed:
                     try:
                         count = int(row[1])
                         source = row[2] if len(row) > 2 else "Non spécifié"
-                        user_bonus += count
-                        bonus_sources.append(f"• {count} tirage(s) - {source}")
-                    except ValueError:
-                        continue
 
-            if user_bonus <= 0:
+                        if count > 1:
+                            # Décrémenter le bonus
+                            updated_row = [row[0], str(count - 1), source]
+                            updated_data.append(updated_row)
+                        # Si count == 1, on ne rajoute pas la ligne (suppression)
+
+                        bonus_consumed = True
+
+                        # Logger la consommation du bonus (sans les cartes, elles sont loggées dans perform_bonus_draw)
+                        if self.storage.logging_manager:
+                            self.storage.logging_manager._log_action(
+                                action=self.storage.logging_manager.ACTION_BONUS_USED,
+                                user_id=user_id,
+                                user_name=user_name,
+                                quantity=1,
+                                details="Utilisation d'un bonus individuel",
+                                source="tirage_bonus_individuel"
+                            )
+
+                    except ValueError:
+                        # Ligne invalide, la conserver
+                        updated_data.append(row)
+                else:
+                    # Conserver les autres lignes
+                    updated_data.append(row)
+
+            if not bonus_consumed:
                 return False
 
-            # Effectuer les tirages bonus
-            drawn_cards = self.drawing_manager.draw_cards(user_bonus)
-
-            # Logger l'utilisation des bonus
-            if self.storage.logging_manager:
-                self.storage.logging_manager.log_bonus_used(
-                    user_id=interaction.user.id,
-                    user_name=interaction.user.display_name,
-                    count=user_bonus,
-                    cards=drawn_cards,
-                    source="reclamation_bonus"
-                )
-
-            # Ajouter les cartes à l'inventaire
-            for cat, name in drawn_cards:
-                self.add_card_to_user(interaction.user.id, cat, name,
-                                    user_name=interaction.user.display_name,
-                                    source="tirage_bonus")
-
-            # Supprimer les bonus réclamés
-            # Récupérer toutes les lignes et filtrer
-            all_data = self.storage.sheet_bonus.get_all_values()
-            header = all_data[0] if all_data else ["user_id", "count", "source"]
-            filtered_data = [header]
-
-            for i, row in enumerate(all_data[1:], start=1):
-                if len(row) >= 1 and row[0] != user_id_str:
-                    filtered_data.append(row)
-
-            # Réécrire la feuille
+            # Réécrire la feuille avec les données mises à jour
             self.storage.sheet_bonus.clear()
-            if filtered_data:
-                self.storage.sheet_bonus.update('A1', filtered_data)
+            if updated_data:
+                self.storage.sheet_bonus.update('A1', updated_data)
 
-            # Créer l'embed de résultat
-            embed = discord.Embed(
-                title="🎁 Tirages bonus réclamés !",
-                description=f"Vous avez réclamé **{user_bonus}** tirage(s) bonus !",
-                color=0xffd700
-            )
-
-            # Afficher les sources des bonus
-            if bonus_sources:
-                embed.add_field(
-                    name="📋 Sources des bonus",
-                    value="\n".join(bonus_sources),
-                    inline=False
-                )
-
-            # Afficher les cartes tirées
-            if drawn_cards:
-                cards_text = []
-                for i, (cat, name) in enumerate(drawn_cards, 1):
-                    display_name = name.removesuffix('.png')
-                    cards_text.append(f"{i}. **{display_name}** ({cat})")
-
-                embed.add_field(
-                    name="🎴 Cartes obtenues",
-                    value="\n".join(cards_text),
-                    inline=False
-                )
-
-            await interaction.followup.send(embed=embed, ephemeral=True)
-
-            # Traiter toutes les vérifications d'upgrade en attente
-            await self.process_all_pending_upgrade_checks(interaction, 1361993326215172218)
-
-            # Annonce publique si nouvelles cartes
-            await self._handle_announce_and_wall(interaction, drawn_cards)
-
+            logging.info(f"[BONUS] Un bonus consommé pour l'utilisateur {user_name} ({user_id})")
             return True
 
         except Exception as e:
-            logging.error(f"[BONUS] Erreur lors de la réclamation des bonus: {e}")
-            await interaction.followup.send(
-                "❌ Une erreur est survenue lors de la réclamation des bonus.",
-                ephemeral=True
-            )
+            logging.error(f"[BONUS] Erreur lors de la consommation du bonus: {e}")
             return False
 
     @commands.command(name="initialiser_forum_cartes", help="Initialise la structure forum pour les cartes")
