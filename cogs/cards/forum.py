@@ -363,6 +363,9 @@ class ForumManager:
             category_discoveries = [row for row in discovery_rows if len(row) >= 6 and row[0] == category]
             category_discoveries.sort(key=lambda row: int(row[5]) if row[5].isdigit() else 0)
 
+            logging.info(f"[FORUM] Reconstruction {category}: {len(category_discoveries)} découvertes trouvées")
+            logging.info(f"[FORUM] Fichiers disponibles pour {category}: {len(all_files.get(category, []))}")
+
             posted_count = 0
             error_count = 0
 
@@ -370,13 +373,18 @@ class ForumManager:
                 cat, name, discoverer_id_str, discoverer_name, timestamp, discovery_index = row
                 discovery_index = int(discovery_index)
 
+                logging.info(f"[FORUM] Traitement de la carte: {name} ({cat})")
+
                 # Trouver le fichier de la carte
                 file_id = next(
                     (f['id'] for f in all_files.get(cat, []) if f['name'].removesuffix(".png") == name),
                     None
                 )
                 if not file_id:
-                    logging.warning(f"[FORUM] Fichier non trouvé pour {name} ({cat})")
+                    # Debug détaillé pour comprendre pourquoi le fichier n'est pas trouvé
+                    available_files = [f['name'] for f in all_files.get(cat, [])]
+                    logging.warning(f"[FORUM] Fichier non trouvé pour '{name}' dans {cat}")
+                    logging.warning(f"[FORUM] Fichiers disponibles: {available_files[:10]}...")  # Limiter pour éviter les logs trop longs
                     error_count += 1
                     continue
 

@@ -2144,6 +2144,86 @@ class Cards(commands.Cog):
             logging.error(f"[DEBUG_CARTES] Erreur: {e}")
             await ctx.send(f"❌ Erreur lors du debug: {e}")
 
+    @commands.command(name="debug_decouvertes", help="Affiche les découvertes d'une catégorie")
+    @commands.has_permissions(administrator=True)
+    async def debug_decouvertes(self, ctx: commands.Context, category: str):
+        """Commande pour afficher les découvertes d'une catégorie spécifique."""
+        try:
+            await ctx.send(f"🔍 Analyse des découvertes pour **{category}**...")
+
+            # Récupérer les découvertes
+            discoveries_cache = self.discovery_manager.storage.get_discoveries_cache()
+
+            if not discoveries_cache or len(discoveries_cache) <= 1:
+                await ctx.send("❌ Aucune découverte trouvée dans le Google Sheet")
+                return
+
+            # Filtrer par catégorie
+            discovery_rows = discoveries_cache[1:]  # Skip header
+            category_discoveries = [row for row in discovery_rows if len(row) >= 6 and row[0] == category]
+
+            if not category_discoveries:
+                await ctx.send(f"❌ Aucune découverte trouvée pour la catégorie **{category}**")
+
+                # Afficher les catégories disponibles
+                available_categories = set(row[0] for row in discovery_rows if len(row) >= 6)
+                await ctx.send(f"📋 Catégories disponibles: {', '.join(sorted(available_categories))}")
+                return
+
+            # Trier par index de découverte
+            category_discoveries.sort(key=lambda row: int(row[5]) if row[5].isdigit() else 0)
+
+            embed = discord.Embed(
+                title=f"🎯 Découvertes: {category}",
+                description=f"{len(category_discoveries)} cartes découvertes",
+                color=0x9b59b6
+            )
+
+            # Afficher les découvertes (limité à 20 pour éviter les messages trop longs)
+            discoveries_text = ""
+            for i, row in enumerate(category_discoveries[:20]):
+                if len(row) >= 6:
+                    name, discoverer_name, timestamp, discovery_index = row[1], row[3], row[4], row[5]
+                    discoveries_text += f"**#{discovery_index}** - {name} (par {discoverer_name})\n"
+
+            if len(category_discoveries) > 20:
+                discoveries_text += f"\n... et {len(category_discoveries) - 20} autres découvertes"
+
+            embed.add_field(
+                name="📜 Liste des Découvertes",
+                value=discoveries_text if discoveries_text else "Aucune découverte valide",
+                inline=False
+            )
+
+            await ctx.send(embed=embed)
+
+            # Vérifier la correspondance avec les fichiers Google Drive
+            all_files = {}
+            for cat, files in self.cards_by_category.items():
+                all_files.setdefault(cat, []).extend(files)
+            for cat, files in self.upgrade_cards_by_category.items():
+                all_files.setdefault(cat, []).extend(files)
+
+            available_files = [f['name'].removesuffix('.png') for f in all_files.get(category, [])]
+
+            # Comparer les noms
+            missing_files = []
+            for row in category_discoveries[:10]:  # Vérifier les 10 premières
+                if len(row) >= 6:
+                    name = row[1]
+                    if name not in available_files:
+                        missing_files.append(name)
+
+            if missing_files:
+                await ctx.send(f"⚠️ **Fichiers manquants sur Google Drive:**\n" +
+                             "\n".join(f"• {name}" for name in missing_files[:10]))
+            else:
+                await ctx.send("✅ Tous les fichiers découverts sont disponibles sur Google Drive")
+
+        except Exception as e:
+            logging.error(f"[DEBUG_DECOUVERTES] Erreur: {e}")
+            await ctx.send(f"❌ Erreur lors du debug des découvertes: {e}")
+
     @commands.command(name="galerie", help="Affiche la galerie de cartes d'un utilisateur")
     @commands.has_permissions(administrator=True)
     async def galerie_admin(self, ctx: commands.Context, member: discord.Member = None):
