@@ -2020,6 +2020,130 @@ class Cards(commands.Cog):
             logging.error(f"[DIAGNOSTIC_FORUM] Erreur: {e}")
             await ctx.send(f"❌ Erreur lors du diagnostic: {e}")
 
+    @commands.command(name="debug_cartes", help="Debug les cartes chargées et découvertes")
+    @commands.has_permissions(administrator=True)
+    async def debug_cartes(self, ctx: commands.Context, category: str = None):
+        """Commande pour débugger les cartes chargées et découvertes."""
+        try:
+            if category:
+                await ctx.send(f"🔍 Debug de la catégorie **{category}**...")
+
+                # Vérifier les cartes chargées depuis Google Drive
+                normal_cards = self.cards_by_category.get(category, [])
+                full_cards = self.upgrade_cards_by_category.get(category, [])
+
+                embed = discord.Embed(
+                    title=f"🔍 Debug Catégorie: {category}",
+                    color=0xe74c3c
+                )
+
+                embed.add_field(
+                    name="📁 Cartes Normales (Google Drive)",
+                    value=f"{len(normal_cards)} cartes trouvées" if normal_cards else "Aucune carte trouvée",
+                    inline=True
+                )
+
+                embed.add_field(
+                    name="⭐ Cartes Full (Google Drive)",
+                    value=f"{len(full_cards)} cartes trouvées" if full_cards else "Aucune carte trouvée",
+                    inline=True
+                )
+
+                # Vérifier les découvertes dans le Google Sheet
+                discoveries_cache = self.discovery_manager.storage.get_discoveries_cache()
+                if discoveries_cache and len(discoveries_cache) > 1:
+                    discovery_rows = discoveries_cache[1:]  # Skip header
+                    category_discoveries = [row for row in discovery_rows if len(row) >= 6 and row[0] == category]
+
+                    embed.add_field(
+                        name="📊 Cartes Découvertes (Google Sheet)",
+                        value=f"{len(category_discoveries)} découvertes enregistrées",
+                        inline=False
+                    )
+
+                    if category_discoveries:
+                        # Afficher les 5 premières découvertes
+                        discoveries_text = ""
+                        for i, row in enumerate(category_discoveries[:5]):
+                            if len(row) >= 6:
+                                name, discoverer, timestamp, index = row[1], row[3], row[4], row[5]
+                                discoveries_text += f"• **{name}** (#{index}) par {discoverer}\n"
+
+                        if len(category_discoveries) > 5:
+                            discoveries_text += f"... et {len(category_discoveries) - 5} autres"
+
+                        embed.add_field(
+                            name="🎯 Exemples de Découvertes",
+                            value=discoveries_text,
+                            inline=False
+                        )
+                else:
+                    embed.add_field(
+                        name="📊 Cartes Découvertes",
+                        value="❌ Impossible d'accéder au Google Sheet des découvertes",
+                        inline=False
+                    )
+
+                # Vérifier la variable d'environnement
+                folder_id = self.FOLDER_IDS.get(category)
+                embed.add_field(
+                    name="🔧 Configuration",
+                    value=f"FOLDER_ID: {'✅ Défini' if folder_id else '❌ Non défini'}",
+                    inline=False
+                )
+
+                await ctx.send(embed=embed)
+
+                # Afficher quelques noms de cartes si disponibles
+                if normal_cards:
+                    card_names = [f['name'] for f in normal_cards[:10]]
+                    await ctx.send(f"**Exemples de cartes normales:**\n" + "\n".join(f"• {name}" for name in card_names))
+                    if len(normal_cards) > 10:
+                        await ctx.send(f"... et {len(normal_cards) - 10} autres cartes")
+
+            else:
+                # Debug général
+                await ctx.send("🔍 Debug général des cartes...")
+
+                embed = discord.Embed(
+                    title="🔍 Debug Général des Cartes",
+                    color=0x3498db
+                )
+
+                total_normal = sum(len(files) for files in self.cards_by_category.values())
+                total_full = sum(len(files) for files in self.upgrade_cards_by_category.values())
+
+                embed.add_field(
+                    name="📁 Total Cartes Normales",
+                    value=str(total_normal),
+                    inline=True
+                )
+
+                embed.add_field(
+                    name="⭐ Total Cartes Full",
+                    value=str(total_full),
+                    inline=True
+                )
+
+                # Par catégorie
+                categories_info = ""
+                for cat in ["Secrète", "Fondateur", "Historique", "Maître", "Black Hole"]:
+                    normal_count = len(self.cards_by_category.get(cat, []))
+                    full_count = len(self.upgrade_cards_by_category.get(cat, []))
+                    categories_info += f"**{cat}**: {normal_count} normales, {full_count} full\n"
+
+                embed.add_field(
+                    name="📊 Par Catégorie (Top 5)",
+                    value=categories_info,
+                    inline=False
+                )
+
+                await ctx.send(embed=embed)
+
+        except Exception as e:
+            logging.error(f"[DEBUG_CARTES] Erreur: {e}")
+            await ctx.send(f"❌ Erreur lors du debug: {e}")
+
     @commands.command(name="galerie", help="Affiche la galerie de cartes d'un utilisateur")
     @commands.has_permissions(administrator=True)
     async def galerie_admin(self, ctx: commands.Context, member: discord.Member = None):
