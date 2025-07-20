@@ -37,10 +37,60 @@ class ForumManager:
         }
     
     def get_all_card_categories(self) -> List[str]:
-        """Retourne la liste complète des catégories de cartes, incluant 'Full'."""
-        categories = ALL_CATEGORIES.copy()
-        categories.append("Full")  # Ajouter la catégorie Full
-        return categories
+        """Retourne la liste complète des catégories de cartes."""
+        return ALL_CATEGORIES.copy()
+
+    def get_category_stats(self, category: str, cards_by_category: dict = None, upgrade_cards_by_category: dict = None) -> dict:
+        """
+        Retourne les statistiques d'une catégorie spécifique.
+
+        Args:
+            category: Nom de la catégorie
+            cards_by_category: Dictionnaire des cartes normales par catégorie
+            upgrade_cards_by_category: Dictionnaire des cartes Full par catégorie
+
+        Returns:
+            dict: Statistiques avec total_available, discovered, missing
+        """
+        # Récupérer toutes les cartes disponibles dans cette catégorie
+        available_cards = set()
+
+        # Cartes normales
+        if cards_by_category and category in cards_by_category:
+            for card_file in cards_by_category[category]:
+                card_name = card_file['name'].removesuffix('.png')
+                available_cards.add(card_name)
+
+        # Cartes Full
+        if upgrade_cards_by_category and category in upgrade_cards_by_category:
+            for card_file in upgrade_cards_by_category[category]:
+                card_name = card_file['name'].removesuffix('.png')
+                available_cards.add(card_name)
+
+        # Récupérer les cartes découvertes dans cette catégorie
+        discovered_cards = set()
+        discovered_cards_data = self.discovery_manager.get_discovered_cards()
+
+        for cat, name in discovered_cards_data:
+            if cat == category:
+                discovered_cards.add(name)
+
+        # Calculer les statistiques
+        total_available = len(available_cards)
+        discovered_count = len(discovered_cards)
+        missing_count = total_available - discovered_count
+
+        # Cartes manquantes spécifiques
+        missing_cards = available_cards - discovered_cards
+
+        return {
+            'category': category,
+            'total_available': total_available,
+            'discovered': discovered_count,
+            'missing': missing_count,
+            'missing_cards': sorted(list(missing_cards)),
+            'completion_percentage': (discovered_count / total_available * 100) if total_available > 0 else 0
+        }
     
     async def get_or_create_category_thread(self, forum_channel: discord.ForumChannel, 
                                           category: str) -> Optional[discord.Thread]:
@@ -174,6 +224,131 @@ class ForumManager:
         embed.set_footer(text=footer_text)
 
         return embed
+
+    def create_missing_cards_embed(self, category: str, stats: dict) -> discord.Embed:
+        """
+        Crée un embed pour afficher les cartes manquantes dans une catégorie.
+
+        Args:
+            category: Nom de la catégorie
+            stats: Statistiques de la catégorie
+
+        Returns:
+            discord.Embed: Embed formaté pour les cartes manquantes
+        """
+        missing_count = stats['missing']
+        total_available = stats['total_available']
+        completion_percentage = stats['completion_percentage']
+
+        # Couleur basée sur le pourcentage de completion
+        if completion_percentage == 100:
+            color = 0x00ff00  # Vert - Complet
+        elif completion_percentage >= 80:
+            color = 0xffff00  # Jaune - Presque complet
+        elif completion_percentage >= 50:
+            color = 0xff8800  # Orange - À moitié
+        else:
+            color = 0xff0000  # Rouge - Beaucoup manquent
+
+        embed = discord.Embed(
+            title=f"📊 Statut de la catégorie {category}",
+            color=color
+        )
+
+        # Description principale
+        if missing_count == 0:
+            embed.description = f"🎉 **Catégorie complète !**\n\nToutes les {total_available} cartes ont été découvertes."
+        else:
+            embed.description = (
+                f"📈 **Progression :** {stats['discovered']}/{total_available} cartes découvertes\n"
+                f"📊 **Completion :** {completion_percentage:.1f}%\n"
+                f"❓ **Cartes manquantes :** {missing_count}"
+            )
+
+        # Ajouter la liste des cartes manquantes si pas trop nombreuses
+        if 0 < missing_count <= 20:  # Limite pour éviter les embeds trop longs
+            missing_list = "\n".join([f"• {card}" for card in stats['missing_cards'][:20]])
+            embed.add_field(
+                name="🔍 Cartes à découvrir",
+                value=missing_list,
+                inline=False
+            )
+        elif missing_count > 20:
+            # Afficher seulement les premières cartes manquantes
+            missing_list = "\n".join([f"• {card}" for card in stats['missing_cards'][:15]])
+            missing_list += f"\n... et {missing_count - 15} autres cartes"
+            embed.add_field(
+                name="🔍 Cartes à découvrir (aperçu)",
+                value=missing_list,
+                inline=False
+            )
+
+        # Footer avec informations supplémentaires
+        embed.set_footer(text=f"Dernière mise à jour du statut • Catégorie {category}")
+
+        return embed
+
+    async def update_category_status_message(self, thread: discord.Thread, category: str,
+                                           cards_by_category: dict = None, upgrade_cards_by_category: dict = None) -> bool:
+        """
+        Met à jour ou crée le message de statut des cartes manquantes dans un thread.
+
+        Args:
+            thread: Thread de la catégorie
+            category: Nom de la catégorie
+            cards_by_category: Dictionnaire des cartes normales par catégorie
+            upgrade_cards_by_category: Dictionnaire des cartes Full par catégorie
+
+        Returns:
+            bool: True si succès, False sinon
+        """
+        try:
+            # Récupérer les statistiques de la catégorie
+            stats = self.get_category_stats(category, cards_by_category, upgrade_cards_by_category)
+
+            # Si toutes les cartes sont découvertes, supprimer le message de statut s'il existe
+            if stats['missing'] == 0:
+                # Chercher et supprimer le message de statut existant
+                async for message in thread.history(limit=50):
+                    if (message.author == self.bot.user and
+                        message.embeds and
+                        len(message.embeds) > 0 and
+                        "Statut de la catégorie" in str(message.embeds[0].title or "")):
+                        try:
+                            await message.delete()
+                            logging.info(f"[FORUM] Message de statut supprimé pour {category} (catégorie complète)")
+                        except:
+                            pass
+                        break
+                return True
+
+            # Créer l'embed de statut
+            status_embed = self.create_missing_cards_embed(category, stats)
+
+            # Chercher un message de statut existant
+            status_message = None
+            async for message in thread.history(limit=50):
+                if (message.author == self.bot.user and
+                    message.embeds and
+                    len(message.embeds) > 0 and
+                    "Statut de la catégorie" in str(message.embeds[0].title or "")):
+                    status_message = message
+                    break
+
+            if status_message:
+                # Mettre à jour le message existant
+                await status_message.edit(embed=status_embed)
+                logging.info(f"[FORUM] Message de statut mis à jour pour {category}")
+            else:
+                # Créer un nouveau message de statut
+                await thread.send(embed=status_embed)
+                logging.info(f"[FORUM] Nouveau message de statut créé pour {category}")
+
+            return True
+
+        except Exception as e:
+            logging.error(f"[FORUM] Erreur lors de la mise à jour du statut pour {category}: {e}")
+            return False
     
     async def post_card_to_forum(self, category: str, name: str, file_bytes: bytes,
                                discoverer_name: str, discovery_index: int) -> bool:
@@ -277,13 +452,16 @@ class ForumManager:
             return [], []
     
     async def populate_forum_threads(self, all_files: Dict[str, List[Dict]],
-                                   drive_service=None) -> Tuple[int, int]:
+                                   drive_service=None, cards_by_category: dict = None,
+                                   upgrade_cards_by_category: dict = None) -> Tuple[int, int]:
         """
         Peuple les threads du forum avec toutes les cartes découvertes.
 
         Args:
             all_files: Dictionnaire des fichiers par catégorie
             drive_service: Service Google Drive pour télécharger les images
+            cards_by_category: Dictionnaire des cartes normales par catégorie
+            upgrade_cards_by_category: Dictionnaire des cartes Full par catégorie
 
         Returns:
             Tuple[int, int]: (cartes_postées, erreurs)
@@ -350,6 +528,19 @@ class ForumManager:
                     logging.error(f"[FORUM] Erreur lors du post de {name}: {e}")
                     error_count += 1
 
+            # Mettre à jour les messages de statut pour toutes les catégories
+            logging.info("[FORUM] Mise à jour des messages de statut des catégories...")
+            forum_channel = self.bot.get_channel(CARD_FORUM_CHANNEL_ID)
+            if isinstance(forum_channel, discord.ForumChannel):
+                for category in self.get_all_card_categories():
+                    try:
+                        thread = await self.get_or_create_category_thread(forum_channel, category)
+                        if thread:
+                            await self.update_category_status_message(thread, category, cards_by_category, upgrade_cards_by_category)
+                            await asyncio.sleep(0.5)  # Éviter le rate limiting
+                    except Exception as e:
+                        logging.error(f"[FORUM] Erreur lors de la mise à jour du statut pour {category}: {e}")
+
             return posted_count, error_count
 
         except Exception as e:
@@ -376,7 +567,8 @@ class ForumManager:
             return None
 
     async def clear_and_rebuild_category_thread(self, category: str, all_files: Dict[str, List[Dict]],
-                                              drive_service=None) -> Tuple[int, int]:
+                                              drive_service=None, cards_by_category: dict = None,
+                                              upgrade_cards_by_category: dict = None) -> Tuple[int, int]:
         """
         Vide complètement un thread de catégorie et le reconstruit avec toutes les cartes découvertes.
 
@@ -384,6 +576,8 @@ class ForumManager:
             category: Nom de la catégorie à reconstruire
             all_files: Dictionnaire des fichiers par catégorie
             drive_service: Service Google Drive pour télécharger les images
+            cards_by_category: Dictionnaire des cartes normales par catégorie
+            upgrade_cards_by_category: Dictionnaire des cartes Full par catégorie
 
         Returns:
             Tuple[int, int]: (cartes_postées, erreurs)
@@ -519,6 +713,13 @@ class ForumManager:
                     import traceback
                     logging.error(f"[FORUM] Traceback: {traceback.format_exc()}")
                     error_count += 1
+
+            # Mettre à jour le message de statut pour cette catégorie
+            try:
+                await self.update_category_status_message(thread, category, cards_by_category, upgrade_cards_by_category)
+                logging.info(f"[FORUM] Message de statut mis à jour pour {category}")
+            except Exception as e:
+                logging.error(f"[FORUM] Erreur lors de la mise à jour du statut pour {category}: {e}")
 
             logging.info(f"[FORUM] Reconstruction du thread {category} terminée: {posted_count} cartes postées, {error_count} erreurs")
             return posted_count, error_count

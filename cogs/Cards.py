@@ -1888,7 +1888,7 @@ class Cards(commands.Cog):
                     return
 
                 posted_count, error_count = await self.forum_manager.clear_and_rebuild_category_thread(
-                    category, all_files, self.drive_service
+                    category, all_files, self.drive_service, self.cards_by_category, self.upgrade_cards_by_category
                 )
 
                 if posted_count > 0:
@@ -1906,7 +1906,7 @@ class Cards(commands.Cog):
 
                 await ctx.send("📝 Population des threads avec toutes les cartes découvertes...")
                 posted_count, error_count = await self.forum_manager.populate_forum_threads(
-                    all_files, self.drive_service
+                    all_files, self.drive_service, self.cards_by_category, self.upgrade_cards_by_category
                 )
 
                 await ctx.send("🎉 Reconstruction du mur terminée!")
