@@ -224,19 +224,32 @@ class CardsMenuView(discord.ui.View):
                                     user_name=self.user.display_name,
                                     source="tirage_bonus")
 
-        # Affichage des cartes tirées avec images
+        # Affichage des cartes avec embeds/images (même logique que daily_draw_callback)
+        embed_msgs = []
         for cat, name in drawn_cards:
             try:
-                file_bytes = self.cog.get_card_image(cat, name)
-                if file_bytes:
-                    await self.cog.display_card_with_image(
-                        interaction.channel, cat, name, file_bytes,
-                        user=self.user, show_inventory_info=True
-                    )
+                # Recherche du fichier image (inclut cartes Full)
+                file_id = next(
+                    (f["id"] for f in (self.cog.cards_by_category.get(cat, []) + self.cog.upgrade_cards_by_category.get(cat, []))
+                    if f["name"].removesuffix(".png") == name),
+                    None,
+                )
+                if file_id:
+                    file_bytes = self.cog.download_drive_file(file_id)
+                    if file_bytes:
+                        embed, image_file = self.cog.build_card_embed(cat, name, file_bytes, self.user)
+                        embed_msgs.append((embed, image_file))
+                    else:
+                        logging.warning(f"[BONUS_DRAW] Impossible de télécharger l'image pour {name} ({cat})")
                 else:
                     logging.warning(f"[BONUS_DRAW] Image non trouvée pour {name} ({cat})")
             except Exception as e:
                 logging.error(f"[BONUS_DRAW] Erreur lors de l'affichage de {name}: {e}")
+
+        if embed_msgs:
+            # Envoyer toutes les cartes directement dans le salon comme messages indépendants
+            for embed, file in embed_msgs:
+                await interaction.channel.send(embed=embed, file=file)
 
         # 2) Logger le tirage bonus
         if self.cog.storage.logging_manager:
