@@ -59,11 +59,17 @@ class ForumManager:
             if category in self.category_threads:
                 thread_id = self.category_threads[category]
                 try:
-                    thread = await forum_channel.fetch_thread(thread_id)
-                    if thread and not thread.archived:
+                    # Utiliser bot.get_channel pour récupérer le thread par son ID
+                    thread = self.bot.get_channel(thread_id)
+                    if thread and isinstance(thread, discord.Thread) and not thread.archived:
                         return thread
-                except discord.NotFound:
-                    # Thread supprimé, retirer du cache
+                    # Si pas dans le cache, essayer de le fetch
+                    if not thread:
+                        thread = await self.bot.fetch_channel(thread_id)
+                        if thread and isinstance(thread, discord.Thread) and not thread.archived:
+                            return thread
+                except (discord.NotFound, discord.Forbidden):
+                    # Thread supprimé ou inaccessible, retirer du cache
                     del self.category_threads[category]
             
             # Chercher le thread existant dans les threads actifs
