@@ -540,15 +540,16 @@ class Cards(commands.Cog):
         # Ajouter les informations d'inventaire si demandé et si un utilisateur est fourni
         if show_inventory_info and user:
             try:
-                # Compter le nombre d'exemplaires actuels (avant ajout de cette carte)
+                # Compter le nombre d'exemplaires actuels
                 current_count = self.get_user_card_count(user.id, cat, name)
 
                 if current_count == 0:
                     description += f"\n✨ **NOUVELLE CARTE !**"
+                elif current_count == 1:
+                    description += f"\n✨ **NOUVELLE CARTE !**"
                 else:
-                    # Afficher le nombre total après ajout de cette carte
-                    total_count = current_count + 1
-                    description += f"\n📊 Vous en avez maintenant : **{total_count}**"
+                    # Afficher le nombre total actuel (la carte a déjà été ajoutée à l'inventaire)
+                    description += f"\n📊 Vous en avez maintenant : **{current_count}**"
 
                 # Vérifier le statut Full pour les cartes qui peuvent en avoir
                 if self.can_have_full_version(cat, name):
