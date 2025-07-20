@@ -80,16 +80,11 @@ class ForumManager:
         discovered_count = len(discovered_cards)
         missing_count = total_available - discovered_count
 
-        # Cartes manquantes spécifiques
-        missing_cards = available_cards - discovered_cards
-
         return {
             'category': category,
             'total_available': total_available,
             'discovered': discovered_count,
-            'missing': missing_count,
-            'missing_cards': sorted(list(missing_cards)),
-            'completion_percentage': (discovered_count / total_available * 100) if total_available > 0 else 0
+            'missing': missing_count
         }
     
     async def get_or_create_category_thread(self, forum_channel: discord.ForumChannel, 
@@ -227,7 +222,7 @@ class ForumManager:
 
     def create_missing_cards_embed(self, category: str, stats: dict) -> discord.Embed:
         """
-        Crée un embed pour afficher les cartes manquantes dans une catégorie.
+        Crée un embed simple pour afficher les cartes manquantes dans une catégorie.
 
         Args:
             category: Nom de la catégorie
@@ -238,53 +233,17 @@ class ForumManager:
         """
         missing_count = stats['missing']
         total_available = stats['total_available']
-        completion_percentage = stats['completion_percentage']
-
-        # Couleur basée sur le pourcentage de completion
-        if completion_percentage == 100:
-            color = 0x00ff00  # Vert - Complet
-        elif completion_percentage >= 80:
-            color = 0xffff00  # Jaune - Presque complet
-        elif completion_percentage >= 50:
-            color = 0xff8800  # Orange - À moitié
-        else:
-            color = 0xff0000  # Rouge - Beaucoup manquent
 
         embed = discord.Embed(
             title=f"📊 Statut de la catégorie {category}",
-            color=color
+            color=0x95a5a6  # Couleur neutre
         )
 
-        # Description principale
+        # Description simple
         if missing_count == 0:
             embed.description = f"🎉 **Catégorie complète !**\n\nToutes les {total_available} cartes ont été découvertes."
         else:
-            embed.description = (
-                f"📈 **Progression :** {stats['discovered']}/{total_available} cartes découvertes\n"
-                f"📊 **Completion :** {completion_percentage:.1f}%\n"
-                f"❓ **Cartes manquantes :** {missing_count}"
-            )
-
-        # Ajouter la liste des cartes manquantes si pas trop nombreuses
-        if 0 < missing_count <= 20:  # Limite pour éviter les embeds trop longs
-            missing_list = "\n".join([f"• {card}" for card in stats['missing_cards'][:20]])
-            embed.add_field(
-                name="🔍 Cartes à découvrir",
-                value=missing_list,
-                inline=False
-            )
-        elif missing_count > 20:
-            # Afficher seulement les premières cartes manquantes
-            missing_list = "\n".join([f"• {card}" for card in stats['missing_cards'][:15]])
-            missing_list += f"\n... et {missing_count - 15} autres cartes"
-            embed.add_field(
-                name="🔍 Cartes à découvrir (aperçu)",
-                value=missing_list,
-                inline=False
-            )
-
-        # Footer avec informations supplémentaires
-        embed.set_footer(text=f"Dernière mise à jour du statut • Catégorie {category}")
+            embed.description = f"❓ **{missing_count} cartes manquantes** sur {total_available} disponibles"
 
         return embed
 

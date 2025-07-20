@@ -1,26 +1,17 @@
-# Ajout des messages de statut des cartes manquantes
+# Messages de statut des cartes manquantes (Version simplifiée)
 
 ## 🎯 **Fonctionnalités ajoutées**
 
 ### 1. **Correction de la catégorie "Full"**
 - ❌ **Problème** : "Full" était traitée comme une catégorie à part entière
-- ✅ **Solution** : Les cartes Full sont maintenant des variantes dans les catégories existantes
+- ✅ **Solution** : Les cartes Full sont des variantes dans les catégories existantes
 - 🔧 **Correction** : Suppression de `categories.append("Full")` dans `get_all_card_categories()`
 
-### 2. **Messages de statut des cartes manquantes**
+### 2. **Messages de statut simples**
 - 📊 **Calcul automatique** des cartes manquantes par catégorie
-- 🎨 **Embeds colorés** selon le pourcentage de completion
+- 📝 **Message simple** indiquant le nombre de cartes manquantes
 - 🔄 **Mise à jour automatique** lors des reconstructions
 - 🗑️ **Suppression automatique** si catégorie complète
-
-## 🎨 **Système de couleurs des embeds**
-
-| Completion | Couleur | Description |
-|------------|---------|-------------|
-| 100% | 🟢 Vert | Catégorie complète |
-| 80%+ | 🟡 Jaune | Presque complète |
-| 50%+ | 🟠 Orange | À moitié |
-| <50% | 🔴 Rouge | Beaucoup manquent |
 
 ## 📋 **Contenu des messages de statut**
 
@@ -28,14 +19,7 @@
 ```
 📊 Statut de la catégorie [Nom]
 
-📈 Progression : X/Y cartes découvertes
-📊 Completion : Z.Z%
-❓ Cartes manquantes : N
-
-🔍 Cartes à découvrir
-• Carte 1
-• Carte 2
-...
+❓ X cartes manquantes sur Y disponibles
 ```
 
 ### **Si catégorie complète :**
@@ -47,13 +31,19 @@
 Toutes les X cartes ont été découvertes.
 ```
 
+## 🔍 **Traitement des cartes Full**
+
+Les cartes Full sont traitées comme des **variantes dans la même catégorie** :
+- **Stockage** : `cards_by_category[category]` (normales) + `upgrade_cards_by_category[category]` (Full)
+- **Exemple** : Catégorie "Élèves" contient "TestCard.png" ET "TestCard (Full).png"
+- **Comptage** : Les deux sont comptées dans le total de cartes disponibles pour la catégorie
+
 ## 🔧 **Fonctionnalités techniques**
 
 ### **Calcul des statistiques**
 - ✅ Récupération des cartes disponibles (normales + Full)
 - ✅ Récupération des cartes découvertes
-- ✅ Calcul des cartes manquantes
-- ✅ Calcul du pourcentage de completion
+- ✅ Calcul simple des cartes manquantes
 
 ### **Gestion des messages**
 - 🔍 **Recherche** de message existant (50 derniers messages)
@@ -71,8 +61,8 @@ Toutes les X cartes ont été découvertes.
 ### **`cogs/cards/forum.py`**
 
 #### **Nouvelles méthodes :**
-- `get_category_stats()` - Calcul des statistiques par catégorie
-- `create_missing_cards_embed()` - Création des embeds de statut
+- `get_category_stats()` - Calcul simple des statistiques par catégorie
+- `create_missing_cards_embed()` - Création des embeds de statut simples
 - `update_category_status_message()` - Gestion des messages de statut
 
 #### **Méthodes modifiées :**
@@ -109,16 +99,14 @@ Toutes les X cartes ont été découvertes.
 
 ### **Après déploiement :**
 1. ✅ Plus d'erreur avec la catégorie "Full"
-2. ✅ Messages de statut dans chaque thread de catégorie
-3. ✅ Information claire sur les cartes manquantes
-4. ✅ Couleurs visuelles pour le pourcentage de completion
-5. ✅ Mise à jour automatique lors des reconstructions
+2. ✅ Messages de statut simples dans chaque thread de catégorie
+3. ✅ Information claire sur le nombre de cartes manquantes
+4. ✅ Mise à jour automatique lors des reconstructions
 
 ### **Expérience utilisateur :**
-- 📊 **Vision claire** du progrès par catégorie
-- 🎯 **Liste des cartes** à découvrir
-- 🎨 **Indication visuelle** du niveau de completion
+- 📊 **Vision claire** du nombre de cartes manquantes par catégorie
 - 🔄 **Informations toujours à jour**
+- 🎉 **Indication claire** quand une catégorie est complète
 
 ## 🧪 **Tests**
 
