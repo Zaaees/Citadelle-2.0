@@ -38,22 +38,50 @@ class Cards(commands.Cog):
     
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        
-        # Initialiser les credentials Google
-        creds_info = json.loads(os.getenv('SERVICE_ACCOUNT_JSON'))
-        creds = Credentials.from_service_account_info(creds_info, scopes=[
-            'https://www.googleapis.com/auth/spreadsheets',
-            'https://www.googleapis.com/auth/drive'
-        ])
-        
-        # Client Google Sheets
-        self.gspread_client = gspread.authorize(creds)
-        
-        # Service Google Drive pour accéder aux images des cartes
-        self.drive_service = build('drive', 'v3', credentials=creds)
-        
-        # Initialiser le système de stockage
-        self.storage = CardsStorage(self.gspread_client, os.getenv('GOOGLE_SHEET_ID_CARTES'))
+
+        # Initialiser les variables par défaut
+        self.gspread_client = None
+        self.drive_service = None
+        self.storage = None
+
+        # Tenter d'initialiser les credentials Google
+        try:
+            logging.info("[CARDS] 🔄 Initialisation des credentials Google Sheets...")
+
+            service_account_json = os.getenv('SERVICE_ACCOUNT_JSON')
+            if not service_account_json:
+                raise ValueError("SERVICE_ACCOUNT_JSON non trouvé dans les variables d'environnement")
+
+            spreadsheet_id = os.getenv('GOOGLE_SHEET_ID_CARTES')
+            if not spreadsheet_id:
+                raise ValueError("GOOGLE_SHEET_ID_CARTES non trouvé dans les variables d'environnement")
+
+            creds_info = json.loads(service_account_json)
+            creds = Credentials.from_service_account_info(creds_info, scopes=[
+                'https://www.googleapis.com/auth/spreadsheets',
+                'https://www.googleapis.com/auth/drive'
+            ])
+
+            # Client Google Sheets
+            self.gspread_client = gspread.authorize(creds)
+            logging.info("[CARDS] ✅ Client Google Sheets initialisé")
+
+            # Service Google Drive pour accéder aux images des cartes
+            self.drive_service = build('drive', 'v3', credentials=creds)
+            logging.info("[CARDS] ✅ Service Google Drive initialisé")
+
+            # Initialiser le système de stockage
+            self.storage = CardsStorage(self.gspread_client, spreadsheet_id)
+            logging.info("[CARDS] ✅ Système de stockage initialisé")
+
+        except Exception as e:
+            logging.error(f"[CARDS] ❌ Erreur lors de l'initialisation des credentials Google: {e}")
+            logging.error("[CARDS] ⚠️ Le système de cartes fonctionnera en mode dégradé")
+            import traceback
+            logging.error(f"[CARDS] Traceback: {traceback.format_exc()}")
+
+            # Créer un storage minimal pour éviter les erreurs
+            self.storage = None
         
         # Dictionnaire des dossiers par rareté (IDs des dossiers Google Drive depuis .env)
         self.FOLDER_IDS = {
@@ -67,29 +95,60 @@ class Cards(commands.Cog):
             "Élèves": os.getenv("FOLDER_ELEVES_ID"),
             "Secrète": os.getenv("FOLDER_SECRETE_ID")
         }
-        
+
         # Pré-charger la liste des fichiers (cartes) dans chaque dossier de rareté
         self.cards_by_category = {}
         self.upgrade_cards_by_category = {}
-        self._load_card_files()
-        
-        # Initialiser les gestionnaires
-        self.discovery_manager = DiscoveryManager(self.storage)
-        self.vault_manager = VaultManager(self.storage)
-        self.drawing_manager = DrawingManager(self.storage, self.cards_by_category, self.upgrade_cards_by_category)
-        self.trading_manager = TradingManager(self.storage, self.vault_manager)
-        self.forum_manager = ForumManager(self.bot, self.discovery_manager)
-        
-        # Connecter les méthodes manquantes du trading manager
-        self.trading_manager._user_has_card = self._user_has_card
-        self.trading_manager._add_card_to_user = self.add_card_to_user
-        self.trading_manager._remove_card_from_user = self.remove_card_from_user
 
-        # Ajouter une référence au cog dans le storage pour les vérifications d'upgrade
-        self.storage._cog_ref = self
+        # Initialiser les gestionnaires seulement si le storage est disponible
+        if self.storage is not None:
+            try:
+                logging.info("[CARDS] 🔄 Initialisation des gestionnaires...")
 
-        # Initialiser le système de vérification automatique des upgrades
-        self._users_needing_upgrade_check = set()
+                # Charger les fichiers de cartes
+                self._load_card_files()
+
+                # Initialiser les gestionnaires
+                self.discovery_manager = DiscoveryManager(self.storage)
+                self.vault_manager = VaultManager(self.storage)
+                self.drawing_manager = DrawingManager(self.storage, self.cards_by_category, self.upgrade_cards_by_category)
+                self.trading_manager = TradingManager(self.storage, self.vault_manager)
+                self.forum_manager = ForumManager(self.bot, self.discovery_manager)
+
+                # Connecter les méthodes manquantes du trading manager
+                self.trading_manager._user_has_card = self._user_has_card
+                self.trading_manager._add_card_to_user = self.add_card_to_user
+                self.trading_manager._remove_card_from_user = self.remove_card_from_user
+
+                # Ajouter une référence au cog dans le storage pour les vérifications d'upgrade
+                self.storage._cog_ref = self
+
+                # Initialiser le système de vérification automatique des upgrades
+                self._users_needing_upgrade_check = set()
+
+                logging.info("[CARDS] ✅ Tous les gestionnaires initialisés avec succès")
+
+            except Exception as e:
+                logging.error(f"[CARDS] ❌ Erreur lors de l'initialisation des gestionnaires: {e}")
+                import traceback
+                logging.error(f"[CARDS] Traceback: {traceback.format_exc()}")
+                # Ne pas réinitialiser le storage à None, juste les gestionnaires défaillants
+                logging.warning("[CARDS] ⚠️ Initialisation des gestionnaires par défaut suite à l'erreur")
+                self.discovery_manager = None
+                self.vault_manager = None
+                self.drawing_manager = None
+                self.trading_manager = None
+                self.forum_manager = None
+                self._users_needing_upgrade_check = set()
+        else:
+            logging.warning("[CARDS] ⚠️ Gestionnaires non initialisés (storage indisponible)")
+            # Initialiser des gestionnaires par défaut ou None
+            self.discovery_manager = None
+            self.vault_manager = None
+            self.drawing_manager = None
+            self.trading_manager = None
+            self.forum_manager = None
+            self._users_needing_upgrade_check = set()
 
     def _normalize_category_for_env_var(self, category: str) -> str:
         """
@@ -104,20 +163,30 @@ class Cards(commands.Cog):
     
     def _load_card_files(self):
         """Charge les fichiers de cartes depuis Google Drive."""
-        for category, folder_id in self.FOLDER_IDS.items():
-            if folder_id:
-                # Cartes normales
-                results = self.drive_service.files().list(
-                    q=f"'{folder_id}' in parents",
-                    fields="files(id, name, mimeType)"
-                ).execute()
-                
-                files = [
-                    f for f in results.get('files', [])
-                    if f.get('mimeType', '').startswith('image/')
-                    and f['name'].lower().endswith('.png')
-                ]
-                self.cards_by_category[category] = files
+        if self.drive_service is None:
+            logging.warning("[CARDS] ⚠️ Service Google Drive non disponible, impossible de charger les fichiers de cartes")
+            return
+
+        try:
+            logging.info("[CARDS] 🔄 Chargement des fichiers de cartes depuis Google Drive...")
+
+            for category, folder_id in self.FOLDER_IDS.items():
+                if folder_id:
+                    # Cartes normales
+                    results = self.drive_service.files().list(
+                        q=f"'{folder_id}' in parents",
+                        fields="files(id, name, mimeType)"
+                    ).execute()
+
+                    files = [
+                        f for f in results.get('files', [])
+                        if f.get('mimeType', '').startswith('image/')
+                        and f['name'].lower().endswith('.png')
+                    ]
+                    self.cards_by_category[category] = files
+                else:
+                    # Pas de dossier configuré pour cette catégorie
+                    self.cards_by_category[category] = []
                 
                 # Cartes Full (variantes)
                 normalized_category = self._normalize_category_for_env_var(category)
@@ -141,11 +210,25 @@ class Cards(commands.Cog):
                 else:
                     logging.warning(f"[CARDS] Variable d'environnement {full_folder_var} non définie - aucune carte Full pour {category}")
                     self.upgrade_cards_by_category[category] = []
+
+            logging.info("[CARDS] ✅ Chargement des fichiers de cartes terminé")
+
+        except Exception as e:
+            logging.error(f"[CARDS] ❌ Erreur lors du chargement des fichiers de cartes: {e}")
+            import traceback
+            logging.error(f"[CARDS] Traceback: {traceback.format_exc()}")
+            # Initialiser des dictionnaires vides en cas d'erreur
+            self.cards_by_category = {}
+            self.upgrade_cards_by_category = {}
     
     # ========== MÉTHODES D'INTERFACE POUR LES GESTIONNAIRES ==========
     
     def get_user_cards(self, user_id: int) -> list[tuple[str, str]]:
         """Récupère les cartes d'un utilisateur."""
+        if not self.storage:
+            logging.warning("[CARDS] ⚠️ Storage non disponible dans get_user_cards")
+            return []
+
         cards_cache = self.storage.get_cards_cache()
         if not cards_cache:
             return []
@@ -205,7 +288,7 @@ class Cards(commands.Cog):
                                     self._mark_user_for_upgrade_check(user_id)
 
                                     # Logger l'ajout de carte
-                                    if self.storage.logging_manager:
+                                    if self.storage and self.storage.logging_manager:
                                         self.storage.logging_manager.log_card_add(
                                             user_id=user_id,
                                             user_name=user_name or f"User_{user_id}",
@@ -231,7 +314,7 @@ class Cards(commands.Cog):
                         self._mark_user_for_upgrade_check(user_id)
 
                         # Logger l'ajout de carte
-                        if self.storage.logging_manager:
+                        if self.storage and self.storage.logging_manager:
                             self.storage.logging_manager.log_card_add(
                                 user_id=user_id,
                                 user_name=user_name or f"User_{user_id}",
@@ -252,7 +335,7 @@ class Cards(commands.Cog):
                 self._mark_user_for_upgrade_check(user_id)
 
                 # Logger l'ajout de carte
-                if self.storage.logging_manager:
+                if self.storage and self.storage.logging_manager:
                     self.storage.logging_manager.log_card_add(
                         user_id=user_id,
                         user_name=user_name or f"User_{user_id}",
@@ -305,7 +388,7 @@ class Cards(commands.Cog):
                                     self.storage.refresh_cards_cache()
 
                                     # Logger le retrait de carte
-                                    if self.storage.logging_manager:
+                                    if self.storage and self.storage.logging_manager:
                                         self.storage.logging_manager.log_card_remove(
                                             user_id=user_id,
                                             user_name=user_name or f"User_{user_id}",
@@ -1713,7 +1796,7 @@ class Cards(commands.Cog):
                         bonus_consumed = True
 
                         # Logger la consommation du bonus (sans les cartes, elles sont loggées dans perform_bonus_draw)
-                        if self.storage.logging_manager:
+                        if self.storage and self.storage.logging_manager:
                             self.storage.logging_manager._log_action(
                                 action=self.storage.logging_manager.ACTION_BONUS_USED,
                                 user_id=user_id,
@@ -1862,7 +1945,7 @@ class Cards(commands.Cog):
             self.storage.sheet_bonus.append_row([str(member.id), str(count), source])
 
             # Logger l'attribution du bonus
-            if self.storage.logging_manager:
+            if self.storage and self.storage.logging_manager:
                 self.storage.logging_manager.log_bonus_granted(
                     user_id=member.id,
                     user_name=member.display_name,
@@ -1909,7 +1992,7 @@ class Cards(commands.Cog):
         Usage : !logs_cartes [user_id] [limit]
         """
         try:
-            if not self.storage.logging_manager:
+            if not self.storage or not self.storage.logging_manager:
                 await ctx.send("❌ Le système de logging n'est pas initialisé.")
                 return
 
@@ -1971,7 +2054,7 @@ class Cards(commands.Cog):
         Usage : !stats_logs
         """
         try:
-            if not self.storage.logging_manager:
+            if not self.storage or not self.storage.logging_manager:
                 await ctx.send("❌ Le système de logging n'est pas initialisé.")
                 return
 
