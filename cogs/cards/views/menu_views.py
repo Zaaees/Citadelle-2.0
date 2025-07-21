@@ -218,12 +218,6 @@ class CardsMenuView(discord.ui.View):
         if new_cards:
             await self.cog._handle_announce_and_wall(interaction, new_cards)
 
-        # 1) Ajouter les cartes à l'inventaire
-        for cat, name in drawn_cards:
-            self.cog.add_card_to_user(self.user.id, cat, name,
-                                    user_name=self.user.display_name,
-                                    source="tirage_bonus")
-
         # Affichage des cartes avec embeds/images (même logique que daily_draw_callback)
         embed_msgs = []
         for cat, name in drawn_cards:
@@ -250,6 +244,13 @@ class CardsMenuView(discord.ui.View):
             # Envoyer toutes les cartes directement dans le salon comme messages indépendants
             for embed, file in embed_msgs:
                 await interaction.channel.send(embed=embed, file=file)
+
+        # ——————————— COMMIT ———————————
+        # 1) Ajouter les cartes à l'inventaire
+        for cat, name in drawn_cards:
+            self.cog.add_card_to_user(self.user.id, cat, name,
+                                    user_name=self.user.display_name,
+                                    source="tirage_bonus")
 
         # 2) Logger le tirage bonus
         if self.cog.storage.logging_manager:
