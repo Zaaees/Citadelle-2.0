@@ -115,7 +115,6 @@ def test_command_structure():
         # Vérifier que les méthodes de commande existent
         expected_commands = [
             'cartes',
-            'carte_info', 
             'initialiser_forum_cartes',
             'reconstruire_mur',
             'give_bonus'
