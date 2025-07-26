@@ -54,9 +54,6 @@ class CardsStorage:
         self._vault_lock = threading.RLock()
         self._cache_lock = threading.RLock()
         self._discoveries_lock = threading.RLock()
-
-        # Gestionnaire de logging (sera initialisé après les worksheets)
-        self.logging_manager = None
     
     def _init_worksheets(self):
         """Initialise les feuilles de calcul nécessaires."""

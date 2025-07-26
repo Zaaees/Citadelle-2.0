@@ -9,6 +9,8 @@ import discord
 import os
 import json
 import logging
+import io
+import asyncio
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 import gspread
@@ -36,22 +38,50 @@ class Cards(commands.Cog):
     
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        
-        # Initialiser les credentials Google
-        creds_info = json.loads(os.getenv('SERVICE_ACCOUNT_JSON'))
-        creds = Credentials.from_service_account_info(creds_info, scopes=[
-            'https://www.googleapis.com/auth/spreadsheets',
-            'https://www.googleapis.com/auth/drive'
-        ])
-        
-        # Client Google Sheets
-        self.gspread_client = gspread.authorize(creds)
-        
-        # Service Google Drive pour accéder aux images des cartes
-        self.drive_service = build('drive', 'v3', credentials=creds)
-        
-        # Initialiser le système de stockage
-        self.storage = CardsStorage(self.gspread_client, os.getenv('GOOGLE_SHEET_ID_CARTES'))
+
+        # Initialiser les variables par défaut
+        self.gspread_client = None
+        self.drive_service = None
+        self.storage = None
+
+        # Tenter d'initialiser les credentials Google
+        try:
+            logging.info("[CARDS] 🔄 Initialisation des credentials Google Sheets...")
+
+            service_account_json = os.getenv('SERVICE_ACCOUNT_JSON')
+            if not service_account_json:
+                raise ValueError("SERVICE_ACCOUNT_JSON non trouvé dans les variables d'environnement")
+
+            spreadsheet_id = os.getenv('GOOGLE_SHEET_ID_CARTES')
+            if not spreadsheet_id:
+                raise ValueError("GOOGLE_SHEET_ID_CARTES non trouvé dans les variables d'environnement")
+
+            creds_info = json.loads(service_account_json)
+            creds = Credentials.from_service_account_info(creds_info, scopes=[
+                'https://www.googleapis.com/auth/spreadsheets',
+                'https://www.googleapis.com/auth/drive'
+            ])
+
+            # Client Google Sheets
+            self.gspread_client = gspread.authorize(creds)
+            logging.info("[CARDS] ✅ Client Google Sheets initialisé")
+
+            # Service Google Drive pour accéder aux images des cartes
+            self.drive_service = build('drive', 'v3', credentials=creds)
+            logging.info("[CARDS] ✅ Service Google Drive initialisé")
+
+            # Initialiser le système de stockage
+            self.storage = CardsStorage(self.gspread_client, spreadsheet_id)
+            logging.info("[CARDS] ✅ Système de stockage initialisé")
+
+        except Exception as e:
+            logging.error(f"[CARDS] ❌ Erreur lors de l'initialisation des credentials Google: {e}")
+            logging.error("[CARDS] ⚠️ Le système de cartes fonctionnera en mode dégradé")
+            import traceback
+            logging.error(f"[CARDS] Traceback: {traceback.format_exc()}")
+
+            # Créer un storage minimal pour éviter les erreurs
+            self.storage = None
         
         # Dictionnaire des dossiers par rareté (IDs des dossiers Google Drive depuis .env)
         self.FOLDER_IDS = {
@@ -65,29 +95,60 @@ class Cards(commands.Cog):
             "Élèves": os.getenv("FOLDER_ELEVES_ID"),
             "Secrète": os.getenv("FOLDER_SECRETE_ID")
         }
-        
+
         # Pré-charger la liste des fichiers (cartes) dans chaque dossier de rareté
         self.cards_by_category = {}
         self.upgrade_cards_by_category = {}
-        self._load_card_files()
-        
-        # Initialiser les gestionnaires
-        self.discovery_manager = DiscoveryManager(self.storage)
-        self.vault_manager = VaultManager(self.storage)
-        self.drawing_manager = DrawingManager(self.storage, self.cards_by_category, self.upgrade_cards_by_category)
-        self.trading_manager = TradingManager(self.storage, self.vault_manager)
-        self.forum_manager = ForumManager(self.bot, self.discovery_manager)
-        
-        # Connecter les méthodes manquantes du trading manager
-        self.trading_manager._user_has_card = self._user_has_card
-        self.trading_manager._add_card_to_user = self.add_card_to_user
-        self.trading_manager._remove_card_from_user = self.remove_card_from_user
 
-        # Ajouter une référence au cog dans le storage pour les vérifications d'upgrade
-        self.storage._cog_ref = self
+        # Initialiser les gestionnaires seulement si le storage est disponible
+        if self.storage is not None:
+            try:
+                logging.info("[CARDS] 🔄 Initialisation des gestionnaires...")
 
-        # Initialiser le système de vérification automatique des upgrades
-        self._users_needing_upgrade_check = set()
+                # Charger les fichiers de cartes
+                self._load_card_files()
+
+                # Initialiser les gestionnaires
+                self.discovery_manager = DiscoveryManager(self.storage)
+                self.vault_manager = VaultManager(self.storage)
+                self.drawing_manager = DrawingManager(self.storage, self.cards_by_category, self.upgrade_cards_by_category)
+                self.trading_manager = TradingManager(self.storage, self.vault_manager)
+                self.forum_manager = ForumManager(self.bot, self.discovery_manager)
+
+                # Connecter les méthodes manquantes du trading manager
+                self.trading_manager._user_has_card = self._user_has_card
+                self.trading_manager._add_card_to_user = self.add_card_to_user
+                self.trading_manager._remove_card_from_user = self.remove_card_from_user
+
+                # Ajouter une référence au cog dans le storage pour les vérifications d'upgrade
+                self.storage._cog_ref = self
+
+                # Initialiser le système de vérification automatique des upgrades
+                self._users_needing_upgrade_check = set()
+
+                logging.info("[CARDS] ✅ Tous les gestionnaires initialisés avec succès")
+
+            except Exception as e:
+                logging.error(f"[CARDS] ❌ Erreur lors de l'initialisation des gestionnaires: {e}")
+                import traceback
+                logging.error(f"[CARDS] Traceback: {traceback.format_exc()}")
+                # Ne pas réinitialiser le storage à None, juste les gestionnaires défaillants
+                logging.warning("[CARDS] ⚠️ Initialisation des gestionnaires par défaut suite à l'erreur")
+                self.discovery_manager = None
+                self.vault_manager = None
+                self.drawing_manager = None
+                self.trading_manager = None
+                self.forum_manager = None
+                self._users_needing_upgrade_check = set()
+        else:
+            logging.warning("[CARDS] ⚠️ Gestionnaires non initialisés (storage indisponible)")
+            # Initialiser des gestionnaires par défaut ou None
+            self.discovery_manager = None
+            self.vault_manager = None
+            self.drawing_manager = None
+            self.trading_manager = None
+            self.forum_manager = None
+            self._users_needing_upgrade_check = set()
 
     def _normalize_category_for_env_var(self, category: str) -> str:
         """
@@ -102,20 +163,30 @@ class Cards(commands.Cog):
     
     def _load_card_files(self):
         """Charge les fichiers de cartes depuis Google Drive."""
-        for category, folder_id in self.FOLDER_IDS.items():
-            if folder_id:
-                # Cartes normales
-                results = self.drive_service.files().list(
-                    q=f"'{folder_id}' in parents",
-                    fields="files(id, name, mimeType)"
-                ).execute()
-                
-                files = [
-                    f for f in results.get('files', [])
-                    if f.get('mimeType', '').startswith('image/')
-                    and f['name'].lower().endswith('.png')
-                ]
-                self.cards_by_category[category] = files
+        if self.drive_service is None:
+            logging.warning("[CARDS] ⚠️ Service Google Drive non disponible, impossible de charger les fichiers de cartes")
+            return
+
+        try:
+            logging.info("[CARDS] 🔄 Chargement des fichiers de cartes depuis Google Drive...")
+
+            for category, folder_id in self.FOLDER_IDS.items():
+                if folder_id:
+                    # Cartes normales
+                    results = self.drive_service.files().list(
+                        q=f"'{folder_id}' in parents",
+                        fields="files(id, name, mimeType)"
+                    ).execute()
+
+                    files = [
+                        f for f in results.get('files', [])
+                        if f.get('mimeType', '').startswith('image/')
+                        and f['name'].lower().endswith('.png')
+                    ]
+                    self.cards_by_category[category] = files
+                else:
+                    # Pas de dossier configuré pour cette catégorie
+                    self.cards_by_category[category] = []
                 
                 # Cartes Full (variantes)
                 normalized_category = self._normalize_category_for_env_var(category)
@@ -139,11 +210,25 @@ class Cards(commands.Cog):
                 else:
                     logging.warning(f"[CARDS] Variable d'environnement {full_folder_var} non définie - aucune carte Full pour {category}")
                     self.upgrade_cards_by_category[category] = []
+
+            logging.info("[CARDS] ✅ Chargement des fichiers de cartes terminé")
+
+        except Exception as e:
+            logging.error(f"[CARDS] ❌ Erreur lors du chargement des fichiers de cartes: {e}")
+            import traceback
+            logging.error(f"[CARDS] Traceback: {traceback.format_exc()}")
+            # Initialiser des dictionnaires vides en cas d'erreur
+            self.cards_by_category = {}
+            self.upgrade_cards_by_category = {}
     
     # ========== MÉTHODES D'INTERFACE POUR LES GESTIONNAIRES ==========
     
     def get_user_cards(self, user_id: int) -> list[tuple[str, str]]:
         """Récupère les cartes d'un utilisateur."""
+        if not self.storage:
+            logging.warning("[CARDS] ⚠️ Storage non disponible dans get_user_cards")
+            return []
+
         cards_cache = self.storage.get_cards_cache()
         if not cards_cache:
             return []
@@ -203,7 +288,7 @@ class Cards(commands.Cog):
                                     self._mark_user_for_upgrade_check(user_id)
 
                                     # Logger l'ajout de carte
-                                    if self.storage.logging_manager:
+                                    if self.storage and self.storage.logging_manager:
                                         self.storage.logging_manager.log_card_add(
                                             user_id=user_id,
                                             user_name=user_name or f"User_{user_id}",
@@ -229,7 +314,7 @@ class Cards(commands.Cog):
                         self._mark_user_for_upgrade_check(user_id)
 
                         # Logger l'ajout de carte
-                        if self.storage.logging_manager:
+                        if self.storage and self.storage.logging_manager:
                             self.storage.logging_manager.log_card_add(
                                 user_id=user_id,
                                 user_name=user_name or f"User_{user_id}",
@@ -250,7 +335,7 @@ class Cards(commands.Cog):
                 self._mark_user_for_upgrade_check(user_id)
 
                 # Logger l'ajout de carte
-                if self.storage.logging_manager:
+                if self.storage and self.storage.logging_manager:
                     self.storage.logging_manager.log_card_add(
                         user_id=user_id,
                         user_name=user_name or f"User_{user_id}",
@@ -303,7 +388,7 @@ class Cards(commands.Cog):
                                     self.storage.refresh_cards_cache()
 
                                     # Logger le retrait de carte
-                                    if self.storage.logging_manager:
+                                    if self.storage and self.storage.logging_manager:
                                         self.storage.logging_manager.log_card_remove(
                                             user_id=user_id,
                                             user_name=user_name or f"User_{user_id}",
@@ -1487,47 +1572,7 @@ class Cards(commands.Cog):
         # Cette méthode sera connectée avec le système d'inventaire
         pass
 
-    async def _handle_announce_and_wall(self, interaction: discord.Interaction, drawn_cards: list[tuple[str, str]]):
-        """Gère les annonces publiques et le mur des cartes."""
-        try:
-            discovered_cards = self.discovery_manager.get_discovered_cards()
-            new_cards = [card for card in drawn_cards if card not in discovered_cards]
 
-            if not new_cards:
-                return
-
-            # Poster les nouvelles cartes dans le forum
-            all_files = {}
-            for cat, files in self.cards_by_category.items():
-                all_files.setdefault(cat, []).extend(files)
-            for cat, files in self.upgrade_cards_by_category.items():
-                all_files.setdefault(cat, []).extend(files)
-
-            for cat, name in new_cards:
-                file_id = next(
-                    (f['id'] for f in all_files.get(cat, [])
-                     if f['name'].removesuffix(".png") == name),
-                    None
-                )
-                if not file_id:
-                    continue
-
-                # Enregistrer la découverte
-                discovery_index = self.discovery_manager.log_discovery(
-                    cat, name, interaction.user.id, interaction.user.display_name
-                )
-
-                # Télécharger l'image
-                file_bytes = self.download_drive_file(file_id)
-                if file_bytes:
-                    # Poster dans le forum
-                    await self.forum_manager.post_card_to_forum(
-                        cat, name, file_bytes,
-                        interaction.user.display_name, discovery_index
-                    )
-
-        except Exception as e:
-            logging.error(f"[ANNOUNCE] Erreur lors de l'annonce: {e}")
 
     # ========== COMMANDES DISCORD ==========
 
@@ -1630,208 +1675,75 @@ class Cards(commands.Cog):
             logging.error(f"[BONUS] Erreur lors de la vérification des bonus: {e}")
             return 0
 
-    @app_commands.command(name="analyse_cartes", description="Analyse les statistiques réelles de drop de chaque carte")
-    async def analyse_cartes(self, interaction: discord.Interaction):
-        """Commande d'analyse des statistiques de drop des cartes."""
-        await interaction.response.defer()
-
-        try:
-            # Calculer les statistiques pour chaque catégorie
-            analysis_data = []
-
-            for category in ALL_CATEGORIES:
-                # Nombre de cartes dans cette catégorie
-                normal_cards = self.cards_by_category.get(category, [])
-                full_cards = self.upgrade_cards_by_category.get(category, [])
-
-                normal_count = len(normal_cards)
-                full_count = len(full_cards)
-                total_cards_in_category = normal_count + full_count
-
-                if total_cards_in_category == 0:
-                    continue
-
-                # Probabilité de base de la catégorie
-                category_probability = RARITY_WEIGHTS.get(category, 0)
-
-                # Probabilité réelle par carte normale
-                if normal_count > 0:
-                    normal_card_probability = (category_probability / total_cards_in_category) * (1 - self.drawing_manager._calculate_variant_chance(category))
-                else:
-                    normal_card_probability = 0
-
-                # Probabilité réelle par carte Full (si tirée directement)
-                if full_count > 0:
-                    full_card_probability = (category_probability / total_cards_in_category) * self.drawing_manager._calculate_variant_chance(category)
-                else:
-                    full_card_probability = 0
-
-                analysis_data.append({
-                    'category': category,
-                    'normal_count': normal_count,
-                    'full_count': full_count,
-                    'total_count': total_cards_in_category,
-                    'category_probability': category_probability * 100,  # En pourcentage
-                    'normal_card_probability': normal_card_probability * 100,  # En pourcentage
-                    'full_card_probability': full_card_probability * 100,  # En pourcentage
-                    'variant_chance': self.drawing_manager._calculate_variant_chance(category) * 100  # En pourcentage
-                })
-
-            # Créer l'embed avec les résultats
-            embed = discord.Embed(
-                title="📊 Analyse des statistiques de drop",
-                description="Probabilités réelles de drop par carte individuelle",
-                color=0x3498db
-            )
-
-            for data in analysis_data:
-                field_value = (
-                    f"**Cartes normales :** {data['normal_count']}\n"
-                    f"**Cartes Full :** {data['full_count']}\n"
-                    f"**Total catégorie :** {data['total_count']}\n"
-                    f"**Prob. catégorie :** {data['category_probability']:.3f}%\n"
-                    f"**Prob. par carte normale :** {data['normal_card_probability']:.4f}%\n"
-                    f"**Prob. par carte Full :** {data['full_card_probability']:.4f}%\n"
-                    f"**Chance variante Full :** {data['variant_chance']:.1f}%"
-                )
-
-                embed.add_field(
-                    name=f"🎴 {data['category']}",
-                    value=field_value,
-                    inline=True
-                )
-
-            # Ajouter un résumé
-            total_normal_cards = sum(data['normal_count'] for data in analysis_data)
-            total_full_cards = sum(data['full_count'] for data in analysis_data)
-            total_all_cards = total_normal_cards + total_full_cards
-
-            embed.add_field(
-                name="📈 Résumé global",
-                value=(
-                    f"**Total cartes normales :** {total_normal_cards}\n"
-                    f"**Total cartes Full :** {total_full_cards}\n"
-                    f"**Total général :** {total_all_cards}"
-                ),
-                inline=False
-            )
-
-            await interaction.followup.send(embed=embed)
-
-        except Exception as e:
-            logging.error(f"[ANALYSE] Erreur lors de l'analyse des cartes: {e}")
-            await interaction.followup.send("❌ Erreur lors de l'analyse des statistiques.", ephemeral=True)
-
-    async def claim_user_bonuses(self, interaction: discord.Interaction) -> bool:
+    async def consume_single_bonus(self, user_id: int, user_name: str) -> bool:
         """
-        Réclame tous les bonus disponibles pour un utilisateur.
+        Consomme un seul bonus pour un utilisateur.
+        Décrémente le premier bonus trouvé ou le supprime s'il n'en reste qu'un.
 
         Args:
-            interaction: L'interaction Discord
+            user_id: ID de l'utilisateur
+            user_name: Nom d'affichage de l'utilisateur
 
         Returns:
-            bool: True si des bonus ont été réclamés avec succès
+            bool: True si un bonus a été consommé avec succès
         """
-        user_id_str = str(interaction.user.id)
+        user_id_str = str(user_id)
 
         try:
             # Lecture des bonus
-            all_rows = self.storage.sheet_bonus.get_all_values()[1:]  # skip header
+            all_data = self.storage.sheet_bonus.get_all_values()
+            if not all_data:
+                return False
 
-            user_bonus = 0
-            bonus_sources = []
+            header = all_data[0] if all_data else ["user_id", "count", "source"]
+            updated_data = [header]
+            bonus_consumed = False
 
-            for row in all_rows:
-                if len(row) >= 3 and row[0] == user_id_str:
+            for row in all_data[1:]:  # Skip header
+                if len(row) >= 3 and row[0] == user_id_str and not bonus_consumed:
                     try:
                         count = int(row[1])
                         source = row[2] if len(row) > 2 else "Non spécifié"
-                        user_bonus += count
-                        bonus_sources.append(f"• {count} tirage(s) - {source}")
-                    except ValueError:
-                        continue
 
-            if user_bonus <= 0:
+                        if count > 1:
+                            # Décrémenter le bonus
+                            updated_row = [row[0], str(count - 1), source]
+                            updated_data.append(updated_row)
+                        # Si count == 1, on ne rajoute pas la ligne (suppression)
+
+                        bonus_consumed = True
+
+                        # Logger la consommation du bonus (sans les cartes, elles sont loggées dans perform_bonus_draw)
+                        if self.storage and self.storage.logging_manager:
+                            self.storage.logging_manager._log_action(
+                                action=self.storage.logging_manager.ACTION_BONUS_USED,
+                                user_id=user_id,
+                                user_name=user_name,
+                                quantity=1,
+                                details="Utilisation d'un bonus individuel",
+                                source="tirage_bonus_individuel"
+                            )
+
+                    except ValueError:
+                        # Ligne invalide, la conserver
+                        updated_data.append(row)
+                else:
+                    # Conserver les autres lignes
+                    updated_data.append(row)
+
+            if not bonus_consumed:
                 return False
 
-            # Effectuer les tirages bonus
-            drawn_cards = self.drawing_manager.draw_cards(user_bonus)
-
-            # Logger l'utilisation des bonus
-            if self.storage.logging_manager:
-                self.storage.logging_manager.log_bonus_used(
-                    user_id=interaction.user.id,
-                    user_name=interaction.user.display_name,
-                    count=user_bonus,
-                    cards=drawn_cards,
-                    source="reclamation_bonus"
-                )
-
-            # Ajouter les cartes à l'inventaire
-            for cat, name in drawn_cards:
-                self.add_card_to_user(interaction.user.id, cat, name,
-                                    user_name=interaction.user.display_name,
-                                    source="tirage_bonus")
-
-            # Supprimer les bonus réclamés
-            # Récupérer toutes les lignes et filtrer
-            all_data = self.storage.sheet_bonus.get_all_values()
-            header = all_data[0] if all_data else ["user_id", "count", "source"]
-            filtered_data = [header]
-
-            for i, row in enumerate(all_data[1:], start=1):
-                if len(row) >= 1 and row[0] != user_id_str:
-                    filtered_data.append(row)
-
-            # Réécrire la feuille
+            # Réécrire la feuille avec les données mises à jour
             self.storage.sheet_bonus.clear()
-            if filtered_data:
-                self.storage.sheet_bonus.update('A1', filtered_data)
+            if updated_data:
+                self.storage.sheet_bonus.update('A1', updated_data)
 
-            # Créer l'embed de résultat
-            embed = discord.Embed(
-                title="🎁 Tirages bonus réclamés !",
-                description=f"Vous avez réclamé **{user_bonus}** tirage(s) bonus !",
-                color=0xffd700
-            )
-
-            # Afficher les sources des bonus
-            if bonus_sources:
-                embed.add_field(
-                    name="📋 Sources des bonus",
-                    value="\n".join(bonus_sources),
-                    inline=False
-                )
-
-            # Afficher les cartes tirées
-            if drawn_cards:
-                cards_text = []
-                for i, (cat, name) in enumerate(drawn_cards, 1):
-                    display_name = name.removesuffix('.png')
-                    cards_text.append(f"{i}. **{display_name}** ({cat})")
-
-                embed.add_field(
-                    name="🎴 Cartes obtenues",
-                    value="\n".join(cards_text),
-                    inline=False
-                )
-
-            await interaction.followup.send(embed=embed, ephemeral=True)
-
-            # Traiter toutes les vérifications d'upgrade en attente
-            await self.process_all_pending_upgrade_checks(interaction, 1361993326215172218)
-
-            # Annonce publique si nouvelles cartes
-            await self._handle_announce_and_wall(interaction, drawn_cards)
-
+            logging.info(f"[BONUS] Un bonus consommé pour l'utilisateur {user_name} ({user_id})")
             return True
 
         except Exception as e:
-            logging.error(f"[BONUS] Erreur lors de la réclamation des bonus: {e}")
-            await interaction.followup.send(
-                "❌ Une erreur est survenue lors de la réclamation des bonus.",
-                ephemeral=True
-            )
+            logging.error(f"[BONUS] Erreur lors de la consommation du bonus: {e}")
             return False
 
     @commands.command(name="initialiser_forum_cartes", help="Initialise la structure forum pour les cartes")
@@ -1853,6 +1765,67 @@ class Cards(commands.Cog):
         except Exception as e:
             await ctx.send(f"❌ Erreur lors de l'initialisation: {e}")
             logging.error(f"[FORUM_INIT] Erreur: {e}")
+
+    @commands.command(name="reconstruire_mur", help="Reconstruit complètement le mur de cartes du forum")
+    @commands.has_permissions(administrator=True)
+    async def reconstruire_mur(self, ctx: commands.Context, category: str = None):
+        """
+        Commande pour reconstruire le mur de cartes du forum.
+
+        Args:
+            category: Catégorie spécifique à reconstruire (optionnel)
+        """
+        if category:
+            await ctx.send(f"🔧 Reconstruction du thread **{category}** en cours...")
+        else:
+            await ctx.send("🔧 Reconstruction complète du mur de cartes en cours...")
+
+        try:
+            # Préparer les fichiers de cartes
+            all_files = {}
+            for cat, files in self.cards_by_category.items():
+                all_files.setdefault(cat, []).extend(files)
+            for cat, files in self.upgrade_cards_by_category.items():
+                all_files.setdefault(cat, []).extend(files)
+
+            if category:
+                # Reconstruire une catégorie spécifique
+                if category not in all_files:
+                    await ctx.send(f"❌ Catégorie **{category}** non trouvée.")
+                    return
+
+                posted_count, error_count = await self.forum_manager.clear_and_rebuild_category_thread(
+                    category, all_files, self.drive_service, self.cards_by_category, self.upgrade_cards_by_category
+                )
+
+                if posted_count > 0:
+                    await ctx.send(f"✅ Thread **{category}** reconstruit avec succès!")
+                    await ctx.send(f"📊 {posted_count} cartes postées, {error_count} erreurs")
+                else:
+                    await ctx.send(f"⚠️ Aucune carte trouvée pour la catégorie **{category}**")
+            else:
+                # Reconstruction complète
+                await ctx.send("⚠️ **Attention**: Cette opération va vider et reconstruire tous les threads du forum.")
+                await ctx.send("🔄 Initialisation de la structure du forum...")
+
+                # D'abord initialiser la structure
+                created_threads, existing_threads = await self.forum_manager.initialize_forum_structure()
+
+                await ctx.send("📝 Population des threads avec toutes les cartes découvertes...")
+                posted_count, error_count = await self.forum_manager.populate_forum_threads(
+                    all_files, self.drive_service, self.cards_by_category, self.upgrade_cards_by_category
+                )
+
+                await ctx.send("🎉 Reconstruction du mur terminée!")
+                await ctx.send(f"📊 **Résultats:**")
+                await ctx.send(f"• Threads créés: {len(created_threads)}")
+                await ctx.send(f"• Threads existants: {len(existing_threads)}")
+                await ctx.send(f"• Cartes postées: {posted_count}")
+                await ctx.send(f"• Erreurs: {error_count}")
+
+        except Exception as e:
+            logging.error(f"[RECONSTRUIRE_MUR] Erreur: {e}")
+            await ctx.send(f"❌ Erreur lors de la reconstruction: {e}")
 
     @commands.command(name="galerie", help="Affiche la galerie de cartes d'un utilisateur")
     @commands.has_permissions(administrator=True)
@@ -1890,7 +1863,7 @@ class Cards(commands.Cog):
             self.storage.sheet_bonus.append_row([str(member.id), str(count), source])
 
             # Logger l'attribution du bonus
-            if self.storage.logging_manager:
+            if self.storage and self.storage.logging_manager:
                 self.storage.logging_manager.log_bonus_granted(
                     user_id=member.id,
                     user_name=member.display_name,
@@ -1937,7 +1910,7 @@ class Cards(commands.Cog):
         Usage : !logs_cartes [user_id] [limit]
         """
         try:
-            if not self.storage.logging_manager:
+            if not self.storage or not self.storage.logging_manager:
                 await ctx.send("❌ Le système de logging n'est pas initialisé.")
                 return
 
@@ -1999,7 +1972,7 @@ class Cards(commands.Cog):
         Usage : !stats_logs
         """
         try:
-            if not self.storage.logging_manager:
+            if not self.storage or not self.storage.logging_manager:
                 await ctx.send("❌ Le système de logging n'est pas initialisé.")
                 return
 
