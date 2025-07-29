@@ -28,13 +28,21 @@ class RPTracker(commands.Cog):
     @tasks.loop(hours=1)
     async def update_loop(self):
         print("Exécution de la boucle de mise à jour")
+        if not hasattr(self, 'consecutive_errors'):
+            self.consecutive_errors = 0
         try:
             await self.check_and_update()
             print("Mise à jour terminée avec succès")
+            self.consecutive_errors = 0
         except Exception as e:
             print(f"Erreur dans la boucle de mise à jour: {e}")
-            # Attendre avant de continuer pour éviter les boucles d'erreurs
-            await asyncio.sleep(300)  # 5 minutes
+            self.consecutive_errors += 1
+            if self.consecutive_errors >= 3:
+                channel = self.bot.get_channel(1230946716849799381)
+                if channel:
+                    await channel.send(f"❌ 3 erreurs consécutives dans update_loop. Erreur la plus récente: {e}")
+                self.consecutive_errors = 0
+            # Pas de sleep bloquant, la tâche reprendra à l'intervalle normal
 
     @update_loop.before_loop
     async def before_update_loop(self):
@@ -52,14 +60,21 @@ class RPTracker(commands.Cog):
                 await channel.send(f"❌ **Erreur critique dans la tâche RPTracker** :\n```{error}```")
             except Exception as notify_error:
                 logging.error(f"Erreur lors de la notification Discord : {notify_error}")
-        # Redémarrer la tâche après une erreur
-        await asyncio.sleep(600)  # Attendre 10 minutes avant de redémarrer
+        # Redémarrer la tâche si arrêtée
         try:
             if not self.update_loop.is_running():
                 self.update_loop.restart()
                 logging.info("✅ Tâche update_loop redémarrée après erreur critique")
         except Exception as restart_error:
             logging.error(f"❌ Erreur lors du redémarrage de update_loop: {restart_error}")
+        # Ajout d'une alerte si trop d'erreurs consécutives
+        if not hasattr(self, 'consecutive_errors'): self.consecutive_errors = 0
+        self.consecutive_errors += 1
+        if self.consecutive_errors >= 3:
+            if channel:
+                await channel.send(f"❌ 3 erreurs consécutives dans update_loop.error. Erreur la plus récente: {error}")
+            self.consecutive_errors = 0
+        # Pas de sleep bloquant
 
     async def cog_unload(self):
         """Nettoie les ressources lors du déchargement du cog."""
