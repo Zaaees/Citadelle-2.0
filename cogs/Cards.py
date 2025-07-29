@@ -50,11 +50,13 @@ class Cards(commands.Cog):
 
             service_account_json = os.getenv('SERVICE_ACCOUNT_JSON')
             if not service_account_json:
-                raise ValueError("SERVICE_ACCOUNT_JSON non trouvé dans les variables d'environnement")
+                logging.critical("[CARDS] ❌ SERVICE_ACCOUNT_JSON non trouvé dans les variables d'environnement. Arrêt du cog.")
+                raise SystemExit(1)
 
             spreadsheet_id = os.getenv('GOOGLE_SHEET_ID_CARTES')
             if not spreadsheet_id:
-                raise ValueError("GOOGLE_SHEET_ID_CARTES non trouvé dans les variables d'environnement")
+                logging.critical("[CARDS] ❌ GOOGLE_SHEET_ID_CARTES non trouvé dans les variables d'environnement. Arrêt du cog.")
+                raise SystemExit(1)
 
             creds_info = json.loads(service_account_json)
             creds = Credentials.from_service_account_info(creds_info, scopes=[

@@ -37,7 +37,7 @@ class Ticket(commands.Cog):
                             return True
             return False
         except Exception as e:
-            print(f"Erreur lors de la vérification du ticket {channel.name}: {str(e)}")
+            logging.error(f"Erreur lors de la vérification du ticket {channel.name}: {str(e)}")
             return False
 
     async def find_tickettool_answer(self, channel, question_text):
@@ -52,7 +52,7 @@ class Ticket(commands.Cog):
                                     return lines[i + 1].strip()
             return None
         except Exception as e:
-            print(f"Erreur lors de la recherche de réponse: {str(e)}")
+            logging.error(f"Erreur lors de la recherche de réponse: {str(e)}")
             return None
 
     async def get_first_letter(self, text):
@@ -72,7 +72,7 @@ class Ticket(commands.Cog):
                     await channel.edit(category=target_category)
                     await asyncio.sleep(self.CHANNEL_EDIT_DELAY)
                 except Exception as e:
-                    print(f"Erreur lors du déplacement: {str(e)}")
+                    logging.error(f"Erreur lors du déplacement: {str(e)}")
 
             name_answer = await self.find_tickettool_answer(channel, "Quel est le nom de votre personnage ?")
             if name_answer:

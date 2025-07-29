@@ -50,6 +50,12 @@ class Bump(commands.Cog):
                     time.sleep(2 ** attempt)  # Exponential backoff
                 else:
                     self.logger.error(f"Error loading last bump: {str(e)}")
+                    # Notifier le canal Discord d'erreur critique
+                    channel = self.bot.get_channel(1230946716849799381)
+                    if channel:
+                        import asyncio
+                        asyncio.create_task(channel.send(f"❌ Erreur critique lors du chargement du dernier bump: {str(e)}"))
+                    self.logger.critical(f"❌ Notification Discord envoyée pour erreur critique dans load_last_bump: {str(e)}")
                     raise
         raise RuntimeError("Failed to load last bump after 3 attempts")
 

@@ -5,22 +5,8 @@
 - Ligne : `self.credentials = service_account.Credentials.from_service_account_info(eval(os.getenv('SERVICE_ACCOUNT_JSON')), ...)`
 - **Problème :** Utiliser `eval` sur des variables d'environnement est dangereux (faille de sécurité potentielle). Préférer `json.loads`.
 
-## 2. Gestion d'erreur : impression console au lieu de log
-- **Fichiers concernés :**
-    - `cogs/RPTracker.py` (plusieurs `print` dans les exceptions)
-    - `cogs/ticket.py` (plusieurs `print` dans les exceptions)
-- **Problème :** Utiliser `logging.error` ou `logger.error` au lieu de `print` pour une meilleure traçabilité.
 
-## 4. Vérification des variables d'environnement
-- **Fichiers concernés :**
-    - `cogs/Cards.py` (init)
-    - `cleanup_old_reminders.py`
-- **Problème :** Les variables d'environnement sont vérifiées mais le script peut continuer sans elles. Ajouter une levée d'exception ou un arrêt clair si une variable critique manque.
 
-## 5. Gestion des exceptions Google Sheets
-- **Fichier : `cogs/bump.py`**
-- Méthode : `load_last_bump`
-- **Problème :** Les erreurs de l'API Google Sheets sont logguées, mais un échec répété lève une RuntimeError sans notification utilisateur. Ajouter une notification Discord ou un log critique.
 
 ## 6. Utilisation de `asyncio.sleep` dans les gestionnaires d'erreur
 - **Fichier : `cogs/RPTracker.py`**

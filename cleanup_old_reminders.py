@@ -175,8 +175,8 @@ if __name__ == "__main__":
     missing_vars = [var for var in required_vars if not os.getenv(var)]
     
     if missing_vars:
-        logger.error(f"❌ Variables d'environnement manquantes: {missing_vars}")
+        print(f"Variables d'environnement manquantes : {', '.join(missing_vars)}")
+        import sys
         sys.exit(1)
-    
-    logger.info("🧹 Démarrage du nettoyage des anciens messages de rappel...")
-    asyncio.run(cleanup_old_reminder_messages())
+    else:
+        asyncio.run(cleanup_old_reminder_messages())
