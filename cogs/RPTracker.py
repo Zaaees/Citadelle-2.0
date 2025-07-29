@@ -44,15 +44,22 @@ class RPTracker(commands.Cog):
     @update_loop.error
     async def update_loop_error(self, error):
         """Gère les erreurs de la tâche update_loop."""
-        print(f"❌ Erreur critique dans update_loop: {error}")
+        logging.error(f"❌ Erreur critique dans update_loop: {error}")
+        # Notifier un canal Discord spécifique
+        channel = self.bot.get_channel(1230946716849799381)
+        if channel:
+            try:
+                await channel.send(f"❌ **Erreur critique dans la tâche RPTracker** :\n```{error}```")
+            except Exception as notify_error:
+                logging.error(f"Erreur lors de la notification Discord : {notify_error}")
         # Redémarrer la tâche après une erreur
         await asyncio.sleep(600)  # Attendre 10 minutes avant de redémarrer
         try:
             if not self.update_loop.is_running():
                 self.update_loop.restart()
-                print("✅ Tâche update_loop redémarrée après erreur critique")
+                logging.info("✅ Tâche update_loop redémarrée après erreur critique")
         except Exception as restart_error:
-            print(f"❌ Erreur lors du redémarrage de update_loop: {restart_error}")
+            logging.error(f"❌ Erreur lors du redémarrage de update_loop: {restart_error}")
 
     async def cog_unload(self):
         """Nettoie les ressources lors du déchargement du cog."""
