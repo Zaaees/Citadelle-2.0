@@ -1375,21 +1375,6 @@ class ChannelMonitor(commands.Cog):
             embed.add_field(
                 name="👥 Rôlistes participants",
                 value="Aucun",
-                inline=True
-            )
-
-        # Dernière action avec timestamp plus visible
-        if last_action_user:
-            embed.add_field(
-                name="⏰ Dernière action",
-                value=f"**{last_action_user.display_name}** - <t:{int(datetime.now().timestamp())}:R>",
-                inline=False
-            )
-        else:
-            embed.add_field(
-                name="⏰ Dernière action",
-                value=f"Surveillance initiée - <t:{int(datetime.now().timestamp())}:R>",
-                inline=False
             )
 
         embed.set_footer(text=f"Surveillance initiée par {mj_user.display_name}")
