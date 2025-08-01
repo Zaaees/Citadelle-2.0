@@ -939,40 +939,62 @@ class ChannelMonitor(commands.Cog):
             since = last_activity if last_activity else datetime.now() - timedelta(days=7)
             
             try:
-                # Récupérer les messages depuis la dernière activité
+                # Récupérer les messages depuis la dernière activité (y compris les bots pour Tupperbot)
                 messages = []
+                valid_messages = []
+                
                 async for message in channel.history(after=since, limit=100):
-                    if not message.author.bot:
-                        messages.append(message)
+                    messages.append(message)
+                    
+                    # Identifier l'utilisateur réel pour chaque message
+                    real_user = None
+                    
+                    if message.author.bot:
+                        # Vérifier si c'est un message Tupperbot/webhook
+                        if message.webhook_id:
+                            # Chercher l'utilisateur réel qui a probablement envoyé ce message
+                            recent_time = message.created_at - timedelta(seconds=60)
+                            async for recent_msg in channel.history(limit=10, before=message.created_at, after=recent_time):
+                                if not recent_msg.author.bot and self.is_mj(recent_msg.author):
+                                    real_user = recent_msg.author
+                                    self.logger.info(f"Message Tupperbot rétroactif détecté de {real_user.display_name} dans le salon {channel_id}")
+                                    break
+                    else:
+                        # Message d'utilisateur normal
+                        real_user = message.author
+                    
+                    # Ajouter seulement les messages avec un utilisateur réel identifié
+                    if real_user:
+                        valid_messages.append((message, real_user))
                 
                 # Trier par date (plus ancien en premier)
-                messages.sort(key=lambda m: m.created_at)
+                valid_messages.sort(key=lambda m: m[0].created_at)
                 
-                if messages:
+                if valid_messages:
                     # Mettre à jour avec le message le plus récent
-                    latest_message = messages[-1]
+                    latest_message, latest_real_user = valid_messages[-1]
                     data['last_activity'] = latest_message.created_at
-                    data['last_action_user_id'] = latest_message.author.id
+                    data['last_action_user_id'] = latest_real_user.id
                     
-                    # Ajouter tous les nouveaux participants
-                    for message in messages:
-                        if message.author.id not in participants:
-                            participants.append(message.author.id)
+                    # Ajouter tous les nouveaux participants (utilisateurs réels)
+                    for message, real_user in valid_messages:
+                        if real_user.id not in participants:
+                            participants.append(real_user.id)
                             updated = True
                             
                             # Vérifier si c'est un MJ qui n'était pas enregistré
-                            if self.is_mj(message.author):
-                                self.logger.info(f"MJ ajouté rétroactivement: {message.author.display_name} ({message.author.id}) dans le salon {channel_id}")
+                            if self.is_mj(real_user):
+                                self.logger.info(f"MJ ajouté rétroactivement: {real_user.display_name} ({real_user.id}) dans le salon {channel_id}")
                             else:
-                                self.logger.info(f"Participant ajouté rétroactivement: {message.author.display_name} ({message.author.id}) dans le salon {channel_id}")
+                                self.logger.info(f"Participant ajouté rétroactivement: {real_user.display_name} ({real_user.id}) dans le salon {channel_id}")
                     
                     data['participants'] = participants
                     updated = True
                     
                     self.save_monitored_channels()
                     
-                    # Mettre à jour l'embed
-                    await self.update_scene_embed(channel_id, latest_message.author.id, latest_message.author)
+                    # Mettre à jour l'embed avec l'utilisateur réel
+                    await self.update_scene_embed(channel_id, latest_real_user.id, latest_real_user)
                     
             except discord.Forbidden:
                 self.logger.warning(f"Pas d'accès aux messages du salon {channel_id}")
@@ -1318,7 +1340,14 @@ class ChannelMonitor(commands.Cog):
 
         # Récupérer la dernière activité depuis les données surveillées
         channel_data = self.monitored_channels.get(channel.id, {})
-        last_activity = channel_data.get('last_activity', datetime.now())
+        last_activity = channel_data.get('last_activity')
+        
+        # Si pas de dernière activité enregistrée, utiliser la date de création du salon
+        if not last_activity:
+            if hasattr(channel, 'created_at'):
+                last_activity = channel.created_at
+            else:
+                last_activity = datetime.now()
         
         embed = discord.Embed(
             title="🎭 Scène surveillée",
@@ -2015,7 +2044,14 @@ class ChannelMonitor(commands.Cog):
 
         # Récupérer la dernière activité depuis les données surveillées
         channel_data = self.monitored_channels.get(channel.id, {})
-        last_activity = channel_data.get('last_activity', datetime.now())
+        last_activity = channel_data.get('last_activity')
+        
+        # Si pas de dernière activité enregistrée, utiliser la date de création du salon
+        if not last_activity:
+            if hasattr(channel, 'created_at'):
+                last_activity = channel.created_at
+            else:
+                last_activity = datetime.now()
         
         embed = discord.Embed(
             title="🎭 Scène surveillée",
@@ -2465,18 +2501,66 @@ class ChannelMonitor(commands.Cog):
             await ctx.send(embed=error_embed, delete_after=10)
             self.logger.error(f"Erreur lors de la création de l'embed admin: {e}")
 
+    def extract_real_user_from_tupperbot(self, message: discord.Message):
+        """
+        Extrait l'utilisateur réel derrière un message Tupperbot/webhook.
+        Retourne l'utilisateur réel ou None si ce n'est pas un message Tupperbot valide.
+        """
+        # Vérifier si c'est un webhook (Tupperbot utilise des webhooks)
+        if message.webhook_id:
+            # Chercher dans les embeds ou le contenu pour identifier l'utilisateur
+            # Format typique Tupperbot: le nom d'utilisateur peut être dans le nom du webhook
+            # ou dans les métadonnées du message
+            
+            # Méthode 1: Vérifier les interactions récentes dans le salon
+            # pour identifier qui a probablement envoyé le message Tupperbot
+            try:
+                # Chercher les messages récents (dans les 30 secondes) d'utilisateurs non-bot
+                # qui pourraient avoir déclenché le Tupperbot
+                recent_time = message.created_at - timedelta(seconds=30)
+                
+                # On ne peut pas faire de requête async ici, donc on retourne None
+                # et on gèrera cela différemment
+                return None
+            except Exception:
+                return None
+        
+        return None
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         """Surveille les messages dans les salons surveillés."""
 
-        # Ignorer les messages du bot
-        if message.author.bot:
-            return
-
-        # Vérifier si le salon est surveillé
+        # Vérifier si le salon est surveillé d'abord
         channel_id = message.channel.id
         if channel_id not in self.monitored_channels:
             return
+
+        # Identifier l'utilisateur réel (peut être différent pour Tupperbot)
+        real_user = None
+        
+        if message.author.bot:
+            # Vérifier si c'est un message Tupperbot/webhook
+            if message.webhook_id:
+                # Pour les webhooks Tupperbot, on va chercher l'utilisateur qui a probablement envoyé le message
+                # en regardant les messages récents dans le salon
+                try:
+                    recent_time = message.created_at - timedelta(seconds=60)  # 1 minute avant
+                    async for recent_msg in message.channel.history(limit=10, before=message.created_at, after=recent_time):
+                        if not recent_msg.author.bot and self.is_mj(recent_msg.author):
+                            # Probablement le MJ qui a envoyé le message Tupperbot
+                            real_user = recent_msg.author
+                            self.logger.info(f"Message Tupperbot détecté de {real_user.display_name} dans le salon {channel_id}")
+                            break
+                except Exception as e:
+                    self.logger.error(f"Erreur lors de la détection Tupperbot: {e}")
+            
+            # Si on n'a pas identifié d'utilisateur réel, ignorer le message
+            if not real_user:
+                return
+        else:
+            # Message d'utilisateur normal
+            real_user = message.author
 
         try:
             data = self.monitored_channels[channel_id]
@@ -2494,14 +2578,14 @@ class ChannelMonitor(commands.Cog):
                 self.logger.warning(f"MJ avec ID {mj_id} non trouvé pour le salon {channel_id}")
                 return
 
-            # Mettre à jour last_activity avec timestamp précis et utilisateur
-            current_time = datetime.now()
+            # Mettre à jour last_activity avec timestamp précis et utilisateur réel
+            current_time = message.created_at  # Utiliser le timestamp du message au lieu de now()
             data['last_activity'] = current_time
-            data['last_action_user_id'] = message.author.id
+            data['last_action_user_id'] = real_user.id  # Utiliser l'utilisateur réel (pas le bot)
             self.save_monitored_channels()
 
-            # Mettre à jour l'embed de surveillance
-            await self.update_scene_embed(channel_id, message.author.id, message.author)
+            # Mettre à jour l'embed de surveillance avec l'utilisateur réel
+            await self.update_scene_embed(channel_id, real_user.id, real_user)
 
             # Récupérer le salon de notification
             notification_channel = self.bot.get_channel(NOTIFICATION_CHANNEL_ID)
@@ -2509,22 +2593,22 @@ class ChannelMonitor(commands.Cog):
                 self.logger.error(f"Salon de notification {NOTIFICATION_CHANNEL_ID} non trouvé")
                 return
 
-            # Vérifier si un ping peut être envoyé (respecter l'intervalle selon l'utilisateur)
-            if self.can_send_ping(channel_id, message.author.id):
+            # Vérifier si un ping peut être envoyé (respecter l'intervalle selon l'utilisateur réel)
+            if self.can_send_ping(channel_id, real_user.id):
                 # Envoyer la notification de ping (MP avec fallback salon)
                 if data['message_id']:
                     try:
                         embed_message = await notification_channel.fetch_message(data['message_id'])
 
-                        # Envoyer la notification (MP ou fallback salon)
+                        # Envoyer la notification (MP ou fallback salon) avec l'utilisateur réel
                         ping_sent = await self.send_ping_notification(
-                            mj, message.author, message.channel, channel_id,
+                            mj, real_user, message.channel, channel_id,
                             notification_channel, embed_message
                         )
 
                         if ping_sent:
-                            # Mettre à jour le timestamp du dernier ping pour ce salon avec l'utilisateur
-                            self.update_last_ping_time(channel_id, message.author.id)
+                            # Mettre à jour le timestamp du dernier ping pour ce salon avec l'utilisateur réel
+                            self.update_last_ping_time(channel_id, real_user.id)
 
                     except discord.NotFound:
                         self.logger.warning(f"Message d'embed {data['message_id']} non trouvé")
@@ -2533,18 +2617,18 @@ class ChannelMonitor(commands.Cog):
                         self.save_monitored_channels()
             else:
                 # Log que le ping a été ignoré à cause du cooldown
-                remaining_seconds = self.get_remaining_cooldown(channel_id, message.author.id)
+                remaining_seconds = self.get_remaining_cooldown(channel_id, real_user.id)
                 remaining_minutes = remaining_seconds // 60
                 remaining_seconds_display = remaining_seconds % 60
 
                 # Déterminer le type de cooldown pour le log
                 ping_data = self.last_ping_times.get(channel_id, {})
                 last_user_id = ping_data.get('last_user_id')
-                cooldown_type = "même utilisateur (30m)" if last_user_id == message.author.id else "utilisateur différent (5m)"
+                cooldown_type = "même utilisateur (30m)" if last_user_id == real_user.id else "utilisateur différent (5m)"
 
                 self.logger.debug(
                     f"Ping ignoré pour {message.channel.name} - Cooldown actif ({cooldown_type}) "
-                    f"(reste {remaining_minutes}m {remaining_seconds_display}s)"
+                    f"(reste {remaining_minutes}m {remaining_seconds_display}s) - Utilisateur réel: {real_user.display_name}"
                 )
 
         except Exception as e:
