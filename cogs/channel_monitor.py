@@ -922,66 +922,68 @@ class ChannelMonitor(commands.Cog):
         Force la vérification et la mise à jour d'une scène spécifique.
         Retourne True si la scène a été mise à jour, False sinon.
         """
+        if channel_id not in self.monitored_channels:
+            return False
+
         try:
-            if channel_id not in self.monitored_channels:
-                return False
-
-            data = self.monitored_channels[channel_id]
             channel = self.bot.get_channel(channel_id)
-
             if not channel:
                 return False
 
-            # Récupérer la dernière activité enregistrée
-            last_recorded_activity = data.get('last_activity')
-            if not last_recorded_activity:
-                return False
+            data = self.monitored_channels[channel_id]
+            last_activity = data.get('last_activity')
+            participants = data.get('participants', [])
+            updated = False
 
-            # Convertir en datetime si c'est une string
-            if isinstance(last_recorded_activity, str):
-                try:
-                    last_recorded_activity = datetime.fromisoformat(last_recorded_activity)
-                except ValueError:
-                    return False
-
-            # Récupérer les messages récents
+            # Récupérer les messages récents depuis la dernière activité connue
+            since = last_activity if last_activity else datetime.now() - timedelta(days=7)
+            
             try:
+                # Récupérer les messages depuis la dernière activité
                 messages = []
-                async for message in channel.history(limit=50, after=last_recorded_activity):
+                async for message in channel.history(after=since, limit=100):
                     if not message.author.bot:
                         messages.append(message)
-
-                if not messages:
-                    return False
-
-                # Trier par timestamp
+                
+                # Trier par date (plus ancien en premier)
                 messages.sort(key=lambda m: m.created_at)
-
-                # Traiter les messages
-                new_participants = set(data.get('participants', []))
-                last_action_user = None
-
-                for message in messages:
-                    if message.author.id not in new_participants:
-                        new_participants.add(message.author.id)
-                    last_action_user = message.author
-                    data['last_activity'] = message.created_at
-
-                # Mettre à jour
-                data['participants'] = list(new_participants)
-
-                if last_action_user:
-                    await self.update_scene_embed(channel_id, last_action_user.id, last_action_user)
+                
+                if messages:
+                    # Mettre à jour avec le message le plus récent
+                    latest_message = messages[-1]
+                    data['last_activity'] = latest_message.created_at
+                    data['last_action_user_id'] = latest_message.author.id
+                    
+                    # Ajouter tous les nouveaux participants
+                    for message in messages:
+                        if message.author.id not in participants:
+                            participants.append(message.author.id)
+                            updated = True
+                            
+                            # Vérifier si c'est un MJ qui n'était pas enregistré
+                            if self.is_mj(message.author):
+                                self.logger.info(f"MJ ajouté rétroactivement: {message.author.display_name} ({message.author.id}) dans le salon {channel_id}")
+                            else:
+                                self.logger.info(f"Participant ajouté rétroactivement: {message.author.display_name} ({message.author.id}) dans le salon {channel_id}")
+                    
+                    data['participants'] = participants
+                    updated = True
+                    
                     self.save_monitored_channels()
-                    return True
+                    
+                    # Mettre à jour l'embed
+                    await self.update_scene_embed(channel_id, latest_message.author.id, latest_message.author)
+                    
+            except discord.Forbidden:
+                self.logger.warning(f"Pas d'accès aux messages du salon {channel_id}")
+            except Exception as e:
+                self.logger.error(f"Erreur lors de la récupération des messages pour {channel_id}: {e}")
 
-            except (discord.Forbidden, discord.HTTPException):
-                return False
-
+            return updated
+            
         except Exception as e:
             self.logger.error(f"Erreur lors du rafraîchissement de la scène {channel_id}: {e}")
-
-        return False
+            return False
 
     @tasks.loop(hours=6)
     async def check_inactive_scenes(self):
@@ -1314,10 +1316,14 @@ class ChannelMonitor(commands.Cog):
         if participants is None:
             participants = []
 
+        # Récupérer la dernière activité depuis les données surveillées
+        channel_data = self.monitored_channels.get(channel.id, {})
+        last_activity = channel_data.get('last_activity', datetime.now())
+        
         embed = discord.Embed(
             title="🎭 Scène surveillée",
             color=0x3498db,
-            timestamp=datetime.now()
+            timestamp=last_activity
         )
 
         # Informations détaillées du salon
@@ -1375,9 +1381,44 @@ class ChannelMonitor(commands.Cog):
             embed.add_field(
                 name="👥 Rôlistes participants",
                 value="Aucun",
+                inline=True
             )
 
-        embed.set_footer(text=f"Surveillance initiée par {mj_user.display_name}")
+        # Ajouter les informations de dernière activité
+        if last_action_user:
+            embed.add_field(
+                name="⚡ Dernière activité",
+                value=f"{last_action_user.display_name}",
+                inline=True
+            )
+        elif channel_data.get('last_action_user_id'):
+            # Récupérer l'utilisateur de la dernière action depuis l'ID stocké
+            last_user_id = channel_data['last_action_user_id']
+            last_user = self.bot.get_user(last_user_id)
+            if last_user:
+                embed.add_field(
+                    name="⚡ Dernière activité",
+                    value=f"{last_user.display_name}",
+                    inline=True
+                )
+            else:
+                embed.add_field(
+                    name="⚡ Dernière activité",
+                    value=f"Utilisateur {last_user_id}",
+                    inline=True
+                )
+        else:
+            embed.add_field(
+                name="⚡ Dernière activité",
+                value="Aucune activité récente",
+                inline=True
+            )
+
+        # Modifier le footer pour indiquer la date de mise à jour au lieu de l'initiation
+        if last_activity != datetime.now() or channel_data.get('last_activity'):
+            embed.set_footer(text=f"Système de surveillance des scènes • Aujourd'hui à {last_activity.strftime('%H:%M')}")
+        else:
+            embed.set_footer(text=f"Surveillance initiée par {mj_user.display_name}")
 
         return embed
 
@@ -1972,10 +2013,14 @@ class ChannelMonitor(commands.Cog):
         if participants is None:
             participants = []
 
+        # Récupérer la dernière activité depuis les données surveillées
+        channel_data = self.monitored_channels.get(channel.id, {})
+        last_activity = channel_data.get('last_activity', datetime.now())
+        
         embed = discord.Embed(
             title="🎭 Scène surveillée",
             color=0x3498db,
-            timestamp=datetime.now()
+            timestamp=last_activity
         )
 
         # Informations du salon
@@ -2020,13 +2065,29 @@ class ChannelMonitor(commands.Cog):
                 inline=True
             )
 
-        # Dernière activité
+        # Ajouter les informations de dernière activité
         if last_action_user:
             embed.add_field(
                 name="⚡ Dernière activité",
-                value=f"**{last_action_user.display_name}**",
+                value=f"{last_action_user.display_name}",
                 inline=True
             )
+        elif channel_data.get('last_action_user_id'):
+            # Récupérer l'utilisateur de la dernière action depuis l'ID stocké
+            last_user_id = channel_data['last_action_user_id']
+            try:
+                last_user = await self.bot.fetch_user(last_user_id)
+                embed.add_field(
+                    name="⚡ Dernière activité",
+                    value=f"{last_user.display_name}",
+                    inline=True
+                )
+            except (discord.NotFound, discord.HTTPException):
+                embed.add_field(
+                    name="⚡ Dernière activité",
+                    value=f"Utilisateur {last_user_id}",
+                    inline=True
+                )
         else:
             embed.add_field(
                 name="⚡ Dernière activité",
@@ -2034,7 +2095,12 @@ class ChannelMonitor(commands.Cog):
                 inline=True
             )
 
-        embed.set_footer(text="Système de surveillance des scènes")
+        # Modifier le footer pour indiquer la date de mise à jour au lieu de l'initiation
+        if last_activity != datetime.now() or channel_data.get('last_activity'):
+            embed.set_footer(text=f"Système de surveillance des scènes • Aujourd'hui à {last_activity.strftime('%H:%M')}")
+        else:
+            embed.set_footer(text=f"Surveillance initiée par {mj_user.display_name}")
+            
         return embed
 
     @staticmethod
@@ -2428,9 +2494,10 @@ class ChannelMonitor(commands.Cog):
                 self.logger.warning(f"MJ avec ID {mj_id} non trouvé pour le salon {channel_id}")
                 return
 
-            # Mettre à jour last_activity avec timestamp précis
+            # Mettre à jour last_activity avec timestamp précis et utilisateur
             current_time = datetime.now()
             data['last_activity'] = current_time
+            data['last_action_user_id'] = message.author.id
             self.save_monitored_channels()
 
             # Mettre à jour l'embed de surveillance
