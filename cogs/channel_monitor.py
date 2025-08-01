@@ -952,13 +952,10 @@ class ChannelMonitor(commands.Cog):
                     if message.author.bot:
                         # Vérifier si c'est un message Tupperbot/webhook
                         if message.webhook_id:
-                            # Chercher l'utilisateur réel qui a probablement envoyé ce message
-                            recent_time = message.created_at - timedelta(seconds=60)
-                            async for recent_msg in channel.history(limit=10, before=message.created_at, after=recent_time):
-                                if not recent_msg.author.bot and self.is_mj(recent_msg.author):
-                                    real_user = recent_msg.author
-                                    self.logger.info(f"Message Tupperbot rétroactif détecté de {real_user.display_name} dans le salon {channel_id}")
-                                    break
+                            # Utiliser la méthode améliorée pour extraire l'utilisateur réel
+                            real_user = await self.extract_real_user_from_tupperbot(message)
+                            if real_user:
+                                self.logger.info(f"Message Tupperbot rétroactif détecté de {real_user.display_name} dans le salon {channel_id}")
                     else:
                         # Message d'utilisateur normal
                         real_user = message.author
@@ -1333,6 +1330,32 @@ class ChannelMonitor(commands.Cog):
         time_since_last_ping = current_time - last_ping_time
         return max(0, cooldown_seconds - int(time_since_last_ping.total_seconds()))
 
+    def format_time_since_activity(self, last_activity: datetime) -> str:
+        """Formate le temps écoulé depuis la dernière activité."""
+        if not last_activity:
+            return "Jamais"
+
+        now = datetime.now()
+        if last_activity.tzinfo is not None:
+            # Si last_activity a une timezone, convertir now en UTC
+            now = now.replace(tzinfo=timezone.utc)
+        elif now.tzinfo is not None:
+            # Si now a une timezone mais pas last_activity, supprimer la timezone de now
+            now = now.replace(tzinfo=None)
+
+        time_diff = now - last_activity
+
+        if time_diff.days > 0:
+            return f"il y a {time_diff.days} jour{'s' if time_diff.days > 1 else ''}"
+        elif time_diff.seconds >= 3600:
+            hours = time_diff.seconds // 3600
+            return f"il y a {hours} heure{'s' if hours > 1 else ''}"
+        elif time_diff.seconds >= 60:
+            minutes = time_diff.seconds // 60
+            return f"il y a {minutes} minute{'s' if minutes > 1 else ''}"
+        else:
+            return "à l'instant"
+
     def create_scene_embed(self, channel, mj_user, participants: List[int] = None, last_action_user=None) -> discord.Embed:
         """Crée l'embed de surveillance d'une scène."""
         if participants is None:
@@ -1341,14 +1364,14 @@ class ChannelMonitor(commands.Cog):
         # Récupérer la dernière activité depuis les données surveillées
         channel_data = self.monitored_channels.get(channel.id, {})
         last_activity = channel_data.get('last_activity')
-        
+
         # Si pas de dernière activité enregistrée, utiliser la date de création du salon
         if not last_activity:
             if hasattr(channel, 'created_at'):
                 last_activity = channel.created_at
             else:
                 last_activity = datetime.now()
-        
+
         embed = discord.Embed(
             title="🎭 Scène surveillée",
             color=0x3498db,
@@ -1413,42 +1436,46 @@ class ChannelMonitor(commands.Cog):
                 inline=True
             )
 
-        # Ajouter les informations de dernière activité
+        # Ajouter les informations de dernière activité avec date et temps écoulé
         if last_action_user:
+            time_since = self.format_time_since_activity(last_activity)
+            activity_date = last_activity.strftime("%d/%m/%Y à %H:%M")
             embed.add_field(
                 name="⚡ Dernière activité",
-                value=f"{last_action_user.display_name}",
+                value=f"{last_action_user.display_name}\n📅 {activity_date}\n⏰ {time_since}",
                 inline=True
             )
         elif channel_data.get('last_action_user_id'):
             # Récupérer l'utilisateur de la dernière action depuis l'ID stocké
             last_user_id = channel_data['last_action_user_id']
             last_user = self.bot.get_user(last_user_id)
+            time_since = self.format_time_since_activity(last_activity)
+            activity_date = last_activity.strftime("%d/%m/%Y à %H:%M")
+
             if last_user:
                 embed.add_field(
                     name="⚡ Dernière activité",
-                    value=f"{last_user.display_name}",
+                    value=f"{last_user.display_name}\n📅 {activity_date}\n⏰ {time_since}",
                     inline=True
                 )
             else:
                 embed.add_field(
                     name="⚡ Dernière activité",
-                    value=f"Utilisateur {last_user_id}",
+                    value=f"Utilisateur {last_user_id}\n📅 {activity_date}\n⏰ {time_since}",
                     inline=True
                 )
         else:
+            # Même s'il n'y a pas d'activité récente, afficher la date de création du salon
+            time_since = self.format_time_since_activity(last_activity)
+            activity_date = last_activity.strftime("%d/%m/%Y à %H:%M")
             embed.add_field(
                 name="⚡ Dernière activité",
-                value="Aucune activité récente",
+                value=f"Création du salon\n📅 {activity_date}\n⏰ {time_since}",
                 inline=True
             )
 
-        # Modifier le footer pour indiquer la date de mise à jour au lieu de l'initiation
-        if last_activity != datetime.now() or channel_data.get('last_activity'):
-            embed.set_footer(text=f"Système de surveillance des scènes • Aujourd'hui à {last_activity.strftime('%H:%M')}")
-        else:
-            embed.set_footer(text=f"Surveillance initiée par {mj_user.display_name}")
-
+        # Supprimer le footer "système de surveillance de scène" car l'info est maintenant dans le champ activité
+        # Le timestamp de l'embed indique déjà la dernière activité
         return embed
 
     def create_ping_embed(self, mj_user, action_user, channel, channel_id: int, is_dm: bool = False) -> discord.Embed:
@@ -2101,42 +2128,46 @@ class ChannelMonitor(commands.Cog):
                 inline=True
             )
 
-        # Ajouter les informations de dernière activité
+        # Ajouter les informations de dernière activité avec date et temps écoulé
         if last_action_user:
+            time_since = self.format_time_since_activity(last_activity)
+            activity_date = last_activity.strftime("%d/%m/%Y à %H:%M")
             embed.add_field(
                 name="⚡ Dernière activité",
-                value=f"{last_action_user.display_name}",
+                value=f"{last_action_user.display_name}\n📅 {activity_date}\n⏰ {time_since}",
                 inline=True
             )
         elif channel_data.get('last_action_user_id'):
             # Récupérer l'utilisateur de la dernière action depuis l'ID stocké
             last_user_id = channel_data['last_action_user_id']
+            time_since = self.format_time_since_activity(last_activity)
+            activity_date = last_activity.strftime("%d/%m/%Y à %H:%M")
+
             try:
                 last_user = await self.bot.fetch_user(last_user_id)
                 embed.add_field(
                     name="⚡ Dernière activité",
-                    value=f"{last_user.display_name}",
+                    value=f"{last_user.display_name}\n📅 {activity_date}\n⏰ {time_since}",
                     inline=True
                 )
             except (discord.NotFound, discord.HTTPException):
                 embed.add_field(
                     name="⚡ Dernière activité",
-                    value=f"Utilisateur {last_user_id}",
+                    value=f"Utilisateur {last_user_id}\n📅 {activity_date}\n⏰ {time_since}",
                     inline=True
                 )
         else:
+            # Même s'il n'y a pas d'activité récente, afficher la date de création du salon
+            time_since = self.format_time_since_activity(last_activity)
+            activity_date = last_activity.strftime("%d/%m/%Y à %H:%M")
             embed.add_field(
                 name="⚡ Dernière activité",
-                value="Aucune activité récente",
+                value=f"Création du salon\n📅 {activity_date}\n⏰ {time_since}",
                 inline=True
             )
 
-        # Modifier le footer pour indiquer la date de mise à jour au lieu de l'initiation
-        if last_activity != datetime.now() or channel_data.get('last_activity'):
-            embed.set_footer(text=f"Système de surveillance des scènes • Aujourd'hui à {last_activity.strftime('%H:%M')}")
-        else:
-            embed.set_footer(text=f"Surveillance initiée par {mj_user.display_name}")
-            
+        # Supprimer le footer "système de surveillance de scène" car l'info est maintenant dans le champ activité
+        # Le timestamp de l'embed indique déjà la dernière activité
         return embed
 
     @staticmethod
@@ -2501,30 +2532,30 @@ class ChannelMonitor(commands.Cog):
             await ctx.send(embed=error_embed, delete_after=10)
             self.logger.error(f"Erreur lors de la création de l'embed admin: {e}")
 
-    def extract_real_user_from_tupperbot(self, message: discord.Message):
+    async def extract_real_user_from_tupperbot(self, message: discord.Message):
         """
         Extrait l'utilisateur réel derrière un message Tupperbot/webhook.
         Retourne l'utilisateur réel ou None si ce n'est pas un message Tupperbot valide.
         """
         # Vérifier si c'est un webhook (Tupperbot utilise des webhooks)
         if message.webhook_id:
-            # Chercher dans les embeds ou le contenu pour identifier l'utilisateur
-            # Format typique Tupperbot: le nom d'utilisateur peut être dans le nom du webhook
-            # ou dans les métadonnées du message
-            
-            # Méthode 1: Vérifier les interactions récentes dans le salon
-            # pour identifier qui a probablement envoyé le message Tupperbot
             try:
-                # Chercher les messages récents (dans les 30 secondes) d'utilisateurs non-bot
-                # qui pourraient avoir déclenché le Tupperbot
-                recent_time = message.created_at - timedelta(seconds=30)
-                
-                # On ne peut pas faire de requête async ici, donc on retourne None
-                # et on gèrera cela différemment
+                # Méthode 1: Chercher les messages récents d'utilisateurs non-bot
+                recent_time = message.created_at - timedelta(seconds=60)
+                async for recent_msg in message.channel.history(limit=15, before=message.created_at, after=recent_time):
+                    if not recent_msg.author.bot:
+                        return recent_msg.author
+
+                # Méthode 2: Si pas de message récent, chercher dans un intervalle plus large
+                extended_time = message.created_at - timedelta(minutes=5)
+                async for recent_msg in message.channel.history(limit=30, before=message.created_at, after=extended_time):
+                    if not recent_msg.author.bot:
+                        return recent_msg.author
+
+            except Exception as e:
+                self.logger.error(f"Erreur lors de l'extraction utilisateur Tupperbot: {e}")
                 return None
-            except Exception:
-                return None
-        
+
         return None
 
     @commands.Cog.listener()
@@ -2542,19 +2573,11 @@ class ChannelMonitor(commands.Cog):
         if message.author.bot:
             # Vérifier si c'est un message Tupperbot/webhook
             if message.webhook_id:
-                # Pour les webhooks Tupperbot, on va chercher l'utilisateur qui a probablement envoyé le message
-                # en regardant les messages récents dans le salon
-                try:
-                    recent_time = message.created_at - timedelta(seconds=60)  # 1 minute avant
-                    async for recent_msg in message.channel.history(limit=10, before=message.created_at, after=recent_time):
-                        if not recent_msg.author.bot and self.is_mj(recent_msg.author):
-                            # Probablement le MJ qui a envoyé le message Tupperbot
-                            real_user = recent_msg.author
-                            self.logger.info(f"Message Tupperbot détecté de {real_user.display_name} dans le salon {channel_id}")
-                            break
-                except Exception as e:
-                    self.logger.error(f"Erreur lors de la détection Tupperbot: {e}")
-            
+                # Utiliser la méthode améliorée pour extraire l'utilisateur réel
+                real_user = await self.extract_real_user_from_tupperbot(message)
+                if real_user:
+                    self.logger.info(f"Message Tupperbot détecté de {real_user.display_name} dans le salon {channel_id}")
+
             # Si on n'a pas identifié d'utilisateur réel, ignorer le message
             if not real_user:
                 return
