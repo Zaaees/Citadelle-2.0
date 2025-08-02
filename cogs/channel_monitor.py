@@ -859,39 +859,62 @@ class ChannelMonitor(commands.Cog):
 
                         # Limiter à 200 messages pour éviter les surcharges
                         messages = []
+                        valid_messages = []
                         message_count = 0
+
                         async for message in channel.history(limit=200, after=check_after):
-                            if not message.author.bot:  # Ignorer les messages de bots
-                                messages.append(message)
-                                message_count += 1
+                            messages.append(message)
+                            message_count += 1
+
+                            # Identifier l'utilisateur réel pour chaque message
+                            real_user = None
+
+                            if message.author.bot:
+                                # Vérifier si c'est un message Tupperbot/webhook
+                                if message.webhook_id:
+                                    # Utiliser la méthode améliorée pour extraire l'utilisateur réel
+                                    real_user = await self.extract_real_user_from_tupperbot(message)
+                                    if real_user:
+                                        self.logger.info(f"Message Tupperbot manqué détecté de {real_user.display_name} dans le salon {channel_id}")
+                            else:
+                                # Message d'utilisateur normal
+                                real_user = message.author
+
+                            # Ajouter seulement les messages avec un utilisateur réel identifié
+                            if real_user:
+                                valid_messages.append((message, real_user))
 
                         if message_count >= 200:
                             self.logger.warning(f"Limite de 200 messages atteinte pour le salon {channel_id}, certains messages peuvent être manqués")
 
-                        if not messages:
+                        if not valid_messages:
                             self.logger.debug(f"Aucune nouvelle activité trouvée pour le salon {channel_id}")
                             continue
 
                         # Trier les messages par timestamp (plus récent en dernier)
-                        messages.sort(key=lambda m: m.created_at)
+                        valid_messages.sort(key=lambda m: m[0].created_at)
 
                         # Traiter chaque message manqué
                         new_participants = set(data.get('participants', []))
                         last_action_user = None
 
-                        for message in messages:
-                            # Ajouter l'auteur aux participants s'il n'y est pas déjà
-                            if message.author.id not in new_participants:
-                                new_participants.add(message.author.id)
-                                self.logger.info(f"Nouveau participant détecté pendant la déconnexion: {message.author.display_name} dans le salon {channel_id}")
+                        for message, real_user in valid_messages:
+                            # Ajouter l'utilisateur réel aux participants s'il n'y est pas déjà
+                            if real_user.id not in new_participants:
+                                new_participants.add(real_user.id)
+                                self.logger.info(f"Nouveau participant détecté pendant la déconnexion: {real_user.display_name} dans le salon {channel_id}")
 
-                            last_action_user = message.author
+                            last_action_user = real_user
 
                             # Mettre à jour la dernière activité avec le timestamp du message
                             data['last_activity'] = message.created_at
 
                         # Mettre à jour la liste des participants
                         data['participants'] = list(new_participants)
+
+                        # Sauvegarder l'ID de l'utilisateur réel de la dernière action
+                        if last_action_user:
+                            data['last_action_user_id'] = last_action_user.id
 
                         # Mettre à jour l'embed avec la dernière activité
                         if last_action_user:
@@ -2535,7 +2558,7 @@ class ChannelMonitor(commands.Cog):
     async def extract_real_user_from_tupperbot(self, message: discord.Message):
         """
         Extrait l'utilisateur réel derrière un message Tupperbot/webhook.
-        Retourne l'utilisateur réel ou None si ce n'est pas un message Tupperbot valide.
+        Retourne l'utilisateur réel ou un objet utilisateur fictif basé sur le webhook.
         """
         # Vérifier si c'est un webhook (Tupperbot utilise des webhooks)
         if message.webhook_id:
@@ -2551,6 +2574,23 @@ class ChannelMonitor(commands.Cog):
                 async for recent_msg in message.channel.history(limit=30, before=message.created_at, after=extended_time):
                     if not recent_msg.author.bot:
                         return recent_msg.author
+
+                # Méthode 3: Si aucun utilisateur réel trouvé, créer un objet utilisateur fictif
+                # basé sur le nom du webhook pour au moins avoir un nom à afficher
+                if hasattr(message.author, 'display_name') and message.author.display_name:
+                    # Créer un objet utilisateur fictif avec les informations du webhook
+                    class WebhookUser:
+                        def __init__(self, webhook_author):
+                            self.id = webhook_author.id
+                            self.display_name = webhook_author.display_name
+                            self.name = webhook_author.name
+                            self.mention = f"<@{webhook_author.id}>"
+                            self.avatar = webhook_author.avatar
+                            self.bot = True  # Marquer comme bot pour éviter la confusion
+
+                    webhook_user = WebhookUser(message.author)
+                    self.logger.info(f"Utilisateur Tupperbox identifié par webhook: {webhook_user.display_name}")
+                    return webhook_user
 
             except Exception as e:
                 self.logger.error(f"Erreur lors de l'extraction utilisateur Tupperbot: {e}")
