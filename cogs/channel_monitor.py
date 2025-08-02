@@ -180,15 +180,22 @@ class ChannelMonitor(commands.Cog):
         await self.bot.wait_until_ready()
         self.setup_google_sheets()
         self.load_monitored_channels()
+
+        # IMPORTANT: D'abord vérifier l'activité manquée pour mettre à jour les données
+        await self.check_missed_activity()
+
+        # Ensuite mettre à jour tous les embeds avec les données fraîches ET forcer les nouvelles vues
+        await self.update_all_existing_embeds()
+
+        # Enfin configurer les vues persistantes avec la nouvelle version
         await self.setup_persistent_views()
+
         # Nettoyer immédiatement les messages de ping expirés au démarrage
         await self.cleanup_ping_messages_immediate()
         # Nettoyer les anciennes alertes d'inactivité
         self.cleanup_old_alerts()
-        # Vérifier l'activité manquée pendant la déconnexion
-        await self.check_missed_activity()
-        # Mettre à jour tous les embeds existants avec le nouveau format
-        await self.update_all_existing_embeds()
+
+        self.logger.info("🎭 Initialisation du système de surveillance terminée")
 
     def _start_tasks(self):
         """Démarre les tâches avec gestion d'erreurs."""
@@ -754,14 +761,14 @@ class ChannelMonitor(commands.Cog):
                     # Créer le nouvel embed avec le format amélioré (version asynchrone)
                     embed = await self.create_scene_embed_async(channel, mj_user, data.get('participants', []))
 
-                    # Créer la vue avec le bouton
+                    # Créer la NOUVELLE vue avec seulement 2 boutons (sans le bouton Actualiser)
                     view = SceneView(self, channel_id)
 
-                    # Mettre à jour le message
+                    # FORCER la mise à jour du message avec la nouvelle vue
                     await message.edit(embed=embed, view=view)
 
-                    # Ajouter la vue persistante
-                    self.bot.add_view(view, message_id=message_id)
+                    # Log pour confirmer la mise à jour
+                    self.logger.info(f"🔄 Embed et vue mis à jour pour le salon {channel_id} - {len(view.children)} boutons")
 
                     updated_count += 1
                     self.logger.debug(f"Embed mis à jour pour le salon {channel_id}")
@@ -2653,145 +2660,22 @@ class ChannelMonitor(commands.Cog):
             self.logger.error(f"Erreur lors de la notification pour le message {message.id}: {e}")
 
     async def setup_persistent_views(self):
-        """Configure les vues persistantes pour les embeds existants."""
+        """Configure les vues persistantes pour les embeds existants avec la nouvelle version."""
         try:
+            views_configured = 0
             for channel_id, data in self.monitored_channels.items():
                 if data['message_id']:
+                    # Créer une NOUVELLE vue avec seulement 2 boutons
                     view = SceneView(self, channel_id)
                     self.bot.add_view(view, message_id=data['message_id'])
+                    views_configured += 1
+                    self.logger.debug(f"Vue persistante configurée pour salon {channel_id} avec {len(view.children)} boutons")
 
-            self.logger.info(f"Configuré {len(self.monitored_channels)} vues persistantes")
+            self.logger.info(f"✅ Configuré {views_configured} vues persistantes avec la nouvelle version (2 boutons)")
         except Exception as e:
             self.logger.error(f"Erreur lors de la configuration des vues persistantes: {e}")
 
-    @commands.command(name="refresh_embeds")
-    async def refresh_embeds_command(self, ctx: commands.Context):
-        """
-        Commande admin pour forcer la mise à jour de tous les embeds de surveillance.
 
-        Usage: !refresh_embeds
-        """
-        # Vérifier les permissions MJ
-        if not self.is_mj(ctx.author):
-            error_embed = self.create_error_embed(
-                title="Accès refusé",
-                description="Cette commande est réservée aux MJ."
-            )
-            await ctx.send(embed=error_embed, delete_after=10)
-            return
-
-        # Message de statut
-        status_message = await ctx.send("🔄 Mise à jour complète des embeds de surveillance en cours...")
-
-        try:
-            # D'abord, nettoyer toutes les vues persistantes existantes
-            self.logger.info("Nettoyage des vues persistantes existantes...")
-
-            # Forcer la mise à jour de tous les embeds avec récupération d'activité
-            await self.update_all_existing_embeds()
-
-            # Reconfigurer les vues persistantes avec la nouvelle version
-            await self.setup_persistent_views()
-
-            success_embed = self.create_success_embed(
-                title="Embeds mis à jour",
-                description="Tous les embeds de surveillance ont été mis à jour avec l'activité récente et les nouveaux boutons."
-            )
-            await status_message.edit(content="", embed=success_embed)
-
-            self.logger.info(f"Admin {ctx.author.display_name} a forcé la mise à jour complète des embeds")
-
-        except Exception as e:
-            error_embed = self.create_error_embed(
-                title="Erreur de mise à jour",
-                description="Une erreur est survenue lors de la mise à jour des embeds.",
-                error_details=str(e)
-            )
-            await status_message.edit(content="", embed=error_embed)
-            self.logger.error(f"Erreur lors de la mise à jour forcée des embeds: {e}")
-
-    @commands.command(name="debug_embeds")
-    async def debug_embeds_command(self, ctx: commands.Context):
-        """
-        Commande admin pour diagnostiquer l'état des embeds de surveillance.
-
-        Usage: !debug_embeds
-        """
-        # Vérifier les permissions MJ
-        if not self.is_mj(ctx.author):
-            error_embed = self.create_error_embed(
-                title="Accès refusé",
-                description="Cette commande est réservée aux MJ."
-            )
-            await ctx.send(embed=error_embed, delete_after=10)
-            return
-
-        try:
-            if not self.monitored_channels:
-                await ctx.send("❌ Aucune scène surveillée actuellement.")
-                return
-
-            notification_channel = self.bot.get_channel(NOTIFICATION_CHANNEL_ID)
-            if not notification_channel:
-                await ctx.send(f"❌ Salon de notification {NOTIFICATION_CHANNEL_ID} non trouvé.")
-                return
-
-            debug_info = []
-            debug_info.append(f"**📊 Diagnostic des embeds de surveillance**\n")
-            debug_info.append(f"Nombre de scènes surveillées: {len(self.monitored_channels)}\n")
-
-            for channel_id, data in self.monitored_channels.items():
-                channel = self.bot.get_channel(channel_id)
-                channel_name = channel.name if channel else f"Salon {channel_id}"
-
-                message_id = data.get('message_id')
-                last_activity = data.get('last_activity')
-                last_user_id = data.get('last_action_user_id')
-
-                debug_info.append(f"**🎭 {channel_name}**")
-                debug_info.append(f"- Message ID: {message_id}")
-                debug_info.append(f"- Dernière activité: {last_activity}")
-                debug_info.append(f"- Dernier utilisateur: {last_user_id}")
-
-                # Vérifier si le message existe
-                if message_id:
-                    try:
-                        message = await notification_channel.fetch_message(message_id)
-                        debug_info.append(f"- ✅ Message embed trouvé")
-                        debug_info.append(f"- Boutons: {len(message.components[0].children) if message.components else 0}")
-                    except discord.NotFound:
-                        debug_info.append(f"- ❌ Message embed non trouvé")
-                else:
-                    debug_info.append(f"- ❌ Pas de message ID")
-
-                debug_info.append("")
-
-            # Diviser en chunks si trop long
-            full_text = "\n".join(debug_info)
-            if len(full_text) > 2000:
-                chunks = [full_text[i:i+1900] for i in range(0, len(full_text), 1900)]
-                for i, chunk in enumerate(chunks):
-                    embed = discord.Embed(
-                        title=f"Debug Embeds (Partie {i+1}/{len(chunks)})",
-                        description=chunk,
-                        color=0x3498db
-                    )
-                    await ctx.send(embed=embed)
-            else:
-                embed = discord.Embed(
-                    title="Debug Embeds",
-                    description=full_text,
-                    color=0x3498db
-                )
-                await ctx.send(embed=embed)
-
-        except Exception as e:
-            error_embed = self.create_error_embed(
-                title="Erreur lors du diagnostic",
-                description=f"Une erreur s'est produite: {str(e)}"
-            )
-            await ctx.send(embed=error_embed)
-            self.logger.error(f"Erreur lors du diagnostic des embeds: {e}")
 
 async def setup(bot: commands.Bot):
     """Fonction de setup du cog."""
