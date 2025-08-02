@@ -9,7 +9,7 @@ from discord.ext import commands
 import json
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Set, List
 import gspread
 from google.oauth2.service_account import Credentials
@@ -20,6 +20,67 @@ import re
 # Configuration
 NOTIFICATION_CHANNEL_ID = 1380704586016362626  # Salon de notification
 MJ_ROLE_ID = 1018179623886000278  # ID du rôle MJ
+
+
+def normalize_datetime(dt) -> datetime:
+    """
+    Normalise un datetime pour éviter les problèmes offset-naive vs offset-aware.
+    Convertit tout en datetime naive (sans timezone) pour la cohérence.
+    """
+    if dt is None:
+        return None
+
+    if isinstance(dt, str):
+        try:
+            dt = datetime.fromisoformat(dt)
+        except ValueError:
+            return datetime.now()
+
+    # Si le datetime a une timezone, le convertir en naive (heure locale)
+    if dt.tzinfo is not None:
+        # Convertir en heure locale et supprimer la timezone
+        dt = dt.replace(tzinfo=None)
+
+    return dt
+
+
+def get_current_datetime() -> datetime:
+    """Retourne le datetime actuel normalisé (naive)."""
+    return datetime.now()
+
+
+def safe_datetime_comparison(dt1, dt2) -> bool:
+    """
+    Compare deux datetime de manière sécurisée en les normalisant d'abord.
+    Retourne True si dt1 < dt2.
+    """
+    try:
+        dt1_norm = normalize_datetime(dt1)
+        dt2_norm = normalize_datetime(dt2)
+
+        if dt1_norm is None or dt2_norm is None:
+            return False
+
+        return dt1_norm < dt2_norm
+    except Exception:
+        return False
+
+
+def safe_datetime_subtraction(dt1, dt2) -> timedelta:
+    """
+    Soustrait deux datetime de manière sécurisée en les normalisant d'abord.
+    Retourne dt1 - dt2.
+    """
+    try:
+        dt1_norm = normalize_datetime(dt1)
+        dt2_norm = normalize_datetime(dt2)
+
+        if dt1_norm is None or dt2_norm is None:
+            return timedelta(0)
+
+        return dt1_norm - dt2_norm
+    except Exception:
+        return timedelta(0)
 
 
 class SceneCloseButton(discord.ui.Button):
@@ -174,6 +235,29 @@ class ChannelMonitor(commands.Cog):
         # Initialisation asynchrone pour éviter les délais au démarrage
         self.bot.loop.create_task(self.async_init())
         self._start_tasks()
+
+    async def get_user_safely(self, user_id: int):
+        """
+        Récupère un utilisateur de manière robuste.
+        Essaie d'abord le cache, puis fetch si nécessaire.
+        """
+        try:
+            # Essayer d'abord le cache
+            user = self.bot.get_user(user_id)
+            if user:
+                return user
+
+            # Si pas dans le cache, essayer de le récupérer
+            try:
+                user = await self.bot.fetch_user(user_id)
+                return user
+            except (discord.NotFound, discord.HTTPException) as e:
+                self.logger.warning(f"Impossible de récupérer l'utilisateur {user_id}: {e}")
+                return None
+
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la récupération de l'utilisateur {user_id}: {e}")
+            return None
 
     async def async_init(self):
         """Initialisation asynchrone du cog."""
@@ -332,17 +416,17 @@ class ChannelMonitor(commands.Cog):
                         last_activity = None
                         if len(row) > 10 and row[10]:
                             try:
-                                last_activity = datetime.fromisoformat(row[10])
+                                last_activity = normalize_datetime(datetime.fromisoformat(row[10]))
                             except ValueError:
-                                last_activity = datetime.now()  # Fallback pour les anciennes données
+                                last_activity = get_current_datetime()  # Fallback pour les anciennes données
                         else:
-                            last_activity = datetime.now()  # Fallback pour les anciennes données
+                            last_activity = get_current_datetime()  # Fallback pour les anciennes données
 
                         # Récupérer last_alert_sent (colonne 11, index 11)
                         last_alert_sent = None
                         if len(row) > 11 and row[11]:
                             try:
-                                last_alert_sent = datetime.fromisoformat(row[11])
+                                last_alert_sent = normalize_datetime(datetime.fromisoformat(row[11]))
                             except ValueError:
                                 last_alert_sent = None
 
@@ -384,7 +468,7 @@ class ChannelMonitor(commands.Cog):
             self.sheet.append_row(["channel_id", "mj_user_id", "message_id", "participant_1", "participant_2", "participant_3", "participant_4", "participant_5", "participant_6", "added_at", "last_activity", "last_alert_sent", "last_reminder_message_id"])
 
             # Ajouter toutes les données
-            current_time = datetime.now().isoformat()
+            current_time = get_current_datetime().isoformat()
             for channel_id, data in self.monitored_channels.items():
                 # Préparer la ligne avec les participants dans des colonnes séparées
                 row = [
@@ -403,12 +487,12 @@ class ChannelMonitor(commands.Cog):
 
                 row.append(current_time)
 
-                # Ajouter last_activity
-                last_activity = data.get('last_activity', datetime.now())
+                # Ajouter last_activity (normalisé)
+                last_activity = normalize_datetime(data.get('last_activity', get_current_datetime()))
                 row.append(last_activity.isoformat())
 
-                # Ajouter last_alert_sent
-                last_alert_sent = data.get('last_alert_sent')
+                # Ajouter last_alert_sent (normalisé)
+                last_alert_sent = normalize_datetime(data.get('last_alert_sent'))
                 row.append(last_alert_sent.isoformat() if last_alert_sent else "")
 
                 # Ajouter last_reminder_message_id
@@ -428,12 +512,12 @@ class ChannelMonitor(commands.Cog):
             if not data:
                 return False
 
-            last_alert_sent = data.get('last_alert_sent')
+            last_alert_sent = normalize_datetime(data.get('last_alert_sent'))
             if not last_alert_sent:
                 return False
 
             # Vérifier si l'alerte a été envoyée aujourd'hui
-            today = datetime.now().date()
+            today = get_current_datetime().date()
             alert_date = last_alert_sent.date()
 
             return alert_date == today
@@ -453,8 +537,8 @@ class ChannelMonitor(commands.Cog):
                 return True
 
             # Vérifier si plus de 24h se sont écoulées depuis la dernière alerte
-            current_time = datetime.now()
-            time_since_last_alert = current_time - last_alert_sent
+            current_time = get_current_datetime()
+            time_since_last_alert = safe_datetime_subtraction(current_time, last_alert_sent)
 
             return time_since_last_alert.total_seconds() >= 86400  # 24h en secondes
         except Exception as e:
@@ -464,7 +548,7 @@ class ChannelMonitor(commands.Cog):
     def record_alert_sent(self, channel_id: int, mj_user_id: int, message_id: int = None):
         """Enregistre qu'une alerte d'inactivité a été envoyée pour ce salon."""
         try:
-            current_time = datetime.now()
+            current_time = get_current_datetime()
 
             # Mettre à jour les données en mémoire
             if channel_id in self.monitored_channels:
@@ -533,7 +617,7 @@ class ChannelMonitor(commands.Cog):
             if not self.alert_sheet:
                 return
 
-            current_time = datetime.now()
+            current_time = get_current_datetime()
             thirty_days_ago = current_time - timedelta(days=30)
 
             all_values = self.alert_sheet.get_all_values()
@@ -547,7 +631,7 @@ class ChannelMonitor(commands.Cog):
             for row in all_values[1:]:
                 if len(row) >= 4 and row[3]:  # Vérifier que timestamp existe
                     try:
-                        alert_timestamp = datetime.fromisoformat(row[3])
+                        alert_timestamp = normalize_datetime(datetime.fromisoformat(row[3]))
                         if alert_timestamp >= thirty_days_ago:
                             rows_to_keep.append(row)
                         else:
@@ -578,7 +662,7 @@ class ChannelMonitor(commands.Cog):
                 self.logger.warning("Google Sheets non configuré pour le nettoyage périodique")
                 return
 
-            current_time = datetime.now()
+            current_time = get_current_datetime()
             all_values = self.ping_sheet.get_all_values()
 
             if len(all_values) <= 1:  # Seulement l'en-tête ou vide
@@ -596,8 +680,9 @@ class ChannelMonitor(commands.Cog):
                         timestamp = row[2]
 
                         # Vérifier si le message a plus de 24h
-                        message_time = datetime.fromisoformat(timestamp)
-                        if (current_time - message_time).total_seconds() > 86400:  # 24h en secondes
+                        message_time = normalize_datetime(datetime.fromisoformat(timestamp))
+                        time_diff = safe_datetime_subtraction(current_time, message_time)
+                        if time_diff.total_seconds() > 86400:  # 24h en secondes
                             try:
                                 channel = self.bot.get_channel(channel_id)
                                 if channel:
@@ -629,7 +714,7 @@ class ChannelMonitor(commands.Cog):
                 self.logger.info(f"Nettoyage périodique: supprimé {messages_deleted} messages de ping expirés et {len(rows_to_delete)} entrées de la base")
 
             # Nettoyer les anciennes alertes une fois par jour (à la première exécution de chaque jour)
-            current_hour = datetime.now().hour
+            current_hour = get_current_datetime().hour
             if current_hour == 0:  # Minuit
                 self.cleanup_old_alerts()
 
@@ -657,7 +742,7 @@ class ChannelMonitor(commands.Cog):
                 self.logger.warning("Google Sheets non configuré, impossible de nettoyer les messages de ping")
                 return
 
-            current_time = datetime.now()
+            current_time = get_current_datetime()
             all_values = self.ping_sheet.get_all_values()
 
             if len(all_values) <= 1:  # Seulement l'en-tête ou vide
@@ -676,8 +761,9 @@ class ChannelMonitor(commands.Cog):
                         timestamp = row[2]
 
                         # Vérifier si le message a plus de 24h
-                        message_time = datetime.fromisoformat(timestamp)
-                        if (current_time - message_time).total_seconds() > 86400:  # 24h en secondes
+                        message_time = normalize_datetime(datetime.fromisoformat(timestamp))
+                        time_diff = safe_datetime_subtraction(current_time, message_time)
+                        if time_diff.total_seconds() > 86400:  # 24h en secondes
                             try:
                                 channel = self.bot.get_channel(channel_id)
                                 if channel:
@@ -810,18 +896,17 @@ class ChannelMonitor(commands.Cog):
                         self.logger.debug(f"Pas de dernière activité enregistrée pour le salon {channel_id}")
                         continue
 
-                    # Convertir en datetime si c'est une string
-                    if isinstance(last_recorded_activity, str):
-                        try:
-                            last_recorded_activity = datetime.fromisoformat(last_recorded_activity)
-                        except ValueError:
-                            self.logger.warning(f"Format de date invalide pour le salon {channel_id}: {last_recorded_activity}")
-                            continue
+                    # Normaliser le datetime
+                    last_recorded_activity = normalize_datetime(last_recorded_activity)
+                    if not last_recorded_activity:
+                        self.logger.warning(f"Impossible de normaliser la date pour le salon {channel_id}")
+                        continue
 
                     # Récupérer les messages récents depuis la dernière activité
                     try:
                         # Limiter la vérification aux 7 derniers jours maximum pour éviter les surcharges
-                        max_check_period = datetime.now() - timedelta(days=7)
+                        max_check_period = get_current_datetime() - timedelta(days=7)
+                        # Utiliser max avec des datetime normalisés
                         check_after = max(last_recorded_activity, max_check_period)
 
                         # Limiter à 200 messages pour éviter les surcharges
@@ -873,8 +958,8 @@ class ChannelMonitor(commands.Cog):
 
                             last_action_user = real_user
 
-                            # Mettre à jour la dernière activité avec le timestamp du message
-                            data['last_activity'] = message.created_at
+                            # Mettre à jour la dernière activité avec le timestamp du message (normalisé)
+                            data['last_activity'] = normalize_datetime(message.created_at)
 
                         # Mettre à jour la liste des participants
                         data['participants'] = list(new_participants)
@@ -928,12 +1013,14 @@ class ChannelMonitor(commands.Cog):
             # Si pas de dernière activité enregistrée, utiliser la date de création du salon
             if not last_recorded_activity:
                 if hasattr(channel, 'created_at'):
-                    last_recorded_activity = channel.created_at
+                    last_recorded_activity = normalize_datetime(channel.created_at)
                 else:
-                    last_recorded_activity = datetime.now() - timedelta(days=7)
+                    last_recorded_activity = get_current_datetime() - timedelta(days=7)
+            else:
+                last_recorded_activity = normalize_datetime(last_recorded_activity)
 
             # Limiter la vérification aux 7 derniers jours maximum
-            max_check_period = datetime.now() - timedelta(days=7)
+            max_check_period = get_current_datetime() - timedelta(days=7)
             check_after = max(last_recorded_activity, max_check_period)
 
             try:
@@ -967,7 +1054,7 @@ class ChannelMonitor(commands.Cog):
 
                     # Mettre à jour avec le message le plus récent
                     latest_message, latest_real_user = valid_messages[-1]
-                    data['last_activity'] = latest_message.created_at
+                    data['last_activity'] = normalize_datetime(latest_message.created_at)
                     data['last_action_user_id'] = latest_real_user.id
 
                     # Mettre à jour les participants
@@ -996,8 +1083,8 @@ class ChannelMonitor(commands.Cog):
             if not self.monitored_channels:
                 return
 
-            current_time = datetime.now()
-            week_ago = current_time.timestamp() - (7 * 24 * 60 * 60)  # 7 jours en secondes
+            current_time = get_current_datetime()
+            week_ago_timestamp = current_time.timestamp() - (7 * 24 * 60 * 60)  # 7 jours en secondes
 
             notification_channel = self.bot.get_channel(NOTIFICATION_CHANNEL_ID)
             if not notification_channel:
@@ -1006,19 +1093,20 @@ class ChannelMonitor(commands.Cog):
 
             for channel_id, data in self.monitored_channels.items():
                 try:
-                    last_activity = data.get('last_activity')
+                    last_activity = normalize_datetime(data.get('last_activity'))
                     if not last_activity:
                         continue
 
                     # Vérifier si la scène est inactive depuis une semaine
-                    if last_activity.timestamp() < week_ago:
+                    if last_activity.timestamp() < week_ago_timestamp:
                         # Vérifier si un nouveau message d'alerte doit être envoyé (renouvellement quotidien)
                         if not self.should_send_new_alert(channel_id):
                             self.logger.debug(f"Alerte récente déjà envoyée pour le salon {channel_id}, attente du renouvellement")
                             continue
 
                         mj_id = data['mj_user_id']
-                        mj = self.bot.get_user(mj_id)
+                        # Utiliser la fonction robuste pour récupérer l'utilisateur
+                        mj = await self.get_user_safely(mj_id)
 
                         if not mj:
                             self.logger.warning(f"MJ avec ID {mj_id} non trouvé pour le salon {channel_id}")
@@ -1036,7 +1124,8 @@ class ChannelMonitor(commands.Cog):
                         await self.cleanup_old_reminder_message(channel_id, notification_channel)
 
                         # Envoyer le rappel d'inactivité (MP avec fallback salon)
-                        days_inactive = int((current_time - last_activity).days)
+                        time_diff = safe_datetime_subtraction(current_time, last_activity)
+                        days_inactive = int(time_diff.days)
                         reminder_sent = False
                         reminder_message = None
 
@@ -1320,15 +1409,11 @@ class ChannelMonitor(commands.Cog):
         if not last_activity:
             return "Jamais"
 
-        now = datetime.now()
-        if last_activity.tzinfo is not None:
-            # Si last_activity a une timezone, convertir now en UTC
-            now = now.replace(tzinfo=timezone.utc)
-        elif now.tzinfo is not None:
-            # Si now a une timezone mais pas last_activity, supprimer la timezone de now
-            now = now.replace(tzinfo=None)
+        # Utiliser les fonctions utilitaires pour une comparaison sécurisée
+        now = get_current_datetime()
+        last_activity_norm = normalize_datetime(last_activity)
 
-        time_diff = now - last_activity
+        time_diff = safe_datetime_subtraction(now, last_activity_norm)
 
         if time_diff.days > 0:
             return f"il y a {time_diff.days} jour{'s' if time_diff.days > 1 else ''}"
@@ -1348,14 +1433,14 @@ class ChannelMonitor(commands.Cog):
 
         # Récupérer la dernière activité depuis les données surveillées
         channel_data = self.monitored_channels.get(channel.id, {})
-        last_activity = channel_data.get('last_activity')
+        last_activity = normalize_datetime(channel_data.get('last_activity'))
 
         # Si pas de dernière activité enregistrée, utiliser la date de création du salon
         if not last_activity:
             if hasattr(channel, 'created_at'):
-                last_activity = channel.created_at
+                last_activity = normalize_datetime(channel.created_at)
             else:
-                last_activity = datetime.now()
+                last_activity = get_current_datetime()
 
         embed = discord.Embed(
             title="🎭 Scène surveillée",
@@ -1636,7 +1721,7 @@ class ChannelMonitor(commands.Cog):
         embed = discord.Embed(
             title="⏰ Rappel de scène inactive",
             color=0xe74c3c,  # Rouge pour attirer l'attention
-            timestamp=datetime.now()
+            timestamp=get_current_datetime()
         )
 
         # Adapter le contenu selon si c'est un MP ou un message public
@@ -2056,14 +2141,14 @@ class ChannelMonitor(commands.Cog):
 
         # Récupérer la dernière activité depuis les données surveillées
         channel_data = self.monitored_channels.get(channel.id, {})
-        last_activity = channel_data.get('last_activity')
-        
+        last_activity = normalize_datetime(channel_data.get('last_activity'))
+
         # Si pas de dernière activité enregistrée, utiliser la date de création du salon
         if not last_activity:
             if hasattr(channel, 'created_at'):
-                last_activity = channel.created_at
+                last_activity = normalize_datetime(channel.created_at)
             else:
-                last_activity = datetime.now()
+                last_activity = get_current_datetime()
         
         embed = discord.Embed(
             title="🎭 Scène surveillée",
