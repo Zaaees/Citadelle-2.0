@@ -21,48 +21,6 @@ import re
 NOTIFICATION_CHANNEL_ID = 1380704586016362626  # Salon de notification
 MJ_ROLE_ID = 1018179623886000278  # ID du rôle MJ
 
-class SceneRefreshButton(discord.ui.Button):
-    """Bouton pour actualiser une scène."""
-
-    def __init__(self, cog, channel_id: int):
-        super().__init__(
-            label="Actualiser",
-            style=discord.ButtonStyle.secondary,
-            custom_id=f"refresh_scene_{channel_id}",
-            emoji="🔄"
-        )
-        self.cog = cog
-        self.channel_id = channel_id
-
-    async def callback(self, interaction: discord.Interaction):
-        # Vérifier les permissions MJ
-        if not self.cog.is_mj(interaction.user):
-            error_embed = self.cog.create_error_embed(
-                title="Accès refusé",
-                description="Seuls les MJ peuvent actualiser une scène."
-            )
-            await interaction.response.send_message(embed=error_embed, ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        # Actualiser la scène
-        updated = await self.cog.refresh_scene_activity(self.channel_id)
-
-        if updated:
-            success_embed = self.cog.create_success_embed(
-                title="Scène actualisée",
-                description="La scène a été mise à jour avec l'activité récente."
-            )
-            await interaction.followup.send(embed=success_embed, ephemeral=True)
-        else:
-            info_embed = discord.Embed(
-                title="ℹ️ Aucune mise à jour",
-                description="Aucune nouvelle activité détectée depuis la dernière mise à jour.",
-                color=0x3498db
-            )
-            await interaction.followup.send(embed=info_embed, ephemeral=True)
-
 
 class SceneCloseButton(discord.ui.Button):
     """Bouton pour clôturer une scène."""
@@ -196,7 +154,6 @@ class SceneView(discord.ui.View):
 
     def __init__(self, cog, channel_id: int):
         super().__init__(timeout=None)
-        self.add_item(SceneRefreshButton(cog, channel_id))
         self.add_item(SceneTakeOverButton(cog, channel_id))
         self.add_item(SceneCloseButton(cog, channel_id))
 
@@ -940,92 +897,7 @@ class ChannelMonitor(commands.Cog):
         except Exception as e:
             self.logger.error(f"Erreur lors de la vérification globale d'activité manquée: {e}")
 
-    async def refresh_scene_activity(self, channel_id: int) -> bool:
-        """
-        Force la vérification et la mise à jour d'une scène spécifique.
-        Retourne True si la scène a été mise à jour, False sinon.
-        """
-        if channel_id not in self.monitored_channels:
-            return False
 
-        try:
-            channel = self.bot.get_channel(channel_id)
-            if not channel:
-                return False
-
-            data = self.monitored_channels[channel_id]
-            last_activity = data.get('last_activity')
-            participants = data.get('participants', [])
-            updated = False
-
-            # Récupérer les messages récents depuis la dernière activité connue
-            since = last_activity if last_activity else datetime.now() - timedelta(days=7)
-            
-            try:
-                # Récupérer les messages depuis la dernière activité (y compris les bots pour Tupperbot)
-                messages = []
-                valid_messages = []
-                
-                async for message in channel.history(after=since, limit=100):
-                    messages.append(message)
-                    
-                    # Identifier l'utilisateur réel pour chaque message
-                    real_user = None
-                    
-                    if message.author.bot:
-                        # Vérifier si c'est un message Tupperbot/webhook
-                        if message.webhook_id:
-                            # Utiliser la méthode améliorée pour extraire l'utilisateur réel
-                            real_user = await self.extract_real_user_from_tupperbot(message)
-                            if real_user:
-                                self.logger.info(f"Message Tupperbot rétroactif détecté de {real_user.display_name} dans le salon {channel_id}")
-                    else:
-                        # Message d'utilisateur normal
-                        real_user = message.author
-                    
-                    # Ajouter seulement les messages avec un utilisateur réel identifié
-                    if real_user:
-                        valid_messages.append((message, real_user))
-                
-                # Trier par date (plus ancien en premier)
-                valid_messages.sort(key=lambda m: m[0].created_at)
-                
-                if valid_messages:
-                    # Mettre à jour avec le message le plus récent
-                    latest_message, latest_real_user = valid_messages[-1]
-                    data['last_activity'] = latest_message.created_at
-                    data['last_action_user_id'] = latest_real_user.id
-                    
-                    # Ajouter tous les nouveaux participants (utilisateurs réels)
-                    for message, real_user in valid_messages:
-                        if real_user.id not in participants:
-                            participants.append(real_user.id)
-                            updated = True
-                            
-                            # Vérifier si c'est un MJ qui n'était pas enregistré
-                            if self.is_mj(real_user):
-                                self.logger.info(f"MJ ajouté rétroactivement: {real_user.display_name} ({real_user.id}) dans le salon {channel_id}")
-                            else:
-                                self.logger.info(f"Participant ajouté rétroactivement: {real_user.display_name} ({real_user.id}) dans le salon {channel_id}")
-                    
-                    data['participants'] = participants
-                    updated = True
-                    
-                    self.save_monitored_channels()
-                    
-                    # Mettre à jour l'embed avec l'utilisateur réel
-                    await self.update_scene_embed(channel_id, latest_real_user.id, latest_real_user)
-                    
-            except discord.Forbidden:
-                self.logger.warning(f"Pas d'accès aux messages du salon {channel_id}")
-            except Exception as e:
-                self.logger.error(f"Erreur lors de la récupération des messages pour {channel_id}: {e}")
-
-            return updated
-            
-        except Exception as e:
-            self.logger.error(f"Erreur lors du rafraîchissement de la scène {channel_id}: {e}")
-            return False
 
     @tasks.loop(hours=6)
     async def check_inactive_scenes(self):
