@@ -438,13 +438,23 @@ class ChannelMonitor(commands.Cog):
                             except ValueError:
                                 last_reminder_message_id = None
 
+                        # Récupérer last_activity_info (colonne 13, index 13)
+                        last_activity_info = None
+                        if len(row) > 13 and row[13]:
+                            try:
+                                import json
+                                last_activity_info = json.loads(row[13])
+                            except (ValueError, json.JSONDecodeError):
+                                last_activity_info = None
+
                         self.monitored_channels[channel_id] = {
                             'mj_user_id': mj_user_id,
                             'message_id': message_id,
                             'participants': participants,
                             'last_activity': last_activity,
                             'last_alert_sent': last_alert_sent,
-                            'last_reminder_message_id': last_reminder_message_id
+                            'last_reminder_message_id': last_reminder_message_id,
+                            'last_activity_info': last_activity_info
                         }
                     except ValueError as e:
                         self.logger.warning(f"Ligne invalide ignorée: {row} - Erreur: {e}")
@@ -465,7 +475,7 @@ class ChannelMonitor(commands.Cog):
             self.sheet.clear()
 
             # Réécrire l'en-tête
-            self.sheet.append_row(["channel_id", "mj_user_id", "message_id", "participant_1", "participant_2", "participant_3", "participant_4", "participant_5", "participant_6", "added_at", "last_activity", "last_alert_sent", "last_reminder_message_id"])
+            self.sheet.append_row(["channel_id", "mj_user_id", "message_id", "participant_1", "participant_2", "participant_3", "participant_4", "participant_5", "participant_6", "added_at", "last_activity", "last_alert_sent", "last_reminder_message_id", "last_activity_info"])
 
             # Ajouter toutes les données
             current_time = get_current_datetime().isoformat()
@@ -498,6 +508,14 @@ class ChannelMonitor(commands.Cog):
                 # Ajouter last_reminder_message_id
                 last_reminder_message_id = data.get('last_reminder_message_id')
                 row.append(str(last_reminder_message_id) if last_reminder_message_id else "")
+
+                # Ajouter last_activity_info (en JSON)
+                last_activity_info = data.get('last_activity_info')
+                if last_activity_info:
+                    import json
+                    row.append(json.dumps(last_activity_info))
+                else:
+                    row.append("")
 
                 self.sheet.append_row(row)
 
@@ -844,14 +862,11 @@ class ChannelMonitor(commands.Cog):
                     # NOUVEAU: Forcer la récupération de l'activité récente avant de mettre à jour l'embed
                     await self.force_refresh_scene_data(channel_id)
 
-                    # Récupérer l'utilisateur de la dernière action pour l'affichage correct
-                    last_action_user = None
-                    last_action_user_id = data.get('last_action_user_id')
-                    if last_action_user_id:
-                        last_action_user = await self.get_user_safely(last_action_user_id)
+                    # Récupérer les informations d'activité pour l'affichage correct
+                    activity_info = data.get('last_activity_info')
 
                     # Créer le nouvel embed avec le format amélioré (version asynchrone)
-                    embed = await self.create_scene_embed_async(channel, mj_user, data.get('participants', []), last_action_user)
+                    embed = await self.create_scene_embed_async_with_activity(channel, mj_user, data.get('participants', []), activity_info)
 
                     # Créer la NOUVELLE vue avec seulement 2 boutons (sans le bouton Actualiser)
                     view = SceneView(self, channel_id)
@@ -924,23 +939,10 @@ class ChannelMonitor(commands.Cog):
                             messages.append(message)
                             message_count += 1
 
-                            # Identifier l'utilisateur réel pour chaque message
-                            real_user = None
-
-                            if message.author.bot:
-                                # Vérifier si c'est un message Tupperbot/webhook
-                                if message.webhook_id:
-                                    # Utiliser la méthode améliorée pour extraire l'utilisateur réel
-                                    real_user = await self.extract_real_user_from_tupperbot(message)
-                                    if real_user:
-                                        self.logger.info(f"Message Tupperbot manqué détecté de {real_user.display_name} dans le salon {channel_id}")
-                            else:
-                                # Message d'utilisateur normal
-                                real_user = message.author
-
-                            # Ajouter seulement les messages avec un utilisateur réel identifié
-                            if real_user:
-                                valid_messages.append((message, real_user))
+                            # Extraire les informations d'activité du message
+                            activity_info = await self.extract_activity_from_message(message)
+                            if activity_info:
+                                valid_messages.append((message, activity_info))
 
                         if message_count >= 200:
                             self.logger.warning(f"Limite de 200 messages atteinte pour le salon {channel_id}, certains messages peuvent être manqués")
@@ -954,31 +956,36 @@ class ChannelMonitor(commands.Cog):
 
                         # Traiter chaque message manqué
                         new_participants = set(data.get('participants', []))
-                        last_action_user = None
+                        latest_activity_info = None
 
-                        for message, real_user in valid_messages:
-                            # Ajouter l'utilisateur réel aux participants s'il n'y est pas déjà
-                            if real_user.id not in new_participants:
-                                new_participants.add(real_user.id)
-                                self.logger.info(f"Nouveau participant détecté pendant la déconnexion: {real_user.display_name} dans le salon {channel_id}")
+                        for message, activity_info in valid_messages:
+                            user_id = activity_info['user_id']
+                            display_name = activity_info['display_name']
 
-                            last_action_user = real_user
+                            # Ajouter l'utilisateur aux participants s'il n'y est pas déjà
+                            if user_id not in new_participants:
+                                new_participants.add(user_id)
+                                self.logger.info(f"Nouveau participant détecté pendant la déconnexion: {display_name} dans le salon {channel_id}")
 
-                            # Mettre à jour la dernière activité avec le timestamp du message (normalisé)
-                            data['last_activity'] = normalize_datetime(message.created_at)
+                            # Garder la dernière activité
+                            latest_activity_info = activity_info
+
+                            # Mettre à jour la dernière activité avec le timestamp du message
+                            data['last_activity'] = activity_info['message_timestamp']
 
                         # Mettre à jour la liste des participants
                         data['participants'] = list(new_participants)
 
-                        # Sauvegarder l'ID de l'utilisateur réel de la dernière action
-                        if last_action_user:
-                            data['last_action_user_id'] = last_action_user.id
+                        # Sauvegarder les informations de la dernière activité
+                        if latest_activity_info:
+                            data['last_activity_info'] = latest_activity_info
 
                         # Mettre à jour l'embed avec la dernière activité
-                        if last_action_user:
-                            await self.update_scene_embed(channel_id, last_action_user.id, last_action_user)
+                        if latest_activity_info:
+                            await self.update_scene_embed_with_activity(channel_id, latest_activity_info['user_id'], latest_activity_info)
                             updated_scenes += 1
-                            self.logger.info(f"Scène {channel_id} mise à jour avec l'activité manquée de {last_action_user.display_name}")
+                            display_name = self.get_display_name_from_activity(latest_activity_info)
+                            self.logger.info(f"Scène {channel_id} mise à jour avec l'activité manquée de {display_name}")
 
                     except discord.Forbidden:
                         self.logger.warning(f"Permissions insuffisantes pour lire l'historique du salon {channel_id}")
@@ -1037,42 +1044,32 @@ class ChannelMonitor(commands.Cog):
                 async for message in channel.history(limit=200, after=check_after):
                     message_count += 1
 
-                    # Identifier l'utilisateur réel pour chaque message
-                    real_user = None
-
-                    if message.author.bot:
-                        # Vérifier si c'est un message Tupperbot/webhook
-                        if message.webhook_id:
-                            real_user = await self.extract_real_user_from_tupperbot(message)
-                            if real_user:
-                                self.logger.info(f"Message Tupperbot détecté lors de la mise à jour de {real_user.display_name} dans le salon {channel_id}")
-                    else:
-                        # Message d'utilisateur normal
-                        real_user = message.author
-
-                    # Ajouter seulement les messages avec un utilisateur réel identifié
-                    if real_user:
-                        valid_messages.append((message, real_user))
+                    # Extraire les informations d'activité du message
+                    activity_info = await self.extract_activity_from_message(message)
+                    if activity_info:
+                        valid_messages.append((message, activity_info))
 
                 if valid_messages:
                     # Trier les messages par timestamp (plus récent en dernier)
                     valid_messages.sort(key=lambda m: m[0].created_at)
 
                     # Mettre à jour avec le message le plus récent
-                    latest_message, latest_real_user = valid_messages[-1]
-                    data['last_activity'] = normalize_datetime(latest_message.created_at)
-                    data['last_action_user_id'] = latest_real_user.id
+                    latest_message, latest_activity_info = valid_messages[-1]
+                    data['last_activity'] = latest_activity_info['message_timestamp']
+                    data['last_activity_info'] = latest_activity_info
 
                     # Mettre à jour les participants
                     new_participants = set(data.get('participants', []))
-                    for message, real_user in valid_messages:
-                        if real_user.id not in new_participants:
-                            new_participants.add(real_user.id)
+                    for message, activity_info in valid_messages:
+                        user_id = activity_info['user_id']
+                        if user_id not in new_participants:
+                            new_participants.add(user_id)
 
                     data['participants'] = list(new_participants)
                     self.save_monitored_channels()
 
-                    self.logger.info(f"Données de scène {channel_id} mises à jour avec l'activité récente de {latest_real_user.display_name}")
+                    display_name = self.get_display_name_from_activity(latest_activity_info)
+                    self.logger.info(f"Données de scène {channel_id} mises à jour avec l'activité récente de {display_name}")
 
             except discord.Forbidden:
                 self.logger.warning(f"Permissions insuffisantes pour lire l'historique du salon {channel_id}")
@@ -1961,6 +1958,66 @@ class ChannelMonitor(commands.Cog):
         except Exception as e:
             self.logger.error(f"Erreur lors de la mise à jour de l'embed de scène: {e}")
 
+    async def update_scene_embed_with_activity(self, channel_id: int, user_id: int, activity_info: dict):
+        """Met à jour l'embed de surveillance d'une scène avec les nouvelles informations d'activité."""
+        try:
+            if channel_id not in self.monitored_channels:
+                return
+
+            data = self.monitored_channels[channel_id]
+            message_id = data['message_id']
+
+            if not message_id:
+                return
+
+            # Ajouter le participant s'il n'est pas déjà dans la liste
+            participant_added = False
+            if user_id not in data['participants']:
+                data['participants'].append(user_id)
+                participant_added = True
+
+            # Récupérer le message d'embed
+            notification_channel = self.bot.get_channel(NOTIFICATION_CHANNEL_ID)
+            if not notification_channel:
+                return
+
+            try:
+                message = await notification_channel.fetch_message(message_id)
+
+                # Récupérer les informations
+                channel = self.bot.get_channel(channel_id)
+                mj_user = await self.get_user_safely(data['mj_user_id'])
+
+                if not channel or not mj_user:
+                    return
+
+                # Créer le nouvel embed avec les informations à jour
+                embed = await self.create_scene_embed_async_with_activity(channel, mj_user, data['participants'], activity_info)
+
+                # Créer la vue avec le bouton
+                view = SceneView(self, channel_id)
+
+                # Mettre à jour le message
+                await message.edit(embed=embed, view=view)
+
+                # Ajouter la vue persistante
+                self.bot.add_view(view, message_id=message_id)
+
+                display_name = self.get_display_name_from_activity(activity_info)
+                if participant_added:
+                    self.logger.debug(f"Nouveau participant {display_name} ajouté à la scène {channel_id}")
+                else:
+                    self.logger.debug(f"Embed mis à jour pour l'activité de {display_name} dans la scène {channel_id}")
+
+            except discord.NotFound:
+                self.logger.warning(f"Message d'embed {message_id} non trouvé")
+                # Retirer le message_id invalide
+                data['message_id'] = None
+                self.save_monitored_channels()
+
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la mise à jour de l'embed de scène avec activité: {e}")
+
     async def take_over_scene(self, channel_id: int, new_mj_id: int):
         """
         Transfère la responsabilité d'une scène à un nouveau MJ.
@@ -2247,6 +2304,97 @@ class ChannelMonitor(commands.Cog):
         # Le timestamp de l'embed indique déjà la dernière activité
         return embed
 
+    async def create_scene_embed_async_with_activity(self, channel, mj_user, participants: List[int] = None, activity_info: dict = None) -> discord.Embed:
+        """Version de create_scene_embed_async qui utilise les informations d'activité stockées."""
+        if participants is None:
+            participants = []
+
+        # Récupérer la dernière activité depuis les données surveillées
+        channel_data = self.monitored_channels.get(channel.id, {})
+
+        # Utiliser activity_info si fourni, sinon utiliser les données stockées
+        if activity_info:
+            last_activity = normalize_datetime(activity_info['message_timestamp'])
+        else:
+            last_activity = normalize_datetime(channel_data.get('last_activity'))
+            activity_info = channel_data.get('last_activity_info')
+
+        # Si pas de dernière activité enregistrée, utiliser la date de création du salon
+        if not last_activity:
+            if hasattr(channel, 'created_at'):
+                last_activity = normalize_datetime(channel.created_at)
+            else:
+                last_activity = get_current_datetime()
+
+        embed = discord.Embed(
+            title="🎭 Scène surveillée",
+            color=0x3498db,
+            timestamp=last_activity
+        )
+
+        # Informations du salon
+        channel_info = self.get_channel_info(channel)
+        embed.add_field(
+            name="📍 Scène",
+            value=channel_info,
+            inline=False
+        )
+
+        # MJ responsable
+        embed.add_field(
+            name="🎯 MJ responsable",
+            value=f"**{mj_user.display_name}**",
+            inline=True
+        )
+
+        # Participants - version asynchrone avec récupération robuste
+        if participants:
+            participant_names = []
+            guild = channel.guild if hasattr(channel, 'guild') else None
+
+            for user_id in participants:
+                user_obj, display_name = await self.get_user_info_robust(user_id, guild)
+                participant_names.append(display_name)
+
+            embed.add_field(
+                name="👥 Rôlistes participants",
+                value=", ".join(participant_names) if participant_names else "Aucun",
+                inline=True
+            )
+        else:
+            embed.add_field(
+                name="👥 Rôlistes participants",
+                value="Aucun",
+                inline=True
+            )
+
+        # Ajouter les informations de dernière activité
+        if activity_info:
+            display_name = self.get_display_name_from_activity(activity_info)
+            time_since = self.format_time_since_activity(last_activity)
+            activity_date = last_activity.strftime("%d/%m/%Y à %H:%M")
+
+            # Ajouter un indicateur pour les webhooks
+            if activity_info.get('is_webhook', False):
+                display_name += " 🎭"  # Emoji pour indiquer un personnage/webhook
+
+            embed.add_field(
+                name="⚡ Dernière activité",
+                value=f"{display_name}\n📅 {activity_date}\n⏰ {time_since}",
+                inline=True
+            )
+        else:
+            # Fallback si pas d'informations d'activité
+            time_since = self.format_time_since_activity(last_activity)
+            activity_date = last_activity.strftime("%d/%m/%Y à %H:%M")
+            embed.add_field(
+                name="⚡ Dernière activité",
+                value=f"Création du salon\n📅 {activity_date}\n⏰ {time_since}",
+                inline=True
+            )
+
+        return embed
+
     @staticmethod
     def scene_check(interaction: discord.Interaction) -> bool:
         """Vérifie si l'utilisateur a le rôle MJ pour utiliser la commande scene."""
@@ -2354,8 +2502,9 @@ class ChannelMonitor(commands.Cog):
                 'mj_user_id': interaction.user.id,
                 'message_id': embed_message.id,
                 'participants': [],
-                'last_activity': datetime.now(),
-                'last_alert_sent': None
+                'last_activity': get_current_datetime(),
+                'last_alert_sent': None,
+                'last_activity_info': None
             }
             self.save_monitored_channels()
 
@@ -2580,7 +2729,8 @@ class ChannelMonitor(commands.Cog):
                 'mj_user_id': designated_mj.id,  # Utiliser l'ID du MJ désigné
                 'message_id': embed_message.id,
                 'participants': [],
-                'last_activity': datetime.now()
+                'last_activity': get_current_datetime(),
+                'last_activity_info': None
             }
             self.save_monitored_channels()
 
@@ -2609,48 +2759,59 @@ class ChannelMonitor(commands.Cog):
             await ctx.send(embed=error_embed, delete_after=10)
             self.logger.error(f"Erreur lors de la création de l'embed admin: {e}")
 
-    async def extract_real_user_from_tupperbot(self, message: discord.Message):
+    def create_activity_info(self, user, message, is_webhook=False):
         """
-        Extrait l'utilisateur réel derrière un message Tupperbot/webhook.
-        Retourne l'utilisateur réel ou un objet utilisateur fictif basé sur le webhook.
+        Crée un dictionnaire avec les informations d'activité pour stockage.
         """
-        # Vérifier si c'est un webhook (Tupperbot utilise des webhooks)
-        if message.webhook_id:
-            try:
-                # Méthode 1: Chercher les messages récents d'utilisateurs non-bot
-                recent_time = message.created_at - timedelta(seconds=60)
-                async for recent_msg in message.channel.history(limit=15, before=message.created_at, after=recent_time):
-                    if not recent_msg.author.bot:
-                        return recent_msg.author
+        return {
+            'user_id': user.id,
+            'display_name': user.display_name,
+            'username': getattr(user, 'name', user.display_name),
+            'is_webhook': is_webhook,
+            'message_timestamp': normalize_datetime(message.created_at),
+            'webhook_id': message.webhook_id if is_webhook else None
+        }
 
-                # Méthode 2: Si pas de message récent, chercher dans un intervalle plus large
-                extended_time = message.created_at - timedelta(minutes=5)
-                async for recent_msg in message.channel.history(limit=30, before=message.created_at, after=extended_time):
-                    if not recent_msg.author.bot:
-                        return recent_msg.author
-
-                # Méthode 3: Si aucun utilisateur réel trouvé, créer un objet utilisateur fictif
-                # basé sur le nom du webhook pour au moins avoir un nom à afficher
-                if hasattr(message.author, 'display_name') and message.author.display_name:
-                    # Créer un objet utilisateur fictif avec les informations du webhook
-                    class WebhookUser:
-                        def __init__(self, webhook_author):
-                            self.id = webhook_author.id
-                            self.display_name = webhook_author.display_name
-                            self.name = webhook_author.name
-                            self.mention = f"<@{webhook_author.id}>"
-                            self.avatar = webhook_author.avatar
-                            self.bot = True  # Marquer comme bot pour éviter la confusion
-
-                    webhook_user = WebhookUser(message.author)
-                    self.logger.info(f"Utilisateur Tupperbox identifié par webhook: {webhook_user.display_name}")
-                    return webhook_user
-
-            except Exception as e:
-                self.logger.error(f"Erreur lors de l'extraction utilisateur Tupperbot: {e}")
+    async def extract_activity_from_message(self, message: discord.Message):
+        """
+        Extrait les informations d'activité d'un message (utilisateur normal ou webhook).
+        Retourne un dictionnaire avec les informations ou None si le message doit être ignoré.
+        """
+        if message.author.bot:
+            # Vérifier si c'est un webhook (Tupperbot/PluralKit)
+            if message.webhook_id:
+                # Pour les webhooks, utiliser directement les informations du webhook
+                # Le nom affiché est celui du personnage/alter
+                self.logger.info(f"Message webhook détecté: {message.author.display_name} dans le salon {message.channel.id}")
+                return self.create_activity_info(message.author, message, is_webhook=True)
+            else:
+                # Autres bots - ignorer
                 return None
+        else:
+            # Utilisateur normal
+            return self.create_activity_info(message.author, message, is_webhook=False)
 
-        return None
+    def get_display_name_from_activity(self, activity_info):
+        """
+        Récupère le nom à afficher à partir des informations d'activité stockées.
+        """
+        if not activity_info:
+            return "Utilisateur inconnu"
+
+        if activity_info.get('is_webhook', False):
+            # Pour les webhooks, utiliser le display_name stocké (nom du personnage)
+            return activity_info.get('display_name', 'Webhook inconnu')
+        else:
+            # Pour les utilisateurs normaux, essayer de récupérer l'utilisateur actuel
+            user_id = activity_info.get('user_id')
+            if user_id:
+                user = self.bot.get_user(user_id)
+                if user:
+                    return user.display_name
+                else:
+                    # Fallback sur le nom stocké
+                    return activity_info.get('display_name', f'Utilisateur {user_id}')
+            return "Utilisateur inconnu"
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -2661,48 +2822,31 @@ class ChannelMonitor(commands.Cog):
         if channel_id not in self.monitored_channels:
             return
 
-        # Identifier l'utilisateur réel (peut être différent pour Tupperbot)
-        real_user = None
-        
-        if message.author.bot:
-            # Vérifier si c'est un message Tupperbot/webhook
-            if message.webhook_id:
-                # Utiliser la méthode améliorée pour extraire l'utilisateur réel
-                real_user = await self.extract_real_user_from_tupperbot(message)
-                if real_user:
-                    self.logger.info(f"Message Tupperbot détecté de {real_user.display_name} dans le salon {channel_id}")
+        # Extraire les informations d'activité du message
+        activity_info = await self.extract_activity_from_message(message)
+        if not activity_info:
+            # Message à ignorer (bot non-webhook, etc.)
+            return
 
-            # Si on n'a pas identifié d'utilisateur réel, ignorer le message
-            if not real_user:
-                return
-        else:
-            # Message d'utilisateur normal
-            real_user = message.author
+        user_id = activity_info['user_id']
+        display_name = activity_info['display_name']
 
         try:
             data = self.monitored_channels[channel_id]
             mj_id = data['mj_user_id']
-            mj = self.bot.get_user(mj_id)
-
-            # Si le MJ n'est pas dans le cache, essayer de le récupérer
-            if not mj:
-                try:
-                    mj = await self.bot.fetch_user(mj_id)
-                except (discord.NotFound, discord.HTTPException):
-                    pass
+            mj = await self.get_user_safely(mj_id)
 
             if not mj:
                 self.logger.warning(f"MJ avec ID {mj_id} non trouvé pour le salon {channel_id}")
                 return
 
-            # Mettre à jour last_activity avec timestamp précis et utilisateur réel
-            current_time = message.created_at  # Utiliser le timestamp du message au lieu de now()
-            data['last_activity'] = current_time
-            data['last_action_user_id'] = real_user.id  # Utiliser l'utilisateur réel (pas le bot)
+            # Mettre à jour last_activity avec les nouvelles informations d'activité
+            data['last_activity'] = activity_info['message_timestamp']
+            data['last_activity_info'] = activity_info  # Stocker toutes les infos d'activité
             self.save_monitored_channels()
 
-            # Mettre à jour l'embed de surveillance avec l'utilisateur réel
-            await self.update_scene_embed(channel_id, real_user.id, real_user)
+            # Mettre à jour l'embed de surveillance
+            await self.update_scene_embed_with_activity(channel_id, user_id, activity_info)
 
             # Récupérer le salon de notification
             notification_channel = self.bot.get_channel(NOTIFICATION_CHANNEL_ID)
@@ -2710,22 +2854,29 @@ class ChannelMonitor(commands.Cog):
                 self.logger.error(f"Salon de notification {NOTIFICATION_CHANNEL_ID} non trouvé")
                 return
 
-            # Vérifier si un ping peut être envoyé (respecter l'intervalle selon l'utilisateur réel)
-            if self.can_send_ping(channel_id, real_user.id):
+            # Vérifier si un ping peut être envoyé (respecter l'intervalle selon l'utilisateur)
+            if self.can_send_ping(channel_id, user_id):
                 # Envoyer la notification de ping (MP avec fallback salon)
                 if data['message_id']:
                     try:
                         embed_message = await notification_channel.fetch_message(data['message_id'])
 
-                        # Envoyer la notification (MP ou fallback salon) avec l'utilisateur réel
+                        # Créer un objet utilisateur temporaire pour la notification
+                        temp_user = type('TempUser', (), {
+                            'id': user_id,
+                            'display_name': display_name,
+                            'mention': f'<@{user_id}>'
+                        })()
+
+                        # Envoyer la notification (MP ou fallback salon)
                         ping_sent = await self.send_ping_notification(
-                            mj, real_user, message.channel, channel_id,
+                            mj, temp_user, message.channel, channel_id,
                             notification_channel, embed_message
                         )
 
                         if ping_sent:
-                            # Mettre à jour le timestamp du dernier ping pour ce salon avec l'utilisateur réel
-                            self.update_last_ping_time(channel_id, real_user.id)
+                            # Mettre à jour le timestamp du dernier ping pour ce salon
+                            self.update_last_ping_time(channel_id, user_id)
 
                     except discord.NotFound:
                         self.logger.warning(f"Message d'embed {data['message_id']} non trouvé")
@@ -2734,18 +2885,18 @@ class ChannelMonitor(commands.Cog):
                         self.save_monitored_channels()
             else:
                 # Log que le ping a été ignoré à cause du cooldown
-                remaining_seconds = self.get_remaining_cooldown(channel_id, real_user.id)
+                remaining_seconds = self.get_remaining_cooldown(channel_id, user_id)
                 remaining_minutes = remaining_seconds // 60
                 remaining_seconds_display = remaining_seconds % 60
 
                 # Déterminer le type de cooldown pour le log
                 ping_data = self.last_ping_times.get(channel_id, {})
                 last_user_id = ping_data.get('last_user_id')
-                cooldown_type = "même utilisateur (30m)" if last_user_id == real_user.id else "utilisateur différent (5m)"
+                cooldown_type = "même utilisateur (30m)" if last_user_id == user_id else "utilisateur différent (5m)"
 
                 self.logger.debug(
                     f"Ping ignoré pour {message.channel.name} - Cooldown actif ({cooldown_type}) "
-                    f"(reste {remaining_minutes}m {remaining_seconds_display}s) - Utilisateur réel: {real_user.display_name}"
+                    f"(reste {remaining_minutes}m {remaining_seconds_display}s) - Utilisateur: {display_name}"
                 )
 
         except Exception as e:
