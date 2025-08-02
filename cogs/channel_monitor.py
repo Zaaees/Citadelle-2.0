@@ -844,8 +844,14 @@ class ChannelMonitor(commands.Cog):
                     # NOUVEAU: Forcer la récupération de l'activité récente avant de mettre à jour l'embed
                     await self.force_refresh_scene_data(channel_id)
 
+                    # Récupérer l'utilisateur de la dernière action pour l'affichage correct
+                    last_action_user = None
+                    last_action_user_id = data.get('last_action_user_id')
+                    if last_action_user_id:
+                        last_action_user = await self.get_user_safely(last_action_user_id)
+
                     # Créer le nouvel embed avec le format amélioré (version asynchrone)
-                    embed = await self.create_scene_embed_async(channel, mj_user, data.get('participants', []))
+                    embed = await self.create_scene_embed_async(channel, mj_user, data.get('participants', []), last_action_user)
 
                     # Créer la NOUVELLE vue avec seulement 2 boutons (sans le bouton Actualiser)
                     view = SceneView(self, channel_id)
@@ -1529,6 +1535,7 @@ class ChannelMonitor(commands.Cog):
                     inline=True
                 )
             else:
+                # Essayer de récupérer le nom d'utilisateur depuis l'ID
                 embed.add_field(
                     name="⚡ Dernière activité",
                     value=f"Utilisateur {last_user_id}\n📅 {activity_date}\n⏰ {time_since}",
