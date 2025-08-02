@@ -702,7 +702,7 @@ class ChannelMonitor(commands.Cog):
             self.logger.error(f"Erreur lors du nettoyage immédiat des messages de ping: {e}")
 
     async def update_all_existing_embeds(self):
-        """Met à jour tous les embeds de surveillance existants avec le nouveau format."""
+        """Met à jour tous les embeds de surveillance existants avec récupération de l'activité récente."""
         try:
             if not self.monitored_channels:
                 self.logger.info("Aucun embed de surveillance à mettre à jour")
@@ -747,6 +747,9 @@ class ChannelMonitor(commands.Cog):
                         self.logger.warning(f"Salon {channel_id} ou MJ {data['mj_user_id']} non trouvé")
                         failed_count += 1
                         continue
+
+                    # NOUVEAU: Forcer la récupération de l'activité récente avant de mettre à jour l'embed
+                    await self.force_refresh_scene_data(channel_id)
 
                     # Créer le nouvel embed avec le format amélioré (version asynchrone)
                     embed = await self.create_scene_embed_async(channel, mj_user, data.get('participants', []))
@@ -898,6 +901,86 @@ class ChannelMonitor(commands.Cog):
             self.logger.error(f"Erreur lors de la vérification globale d'activité manquée: {e}")
 
 
+
+    async def force_refresh_scene_data(self, channel_id: int):
+        """
+        Force la récupération des données d'activité récente pour une scène spécifique.
+        Utilisé lors de la mise à jour des embeds existants.
+        """
+        if channel_id not in self.monitored_channels:
+            return
+
+        try:
+            channel = self.bot.get_channel(channel_id)
+            if not channel:
+                return
+
+            data = self.monitored_channels[channel_id]
+            last_recorded_activity = data.get('last_activity')
+
+            # Si pas de dernière activité enregistrée, utiliser la date de création du salon
+            if not last_recorded_activity:
+                if hasattr(channel, 'created_at'):
+                    last_recorded_activity = channel.created_at
+                else:
+                    last_recorded_activity = datetime.now() - timedelta(days=7)
+
+            # Limiter la vérification aux 7 derniers jours maximum
+            max_check_period = datetime.now() - timedelta(days=7)
+            check_after = max(last_recorded_activity, max_check_period)
+
+            try:
+                # Récupérer les messages récents avec la même logique que check_missed_activity
+                valid_messages = []
+                message_count = 0
+
+                async for message in channel.history(limit=200, after=check_after):
+                    message_count += 1
+
+                    # Identifier l'utilisateur réel pour chaque message
+                    real_user = None
+
+                    if message.author.bot:
+                        # Vérifier si c'est un message Tupperbot/webhook
+                        if message.webhook_id:
+                            real_user = await self.extract_real_user_from_tupperbot(message)
+                            if real_user:
+                                self.logger.info(f"Message Tupperbot détecté lors de la mise à jour de {real_user.display_name} dans le salon {channel_id}")
+                    else:
+                        # Message d'utilisateur normal
+                        real_user = message.author
+
+                    # Ajouter seulement les messages avec un utilisateur réel identifié
+                    if real_user:
+                        valid_messages.append((message, real_user))
+
+                if valid_messages:
+                    # Trier les messages par timestamp (plus récent en dernier)
+                    valid_messages.sort(key=lambda m: m[0].created_at)
+
+                    # Mettre à jour avec le message le plus récent
+                    latest_message, latest_real_user = valid_messages[-1]
+                    data['last_activity'] = latest_message.created_at
+                    data['last_action_user_id'] = latest_real_user.id
+
+                    # Mettre à jour les participants
+                    new_participants = set(data.get('participants', []))
+                    for message, real_user in valid_messages:
+                        if real_user.id not in new_participants:
+                            new_participants.add(real_user.id)
+
+                    data['participants'] = list(new_participants)
+                    self.save_monitored_channels()
+
+                    self.logger.info(f"Données de scène {channel_id} mises à jour avec l'activité récente de {latest_real_user.display_name}")
+
+            except discord.Forbidden:
+                self.logger.warning(f"Permissions insuffisantes pour lire l'historique du salon {channel_id}")
+            except Exception as e:
+                self.logger.error(f"Erreur lors de la récupération des messages pour la mise à jour de {channel_id}: {e}")
+
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la mise à jour forcée des données de scène {channel_id}: {e}")
 
     @tasks.loop(hours=6)
     async def check_inactive_scenes(self):
