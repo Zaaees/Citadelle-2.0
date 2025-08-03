@@ -133,10 +133,11 @@ class SurveillanceScene(commands.Cog):
                 )
                 # Initialiser l'en-tête
                 self.sheet.append_row([
-                    "channel_id", "scene_name", "gm_id", "start_date", 
+                    "channel_id", "scene_name", "gm_id", "start_date",
                     "participants", "last_activity_user", "last_activity_date",
                     "message_id", "channel_type", "guild_id"
                 ])
+                logging.info("En-tête créé pour la feuille Scene surveillance")
                 
         except Exception as e:
             logging.error(f"Erreur lors de la configuration Google Sheets: {e}")
@@ -146,6 +147,18 @@ class SurveillanceScene(commands.Cog):
         """Nettoie les tâches lors du déchargement du cog."""
         self.update_surveillance.cancel()
         self.check_inactive_scenes.cancel()
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """Événement déclenché quand le bot est prêt."""
+        logging.info("SurveillanceScene: Bot prêt, démarrage de la mise à jour...")
+        await asyncio.sleep(15)  # Attendre que tout soit initialisé
+        try:
+            await self.refresh_monitored_scenes()
+            await self.update_all_scenes()
+            logging.info("SurveillanceScene: Mise à jour initiale terminée")
+        except Exception as e:
+            logging.error(f"Erreur lors de la mise à jour initiale: {e}")
     
     @tasks.loop(hours=1)
     async def update_surveillance(self):
@@ -344,7 +357,8 @@ class SurveillanceScene(commands.Cog):
         """Récupère le nom d'affichage d'un utilisateur (avec gestion des webhooks)."""
         if message.author.bot and message.webhook_id:
             # C'est un webhook (Tupperbox), utiliser le nom du personnage
-            return message.author.display_name
+            # Le nom du personnage est dans message.author.name pour Tupperbox
+            return message.author.name if message.author.name else message.author.display_name
         else:
             # Utilisateur normal
             return message.author.display_name
@@ -368,11 +382,12 @@ class SurveillanceScene(commands.Cog):
                 user_name = self.get_user_display_name(message)
                 participants.add(user_name)
 
-                # Log pour debug
-                if message_count <= 5:  # Log seulement les 5 premiers pour éviter le spam
-                    logging.info(f"Message {message_count}: {user_name} ({'webhook' if message.webhook_id else 'user'})")
+                # Log détaillé pour debug
+                if message_count <= 10:  # Log les 10 premiers pour mieux diagnostiquer
+                    logging.info(f"Message {message_count}: '{user_name}' - Bot: {message.author.bot}, Webhook: {message.webhook_id is not None}, Author.name: '{message.author.name}', Author.display_name: '{message.author.display_name}'")
 
-            logging.info(f"Analysé {message_count} messages, trouvé {len(participants)} participants: {list(participants)}")
+            participants_list = sorted(list(participants))  # Trier pour plus de lisibilité
+            logging.info(f"Analysé {message_count} messages depuis {start_date}, trouvé {len(participants_list)} participants: {participants_list}")
 
         except discord.Forbidden:
             logging.error(f"Pas d'autorisation pour lire l'historique de {channel.name}")
@@ -688,6 +703,17 @@ class SurveillanceScene(commands.Cog):
     async def update_scene_data(self, channel_id: str, scene_data: dict):
         """Met à jour les données d'une scène dans Google Sheets."""
         try:
+            logging.info(f"Mise à jour des données pour le canal {channel_id}")
+
+            # Décoder les participants pour logging
+            participants_data = scene_data.get('participants', '[]')
+            if isinstance(participants_data, str):
+                try:
+                    participants_list = json.loads(participants_data)
+                    logging.info(f"Participants à sauvegarder: {participants_list}")
+                except:
+                    logging.error(f"Erreur lors du décodage des participants: {participants_data}")
+
             records = self.sheet.get_all_records()
             for i, record in enumerate(records, start=2):
                 if record.get('channel_id') == channel_id:
@@ -704,32 +730,49 @@ class SurveillanceScene(commands.Cog):
                         scene_data['channel_type'],
                         scene_data['guild_id']
                     ]])
+                    logging.info(f"Données mises à jour dans Google Sheets ligne {i}")
                     break
+            else:
+                logging.error(f"Canal {channel_id} non trouvé dans Google Sheets pour mise à jour")
+
         except Exception as e:
             logging.error(f"Erreur lors de la mise à jour des données: {e}")
+            import traceback
+            logging.error(f"Traceback: {traceback.format_exc()}")
 
     async def update_all_scenes(self):
         """Met à jour toutes les scènes surveillées."""
+        logging.info(f"Mise à jour de {len(self.monitored_scenes)} scènes surveillées")
+
         for channel_id, scene_data in self.monitored_scenes.items():
             try:
+                logging.info(f"Mise à jour de la scène {channel_id} ({scene_data.get('scene_name', 'Nom inconnu')})")
+
                 channel = self.bot.get_channel(int(channel_id))
                 if not channel:
                     # Essayer de récupérer via l'API
                     try:
                         channel = await self.bot.fetch_channel(int(channel_id))
                     except:
+                        logging.error(f"Impossible de récupérer le canal {channel_id}")
                         continue
 
                 # Récupérer les nouvelles données
                 start_date = datetime.fromisoformat(scene_data['start_date'])
+                logging.info(f"Récupération des participants depuis {start_date}")
+
                 participants = await self.get_channel_participants(channel, start_date)
                 last_activity = await self.get_last_activity(channel)
 
-                # Mettre à jour les données
+                # Mettre à jour les données locales
+                old_participants = scene_data.get('participants', '[]')
                 scene_data['participants'] = json.dumps(participants)
+
                 if last_activity:
                     scene_data['last_activity_user'] = last_activity['user']
                     scene_data['last_activity_date'] = last_activity['date'].isoformat()
+
+                logging.info(f"Participants mis à jour: {len(participants)} trouvés")
 
                 # Mettre à jour Google Sheets
                 await self.update_scene_data(channel_id, scene_data)
@@ -739,6 +782,10 @@ class SurveillanceScene(commands.Cog):
 
             except Exception as e:
                 logging.error(f"Erreur lors de la mise à jour de la scène {channel_id}: {e}")
+                import traceback
+                logging.error(f"Traceback: {traceback.format_exc()}")
+
+        logging.info("Mise à jour de toutes les scènes terminée")
 
     async def update_surveillance_message(self, scene_data: dict):
         """Met à jour le message de surveillance dans le canal dédié."""
