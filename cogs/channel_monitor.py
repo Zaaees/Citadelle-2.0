@@ -2918,7 +2918,45 @@ class ChannelMonitor(commands.Cog):
         except Exception as e:
             self.logger.error(f"Erreur lors de la configuration des vues persistantes: {e}")
 
+    @commands.command(name="refresh_embeds")
+    async def refresh_embeds_command(self, ctx: commands.Context):
+        """
+        Commande admin pour forcer la mise à jour de tous les embeds de surveillance.
 
+        Usage: !refresh_embeds
+        """
+        # Vérifier les permissions MJ
+        if not self.is_mj(ctx.author):
+            error_embed = self.create_error_embed(
+                title="Accès refusé",
+                description="Cette commande est réservée aux MJ."
+            )
+            await ctx.send(embed=error_embed, delete_after=10)
+            return
+
+        # Message de statut
+        status_message = await ctx.send("🔄 Mise à jour des embeds de surveillance en cours...")
+
+        try:
+            # Forcer la mise à jour de tous les embeds
+            await self.update_all_existing_embeds()
+
+            success_embed = self.create_success_embed(
+                title="Embeds mis à jour",
+                description="Tous les embeds de surveillance ont été mis à jour avec le nouveau format d'affichage de la dernière activité."
+            )
+            await status_message.edit(content="", embed=success_embed)
+
+            self.logger.info(f"Admin {ctx.author.display_name} a forcé la mise à jour des embeds")
+
+        except Exception as e:
+            error_embed = self.create_error_embed(
+                title="Erreur de mise à jour",
+                description="Une erreur est survenue lors de la mise à jour des embeds.",
+                error_details=str(e)
+            )
+            await status_message.edit(content="", embed=error_embed)
+            self.logger.error(f"Erreur lors de la mise à jour forcée des embeds: {e}")
 
     @commands.command(name="test_refresh")
     async def test_refresh_command(self, ctx: commands.Context):
