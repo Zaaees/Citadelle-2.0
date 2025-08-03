@@ -379,6 +379,15 @@ class SurveillanceScene(commands.Cog):
             # Utilisateur normal
             return message.author.display_name
 
+    def should_ignore_message(self, message: discord.Message) -> bool:
+        """Détermine si un message doit être ignoré dans la surveillance (ex: Maître du Jeu)."""
+        # Ignorer tous les webhooks qui ont le nom "Maître du Jeu"
+        if message.author.bot and message.webhook_id:
+            user_name = self.get_user_display_name(message)
+            if user_name == "Maître du Jeu":
+                return True
+        return False
+
     async def get_channel_participants(self, channel: Union[discord.TextChannel, discord.Thread], start_date: datetime) -> List[str]:
         """Récupère la liste des participants depuis une date donnée."""
         participants = set()
@@ -405,12 +414,14 @@ class SurveillanceScene(commands.Cog):
             message_count = 0
             async for message in channel.history(limit=None, after=start_date):
                 message_count += 1
+
+                # Ignorer les messages qui doivent être filtrés (ex: Maître du Jeu)
+                if self.should_ignore_message(message):
+                    continue
+
                 # Utiliser la nouvelle fonction pour obtenir le nom d'affichage
                 user_name = self.get_user_display_name(message)
-
-                # Ignorer le webhook "Maître du Jeu"
-                if user_name != "Maître du Jeu":
-                    participants.add(user_name)
+                participants.add(user_name)
 
                 # Log détaillé pour debug
                 if message_count <= 10:  # Log les 10 premiers pour mieux diagnostiquer
@@ -438,7 +449,11 @@ class SurveillanceScene(commands.Cog):
 
             logging.info(f"Récupération de la dernière activité pour {channel.name}")
 
-            async for message in channel.history(limit=1):
+            async for message in channel.history(limit=50):  # Augmenter la limite pour trouver un message valide
+                # Ignorer les messages qui doivent être filtrés (ex: Maître du Jeu)
+                if self.should_ignore_message(message):
+                    continue
+
                 # Utiliser la nouvelle fonction pour obtenir le nom d'affichage
                 user_name = self.get_user_display_name(message)
 
@@ -690,220 +705,6 @@ class SurveillanceScene(commands.Cog):
         except Exception as e:
             logging.error(f"Erreur dans la commande scene: {e}")
             await ctx.send("❌ Une erreur est survenue lors de l'initialisation de la surveillance.")
-
-    @commands.command(name='update_scenes')
-    @commands.has_permissions(administrator=True)
-    async def update_scenes_command(self, ctx):
-        """
-        Commande pour forcer la mise à jour de toutes les scènes surveillées.
-        Usage: !update_scenes
-        """
-        if not self.sheet:
-            await ctx.send("❌ Erreur de configuration Google Sheets.")
-            return
-
-        try:
-            await ctx.send("🔄 Mise à jour de toutes les scènes en cours...")
-
-            # Recharger les scènes depuis Google Sheets
-            await self.refresh_monitored_scenes()
-            await ctx.send(f"📋 {len(self.monitored_scenes)} scène(s) chargée(s) depuis Google Sheets.")
-
-            if len(self.monitored_scenes) == 0:
-                await ctx.send("❌ Aucune scène trouvée. Vérifiez votre Google Sheet.")
-                return
-
-            # Mettre à jour toutes les scènes ET forcer la mise à jour des messages
-            updated_count = 0
-            for channel_id, scene_data in self.monitored_scenes.items():
-                try:
-                    logging.info(f"Mise à jour forcée de la scène {channel_id}")
-
-                    # Récupérer le canal
-                    channel = self.bot.get_channel(int(channel_id))
-                    if not channel:
-                        try:
-                            channel = await self.bot.fetch_channel(int(channel_id))
-                        except:
-                            logging.error(f"Impossible de récupérer le canal {channel_id}")
-                            continue
-
-                    # Récupérer les nouvelles données
-                    start_date = datetime.fromisoformat(scene_data['start_date'])
-                    if start_date.tzinfo is None:
-                        start_date = self.paris_tz.localize(start_date)
-
-                    participants = await self.get_channel_participants(channel, start_date)
-                    last_activity = await self.get_last_activity(channel)
-
-                    # Mettre à jour les données locales
-                    scene_data['participants'] = json.dumps(participants)
-                    if last_activity:
-                        scene_data['last_activity_user'] = last_activity['user']
-                        scene_data['last_activity_date'] = last_activity['date'].isoformat()
-
-                    # Mettre à jour Google Sheets
-                    await self.update_scene_data(channel_id, scene_data)
-
-                    # FORCER la mise à jour du message de surveillance
-                    await self.update_surveillance_message(scene_data)
-
-                    updated_count += 1
-                    logging.info(f"Scène {channel_id} mise à jour avec succès")
-
-                except Exception as e:
-                    logging.error(f"Erreur lors de la mise à jour de la scène {channel_id}: {e}")
-
-            await ctx.send(f"✅ Mise à jour terminée ! {updated_count}/{len(self.monitored_scenes)} scène(s) mise(s) à jour.")
-
-        except Exception as e:
-            logging.error(f"Erreur dans la commande update_scenes: {e}")
-            await ctx.send("❌ Une erreur est survenue lors de la mise à jour des scènes.")
-
-    @commands.command(name='debug_scenes')
-    @commands.has_permissions(administrator=True)
-    async def debug_scenes_command(self, ctx):
-        """
-        Commande pour déboguer les scènes surveillées.
-        Usage: !debug_scenes
-        """
-        if not self.sheet:
-            await ctx.send("❌ Erreur de configuration Google Sheets.")
-            return
-
-        try:
-            # Récupérer les données brutes
-            all_values = self.sheet.get_all_values()
-            records = self.sheet.get_all_records()
-
-            embed = discord.Embed(
-                title="🔍 Debug des scènes surveillées",
-                color=0xe74c3c
-            )
-
-            embed.add_field(
-                name="📊 Statistiques",
-                value=f"• Lignes totales: {len(all_values)}\n• Enregistrements: {len(records)}\n• Scènes en cache: {len(self.monitored_scenes)}",
-                inline=False
-            )
-
-            if len(all_values) > 0:
-                embed.add_field(
-                    name="📋 En-têtes",
-                    value=f"```{', '.join(all_values[0])}```",
-                    inline=False
-                )
-
-            if len(records) > 0:
-                scenes_info = []
-                for i, record in enumerate(records[:3]):  # Limiter à 3 pour éviter les messages trop longs
-                    channel_id = record.get('channel_id', 'N/A')
-                    scene_name = record.get('scene_name', 'N/A')
-                    scenes_info.append(f"{i+1}. ID: {channel_id} | Nom: {scene_name}")
-
-                embed.add_field(
-                    name="🎭 Premières scènes",
-                    value="```" + "\n".join(scenes_info) + "```",
-                    inline=False
-                )
-
-            await ctx.send(embed=embed)
-
-        except Exception as e:
-            logging.error(f"Erreur dans la commande debug_scenes: {e}")
-            await ctx.send(f"❌ Erreur lors du debug: {e}")
-
-    @commands.command(name='list_sheet_data')
-    @commands.has_permissions(administrator=True)
-    async def list_sheet_data_command(self, ctx):
-        """
-        Commande pour voir toutes les données brutes du Google Sheet.
-        Usage: !list_sheet_data
-        """
-        if not self.sheet:
-            await ctx.send("❌ Erreur de configuration Google Sheets.")
-            return
-
-        try:
-            # Récupérer toutes les valeurs brutes
-            all_values = self.sheet.get_all_values()
-
-            embed = discord.Embed(
-                title="📋 Données brutes du Google Sheet",
-                color=0x3498db
-            )
-
-            if len(all_values) == 0:
-                embed.add_field(name="❌ Aucune donnée", value="Le Google Sheet est complètement vide", inline=False)
-            elif len(all_values) == 1:
-                embed.add_field(name="📋 En-tête seulement", value=f"```{', '.join(all_values[0])}```", inline=False)
-                embed.add_field(name="ℹ️ Info", value="Il n'y a que l'en-tête, aucune scène surveillée", inline=False)
-            else:
-                # Afficher l'en-tête
-                embed.add_field(name="📋 En-tête", value=f"```{', '.join(all_values[0])}```", inline=False)
-
-                # Afficher les données (limiter à 5 lignes pour éviter les messages trop longs)
-                data_lines = []
-                for i, row in enumerate(all_values[1:6]):  # Lignes 2 à 6 max
-                    if any(cell.strip() for cell in row):  # Ignorer les lignes complètement vides
-                        data_lines.append(f"Ligne {i+2}: {', '.join(row)}")
-
-                if data_lines:
-                    embed.add_field(
-                        name="📊 Données (5 premières lignes)",
-                        value="```" + "\n".join(data_lines) + "```",
-                        inline=False
-                    )
-                else:
-                    embed.add_field(name="❌ Aucune donnée", value="Toutes les lignes de données sont vides", inline=False)
-
-                if len(all_values) > 6:
-                    embed.add_field(name="ℹ️ Info", value=f"... et {len(all_values) - 6} autres lignes", inline=False)
-
-            await ctx.send(embed=embed)
-
-        except Exception as e:
-            logging.error(f"Erreur dans la commande list_sheet_data: {e}")
-            await ctx.send(f"❌ Erreur lors de la récupération des données: {e}")
-
-    @commands.command(name='fix_sheet_header')
-    @commands.has_permissions(administrator=True)
-    async def fix_sheet_header_command(self, ctx):
-        """
-        Commande pour réparer l'en-tête du Google Sheet.
-        Usage: !fix_sheet_header
-        """
-        if not self.sheet:
-            await ctx.send("❌ Erreur de configuration Google Sheets.")
-            return
-
-        try:
-            # Vérifier l'état actuel
-            all_values = self.sheet.get_all_values()
-
-            if len(all_values) == 0:
-                await ctx.send("❌ Le Google Sheet est complètement vide.")
-                return
-
-            # Vérifier si l'en-tête existe déjà
-            expected_header = ["channel_id", "scene_name", "gm_id", "start_date", "participants", "last_activity_user", "last_activity_date", "message_id", "channel_type", "guild_id"]
-
-            if len(all_values) > 0 and all_values[0] == expected_header:
-                await ctx.send("✅ L'en-tête est déjà correct.")
-                return
-
-            # Insérer l'en-tête en première ligne
-            self.sheet.insert_row(expected_header, 1)
-
-            await ctx.send("✅ En-tête ajouté avec succès ! Vous pouvez maintenant utiliser `!update_scenes`.")
-
-            # Optionnel : recharger automatiquement les scènes
-            await self.refresh_monitored_scenes()
-            await ctx.send(f"🔄 Scènes rechargées : {len(self.monitored_scenes)} scène(s) trouvée(s).")
-
-        except Exception as e:
-            logging.error(f"Erreur dans la commande fix_sheet_header: {e}")
-            await ctx.send(f"❌ Erreur lors de la réparation de l'en-tête: {e}")
 
     async def update_scene_message_id(self, channel_id: str, message_id: str):
         """Met à jour l'ID du message de surveillance dans Google Sheets."""
