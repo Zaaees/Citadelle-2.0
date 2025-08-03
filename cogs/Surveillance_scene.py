@@ -224,7 +224,10 @@ class SurveillanceScene(commands.Cog):
             guild = self.bot.get_guild(guild_id)
             if not guild:
                 logging.error(f"Guild {guild_id} non trouvée")
+                logging.info(f"Guildes disponibles: {[g.id for g in self.bot.guilds]}")
                 return None
+
+            logging.info(f"Guild trouvée: {guild.name} (ID: {guild.id})")
 
             # Si c'est un thread ou un post de forum (3ème ID présent)
             if thread_id:
@@ -292,6 +295,22 @@ class SurveillanceScene(commands.Cog):
                 return channel
             else:
                 logging.error(f"Canal {channel_id} non trouvé dans la guild {guild_id}")
+                logging.info(f"Canaux disponibles dans la guild: {[(c.id, c.name, type(c).__name__) for c in guild.channels[:10]]}")
+
+                # Essayer de récupérer via l'API Discord
+                try:
+                    logging.info(f"Tentative de récupération via fetch_channel pour {channel_id}")
+                    fetched_channel = await self.bot.fetch_channel(channel_id)
+                    if fetched_channel:
+                        logging.info(f"Canal récupéré via API: {fetched_channel.name} (Type: {type(fetched_channel).__name__})")
+                        return fetched_channel
+                except discord.NotFound:
+                    logging.error(f"Canal {channel_id} n'existe pas ou n'est pas accessible")
+                except discord.Forbidden:
+                    logging.error(f"Pas d'autorisation pour accéder au canal {channel_id}")
+                except Exception as e:
+                    logging.error(f"Erreur lors de fetch_channel: {e}")
+
                 return None
 
         except Exception as e:
@@ -511,7 +530,22 @@ class SurveillanceScene(commands.Cog):
             channel = await self.get_channel_from_link(channel_link)
             if not channel:
                 logging.error(f"Canal non trouvé pour le lien: {channel_link}")
-                await ctx.send(f"❌ Impossible de trouver le salon spécifié.\n**Lien fourni:** {channel_link}\n\n**Formats supportés:**\n• Salon: `https://discord.com/channels/GUILD_ID/CHANNEL_ID`\n• Thread: `https://discord.com/channels/GUILD_ID/CHANNEL_ID/THREAD_ID`\n• Post de forum: `https://discord.com/channels/GUILD_ID/FORUM_ID/POST_ID`\n• Également supporté: `discordapp.com` au lieu de `discord.com`")
+
+                # Analyser le lien pour donner plus d'infos
+                match = re.search(r'(?:discord(?:app)?\.com)/channels/(\d+)/(\d+)(?:/(\d+))?', channel_link)
+                if match:
+                    guild_id = int(match.group(1))
+                    channel_id = int(match.group(2))
+
+                    guild = self.bot.get_guild(guild_id)
+                    if not guild:
+                        error_msg = f"❌ **Serveur non trouvé**\nLe bot n'a pas accès au serveur avec l'ID `{guild_id}`.\n\n**Vérifiez que :**\n• Le bot est bien présent sur ce serveur\n• L'ID du serveur est correct"
+                    else:
+                        error_msg = f"❌ **Canal non trouvé**\nLe canal avec l'ID `{channel_id}` n'existe pas ou n'est pas accessible sur le serveur **{guild.name}**.\n\n**Causes possibles :**\n• Le canal a été supprimé\n• Le bot n'a pas les permissions pour voir ce canal\n• L'ID du canal est incorrect"
+                else:
+                    error_msg = f"❌ **Format de lien invalide**\n**Lien fourni:** {channel_link}\n\n**Formats supportés:**\n• Salon: `https://discord.com/channels/GUILD_ID/CHANNEL_ID`\n• Thread: `https://discord.com/channels/GUILD_ID/CHANNEL_ID/THREAD_ID`\n• Post de forum: `https://discord.com/channels/GUILD_ID/FORUM_ID/POST_ID`\n• Également supporté: `discordapp.com` au lieu de `discord.com`"
+
+                await ctx.send(error_msg)
                 return
 
             logging.info(f"Canal trouvé: {channel.name} (ID: {channel.id}, Type: {type(channel).__name__})")
