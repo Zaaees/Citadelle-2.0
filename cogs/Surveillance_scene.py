@@ -209,10 +209,13 @@ class SurveillanceScene(commands.Cog):
     async def get_channel_from_link(self, channel_link: str) -> Optional[Union[discord.TextChannel, discord.Thread, discord.ForumChannel]]:
         """Récupère un canal à partir d'un lien Discord."""
         try:
-            # Extraire l'ID du canal depuis le lien
-            match = re.search(r'/channels/(\d+)/(\d+)(?:/(\d+))?', channel_link)
+            # Extraire l'ID du canal depuis le lien (support discord.com et discordapp.com)
+            match = re.search(r'(?:discord(?:app)?\.com)/channels/(\d+)/(\d+)(?:/(\d+))?', channel_link)
             if not match:
+                logging.error(f"Format de lien non reconnu: {channel_link}")
                 return None
+
+            logging.info(f"Lien analysé - Guild: {match.group(1)}, Channel: {match.group(2)}, Thread/Post: {match.group(3) or 'None'}")
 
             guild_id = int(match.group(1))
             channel_id = int(match.group(2))
@@ -508,7 +511,7 @@ class SurveillanceScene(commands.Cog):
             channel = await self.get_channel_from_link(channel_link)
             if not channel:
                 logging.error(f"Canal non trouvé pour le lien: {channel_link}")
-                await ctx.send(f"❌ Impossible de trouver le salon spécifié.\n**Lien fourni:** {channel_link}\n\n**Formats supportés:**\n• Salon: `https://discord.com/channels/GUILD_ID/CHANNEL_ID`\n• Thread: `https://discord.com/channels/GUILD_ID/CHANNEL_ID/THREAD_ID`\n• Post de forum: `https://discord.com/channels/GUILD_ID/FORUM_ID/POST_ID`")
+                await ctx.send(f"❌ Impossible de trouver le salon spécifié.\n**Lien fourni:** {channel_link}\n\n**Formats supportés:**\n• Salon: `https://discord.com/channels/GUILD_ID/CHANNEL_ID`\n• Thread: `https://discord.com/channels/GUILD_ID/CHANNEL_ID/THREAD_ID`\n• Post de forum: `https://discord.com/channels/GUILD_ID/FORUM_ID/POST_ID`\n• Également supporté: `discordapp.com` au lieu de `discord.com`")
                 return
 
             logging.info(f"Canal trouvé: {channel.name} (ID: {channel.id}, Type: {type(channel).__name__})")
