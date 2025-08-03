@@ -395,12 +395,16 @@ class SurveillanceScene(commands.Cog):
                 message_count += 1
                 # Utiliser la nouvelle fonction pour obtenir le nom d'affichage
                 user_name = self.get_user_display_name(message)
-                participants.add(user_name)
+
+                # Ignorer le webhook "Maître du Jeu"
+                if user_name != "Maître du Jeu":
+                    participants.add(user_name)
 
                 # Log détaillé pour debug
                 if message_count <= 10:  # Log les 10 premiers pour mieux diagnostiquer
                     logging.info(f"Message {message_count}: '{user_name}' le {message.created_at} - Bot: {message.author.bot}, Webhook: {message.webhook_id is not None}, Author.name: '{message.author.name}', Author.display_name: '{message.author.display_name}'")
 
+            # Convertir en liste triée et dédoublonnée (le set garantit déjà l'unicité)
             participants_list = sorted(list(participants))  # Trier pour plus de lisibilité
             logging.info(f"Analysé {message_count} messages depuis {start_date}, trouvé {len(participants_list)} participants: {participants_list}")
 
@@ -495,14 +499,12 @@ class SurveillanceScene(commands.Cog):
                     participants = []
 
             if participants:
-                participants_text = "\n".join([f"• {p}" for p in participants[:10]])  # Limiter à 10
-                if len(participants) > 10:
-                    participants_text += f"\n... et {len(participants) - 10} autres"
+                participants_text = "\n".join([f"• {p}" for p in participants])  # Afficher tous les participants
             else:
                 participants_text = "Aucun participant"
 
             embed.add_field(
-                name=f"👥 Rôlistes Participants ({len(participants)})",
+                name=f"🎭 Personnages ({len(participants)})",
                 value=participants_text,
                 inline=False
             )
