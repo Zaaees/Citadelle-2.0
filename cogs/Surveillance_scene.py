@@ -338,10 +338,14 @@ class SurveillanceScene(commands.Cog):
     def parse_date(self, date_str: str) -> datetime:
         """Parse une date au format JJ/MM/AA."""
         try:
-            return datetime.strptime(date_str, "%d/%m/%y").replace(tzinfo=self.paris_tz)
+            # Parser la date et la mettre au début de la journée (00:00:00)
+            parsed_date = datetime.strptime(date_str, "%d/%m/%y").replace(hour=0, minute=0, second=0, microsecond=0)
+            # Ajouter la timezone Paris
+            return self.paris_tz.localize(parsed_date)
         except ValueError:
-            # Si le format est incorrect, utiliser la date d'aujourd'hui
-            return datetime.now(self.paris_tz)
+            # Si le format est incorrect, utiliser la date d'aujourd'hui au début de la journée
+            today = datetime.now(self.paris_tz).replace(hour=0, minute=0, second=0, microsecond=0)
+            return today
 
     async def get_webhook_username(self, message: discord.Message) -> Optional[str]:
         """Récupère le nom d'utilisateur d'un webhook (pour Tupperbox)."""
@@ -374,7 +378,18 @@ class SurveillanceScene(commands.Cog):
                 return []
 
             logging.info(f"Récupération des participants pour {channel.name} (Type: {type(channel).__name__}) depuis {start_date}")
+            logging.info(f"Date de surveillance (timezone): {start_date} - Timezone: {start_date.tzinfo}")
 
+            # Tester d'abord sans filtre de date pour voir s'il y a des messages
+            total_messages = 0
+            async for message in channel.history(limit=10):
+                total_messages += 1
+                if total_messages <= 3:
+                    logging.info(f"Message récent {total_messages}: '{self.get_user_display_name(message)}' le {message.created_at} (après {start_date}? {message.created_at > start_date})")
+
+            logging.info(f"Total des messages récents dans le canal: {total_messages}")
+
+            # Maintenant récupérer avec le filtre de date
             message_count = 0
             async for message in channel.history(limit=None, after=start_date):
                 message_count += 1
@@ -384,7 +399,7 @@ class SurveillanceScene(commands.Cog):
 
                 # Log détaillé pour debug
                 if message_count <= 10:  # Log les 10 premiers pour mieux diagnostiquer
-                    logging.info(f"Message {message_count}: '{user_name}' - Bot: {message.author.bot}, Webhook: {message.webhook_id is not None}, Author.name: '{message.author.name}', Author.display_name: '{message.author.display_name}'")
+                    logging.info(f"Message {message_count}: '{user_name}' le {message.created_at} - Bot: {message.author.bot}, Webhook: {message.webhook_id is not None}, Author.name: '{message.author.name}', Author.display_name: '{message.author.display_name}'")
 
             participants_list = sorted(list(participants))  # Trier pour plus de lisibilité
             logging.info(f"Analysé {message_count} messages depuis {start_date}, trouvé {len(participants_list)} participants: {participants_list}")
@@ -759,7 +774,11 @@ class SurveillanceScene(commands.Cog):
 
                 # Récupérer les nouvelles données
                 start_date = datetime.fromisoformat(scene_data['start_date'])
-                logging.info(f"Récupération des participants depuis {start_date}")
+                # S'assurer que la date a une timezone
+                if start_date.tzinfo is None:
+                    start_date = self.paris_tz.localize(start_date)
+
+                logging.info(f"Récupération des participants depuis {start_date} (timezone: {start_date.tzinfo})")
 
                 participants = await self.get_channel_participants(channel, start_date)
                 last_activity = await self.get_last_activity(channel)
