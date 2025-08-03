@@ -190,16 +190,37 @@ class SurveillanceScene(commands.Cog):
         """Vérifie les scènes inactives depuis 7 jours."""
         if not self.sheet:
             return
-            
+
         try:
+            # IMPORTANT: Recharger les données depuis Google Sheets pour avoir les infos à jour
+            await self.refresh_monitored_scenes()
+            logging.info(f"Vérification d'inactivité pour {len(self.monitored_scenes)} scènes")
+
             now = datetime.now(self.paris_tz)
             seven_days_ago = now - timedelta(days=7)
-            
+
             for scene_data in self.monitored_scenes.values():
-                last_activity = datetime.fromisoformat(scene_data.get('last_activity_date', now.isoformat()))
-                if last_activity.replace(tzinfo=self.paris_tz) < seven_days_ago:
-                    await self.notify_inactive_scene(scene_data)
-                    
+                try:
+                    last_activity_str = scene_data.get('last_activity_date', '')
+                    if not last_activity_str:
+                        logging.warning(f"Pas de date d'activité pour la scène {scene_data.get('scene_name', 'Inconnue')}")
+                        continue
+
+                    last_activity = datetime.fromisoformat(last_activity_str)
+                    # S'assurer que la date a une timezone
+                    if last_activity.tzinfo is None:
+                        last_activity = self.paris_tz.localize(last_activity)
+
+                    time_since_activity = now - last_activity
+                    logging.info(f"Scène {scene_data.get('scene_name', 'Inconnue')}: dernière activité il y a {time_since_activity.days} jours")
+
+                    if time_since_activity >= timedelta(days=7):
+                        logging.info(f"Scène inactive détectée: {scene_data.get('scene_name', 'Inconnue')}")
+                        await self.notify_inactive_scene(scene_data)
+
+                except Exception as scene_error:
+                    logging.error(f"Erreur lors de la vérification de la scène {scene_data.get('scene_name', 'Inconnue')}: {scene_error}")
+
         except Exception as e:
             logging.error(f"Erreur dans check_inactive_scenes: {e}")
     
@@ -877,26 +898,49 @@ class SurveillanceScene(commands.Cog):
         try:
             gm = self.bot.get_user(int(scene_data['gm_id']))
             if gm:
+                # Calculer le temps exact d'inactivité
+                last_activity_date = scene_data.get('last_activity_date', '')
+                now = datetime.now(self.paris_tz)
+
                 embed = discord.Embed(
                     title="⚠️ Scène Inactive",
                     description=f"La scène **{scene_data['scene_name']}** n'a pas eu d'activité depuis 7 jours.",
                     color=0xf39c12,
-                    timestamp=datetime.now(self.paris_tz)
+                    timestamp=now
                 )
 
-                last_activity_date = scene_data.get('last_activity_date', '')
                 if last_activity_date:
                     try:
                         activity_date = datetime.fromisoformat(last_activity_date)
+                        if activity_date.tzinfo is None:
+                            activity_date = self.paris_tz.localize(activity_date)
+
+                        time_diff = now - activity_date
+                        days_inactive = time_diff.days
+
                         embed.add_field(
                             name="Dernière activité",
-                            value=f"{activity_date.strftime('%d/%m/%Y à %H:%M')}",
+                            value=f"{activity_date.strftime('%d/%m/%Y à %H:%M')}\n({days_inactive} jours d'inactivité)",
                             inline=False
                         )
-                    except:
-                        pass
+
+                        # Ajouter des infos de debug
+                        embed.add_field(
+                            name="🔍 Informations de debug",
+                            value=f"Canal: <#{scene_data['channel_id']}>\nDernière vérification: {now.strftime('%d/%m/%Y à %H:%M')}",
+                            inline=False
+                        )
+
+                    except Exception as date_error:
+                        logging.error(f"Erreur lors du parsing de la date d'activité: {date_error}")
+                        embed.add_field(
+                            name="Dernière activité",
+                            value=f"Erreur de format: {last_activity_date}",
+                            inline=False
+                        )
 
                 await gm.send(embed=embed)
+                logging.info(f"Notification d'inactivité envoyée pour la scène {scene_data['scene_name']}")
 
         except Exception as e:
             logging.error(f"Erreur lors de la notification d'inactivité: {e}")
