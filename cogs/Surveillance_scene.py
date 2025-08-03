@@ -376,7 +376,8 @@ class SurveillanceScene(commands.Cog):
             # Le nom du personnage est dans message.author.name pour Tupperbox
             return message.author.name if message.author.name else message.author.display_name
         else:
-            # Utilisateur normal
+            # Utilisateur normal - utiliser le nom d'affichage sur le serveur (nickname ou nom global)
+            # message.author.display_name donne le nickname sur le serveur s'il existe, sinon le nom global
             return message.author.display_name
 
     def should_ignore_message(self, message: discord.Message) -> bool:
