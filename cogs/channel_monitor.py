@@ -2774,6 +2774,38 @@ class ChannelMonitor(commands.Cog):
             await ctx.send(embed=error_embed, delete_after=10)
             self.logger.error(f"Erreur lors de la création de l'embed admin: {e}")
 
+    async def find_tupperbox_user(self, webhook_message: discord.Message):
+        """
+        Trouve l'utilisateur réel qui a envoyé un message Tupperbox en analysant l'historique.
+        """
+        try:
+            # Chercher dans les 20 messages précédents (dans une fenêtre de 2 minutes)
+            time_window = webhook_message.created_at - timedelta(minutes=2)
+
+            async for message in webhook_message.channel.history(limit=20, before=webhook_message.created_at):
+                # Arrêter si on dépasse la fenêtre de temps
+                if message.created_at < time_window:
+                    break
+
+                # Ignorer les bots et webhooks
+                if message.author.bot or message.webhook_id:
+                    continue
+
+                # Vérifier si c'est potentiellement l'utilisateur qui a envoyé le message Tupperbox
+                # Les messages Tupperbox sont généralement envoyés immédiatement après la commande
+                time_diff = (webhook_message.created_at - message.created_at).total_seconds()
+
+                # Si le message est dans les 30 secondes précédentes, c'est probablement le bon utilisateur
+                if 0 <= time_diff <= 30:
+                    self.logger.debug(f"Utilisateur potentiel trouvé: {message.author.display_name} ({time_diff:.1f}s avant le webhook)")
+                    return message.author
+
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la recherche de l'utilisateur Tupperbox: {e}")
+            return None
+
     def create_activity_info(self, user, message, is_webhook=False):
         """
         Crée un dictionnaire avec les informations d'activité pour stockage.
@@ -2795,10 +2827,20 @@ class ChannelMonitor(commands.Cog):
         if message.author.bot:
             # Vérifier si c'est un webhook (Tupperbot/PluralKit)
             if message.webhook_id:
-                # Pour les webhooks, utiliser directement les informations du webhook
-                # Le nom affiché est celui du personnage/alter
                 self.logger.info(f"Message webhook détecté: {message.author.display_name} dans le salon {message.channel.id}")
-                return self.create_activity_info(message.author, message, is_webhook=True)
+
+                # Essayer de trouver l'utilisateur réel qui a envoyé le message Tupperbox
+                real_user = await self.find_tupperbox_user(message)
+                if real_user:
+                    self.logger.info(f"Utilisateur réel trouvé pour le webhook: {real_user.display_name} (ID: {real_user.id})")
+                    # Créer les infos d'activité avec l'utilisateur réel mais garder le nom du personnage
+                    activity_info = self.create_activity_info(real_user, message, is_webhook=True)
+                    activity_info['character_name'] = message.author.display_name  # Nom du personnage Tupperbox
+                    return activity_info
+                else:
+                    # Fallback: utiliser les informations du webhook
+                    self.logger.warning(f"Impossible de trouver l'utilisateur réel pour le webhook {message.author.display_name}")
+                    return self.create_activity_info(message.author, message, is_webhook=True)
             else:
                 # Autres bots - ignorer
                 return None
@@ -2814,8 +2856,13 @@ class ChannelMonitor(commands.Cog):
             return "Utilisateur inconnu"
 
         if activity_info.get('is_webhook', False):
-            # Pour les webhooks, utiliser le display_name stocké (nom du personnage)
-            return activity_info.get('display_name', 'Webhook inconnu')
+            # Pour les webhooks Tupperbox, afficher le nom du personnage avec l'emoji
+            character_name = activity_info.get('character_name')
+            if character_name:
+                return f"{character_name} 🎭"
+            else:
+                # Fallback sur le display_name stocké
+                return f"{activity_info.get('display_name', 'Webhook inconnu')} 🎭"
         else:
             # Pour les utilisateurs normaux, essayer de récupérer l'utilisateur actuel
             user_id = activity_info.get('user_id')
