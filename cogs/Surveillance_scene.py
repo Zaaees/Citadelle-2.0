@@ -109,7 +109,10 @@ class SurveillanceScene(commands.Cog):
         
         # Cache des scènes surveillées
         self.monitored_scenes: Dict[str, dict] = {}
-        
+
+        # Cache pour éviter le spam de notifications (channel_id -> {user_id: timestamp})
+        self.last_notifications: Dict[str, Dict[str, float]] = {}
+
         # Démarrer les tâches
         self.update_surveillance.start()
         self.check_inactive_scenes.start()
@@ -546,8 +549,12 @@ class SurveillanceScene(commands.Cog):
             if last_activity_date:
                 try:
                     activity_date = datetime.fromisoformat(last_activity_date)
+                    # S'assurer que activity_date a une timezone
+                    if activity_date.tzinfo is None:
+                        activity_date = self.paris_tz.localize(activity_date)
+
                     now = datetime.now(self.paris_tz)
-                    time_diff = now - activity_date.replace(tzinfo=self.paris_tz)
+                    time_diff = now - activity_date
 
                     if time_diff.days > 0:
                         time_ago = f"il y a {time_diff.days} jour(s)"
@@ -894,6 +901,38 @@ class SurveillanceScene(commands.Cog):
         except Exception as e:
             logging.error(f"Erreur lors de la notification d'inactivité: {e}")
 
+    def should_notify_gm(self, channel_id: str, user_id: int) -> bool:
+        """Détermine si le MJ doit être notifié en fonction de l'anti-spam."""
+        import time
+
+        current_time = time.time()
+
+        # Initialiser le cache pour ce canal si nécessaire
+        if channel_id not in self.last_notifications:
+            self.last_notifications[channel_id] = {}
+
+        # Vérifier la dernière notification pour cet utilisateur
+        last_notification = self.last_notifications[channel_id].get(user_id, 0)
+
+        # Si c'est un utilisateur différent du dernier, notifier immédiatement
+        last_user_notified = None
+        for uid, timestamp in self.last_notifications[channel_id].items():
+            if timestamp == max(self.last_notifications[channel_id].values()):
+                last_user_notified = uid
+                break
+
+        if last_user_notified != user_id:
+            # Utilisateur différent, notifier immédiatement
+            self.last_notifications[channel_id][user_id] = current_time
+            return True
+
+        # Même utilisateur, vérifier l'intervalle de 10 minutes (600 secondes)
+        if current_time - last_notification >= 600:
+            self.last_notifications[channel_id][user_id] = current_time
+            return True
+
+        return False
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         """Écoute les nouveaux messages dans les canaux surveillés."""
@@ -902,6 +941,10 @@ class SurveillanceScene(commands.Cog):
 
         channel_id = str(message.channel.id)
         if channel_id not in self.monitored_scenes:
+            return
+
+        # Ignorer les messages qui doivent être filtrés (ex: Maître du Jeu)
+        if self.should_ignore_message(message):
             return
 
         try:
@@ -924,22 +967,26 @@ class SurveillanceScene(commands.Cog):
             # Mettre à jour le message de surveillance
             await self.update_surveillance_message(scene_data)
 
-            # Notifier le MJ
+            # Notifier le MJ avec système anti-spam
             gm = self.bot.get_user(int(scene_data['gm_id']))
             if gm and gm.id != message.author.id:
-                try:
-                    embed = discord.Embed(
-                        title="📝 Nouvelle activité",
-                        description=f"Nouveau message dans **{scene_data['scene_name']}**",
-                        color=0x2ecc71
-                    )
-                    embed.add_field(name="Auteur", value=user_name, inline=True)
-                    embed.add_field(name="Canal", value=message.channel.mention, inline=True)
-                    embed.add_field(name="Aperçu", value=message.content[:100] + "..." if len(message.content) > 100 else message.content, inline=False)
+                # Vérifier si on doit notifier (anti-spam)
+                if self.should_notify_gm(channel_id, message.author.id):
+                    try:
+                        embed = discord.Embed(
+                            title="📝 Nouvelle activité",
+                            description=f"Nouveau message dans **{scene_data['scene_name']}**",
+                            color=0x2ecc71,
+                            timestamp=message.created_at
+                        )
+                        embed.add_field(name="Auteur", value=user_name, inline=True)
+                        embed.add_field(name="Canal", value=message.channel.mention, inline=True)
+                        embed.add_field(name="Aperçu", value=message.content[:100] + "..." if len(message.content) > 100 else message.content, inline=False)
 
-                    await gm.send(embed=embed)
-                except:
-                    pass
+                        await gm.send(embed=embed)
+                        logging.info(f"Notification envoyée au MJ pour la scène {scene_data['scene_name']}")
+                    except Exception as e:
+                        logging.error(f"Erreur lors de l'envoi de notification au MJ: {e}")
 
         except Exception as e:
             logging.error(f"Erreur lors du traitement du message: {e}")
