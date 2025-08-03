@@ -954,8 +954,8 @@ class ChannelMonitor(commands.Cog):
                             messages.append(message)
                             message_count += 1
 
-                            # Extraire les informations d'activité du message
-                            activity_info = await self.extract_activity_from_message(message)
+                            # Extraire les informations d'activité du message (historique)
+                            activity_info = await self.extract_activity_from_message(message, is_historical=True)
                             if activity_info:
                                 valid_messages.append((message, activity_info))
 
@@ -1059,8 +1059,8 @@ class ChannelMonitor(commands.Cog):
                 async for message in channel.history(limit=200, after=check_after):
                     message_count += 1
 
-                    # Extraire les informations d'activité du message
-                    activity_info = await self.extract_activity_from_message(message)
+                    # Extraire les informations d'activité du message (historique)
+                    activity_info = await self.extract_activity_from_message(message, is_historical=True)
                     if activity_info:
                         valid_messages.append((message, activity_info))
 
@@ -2774,15 +2774,31 @@ class ChannelMonitor(commands.Cog):
             await ctx.send(embed=error_embed, delete_after=10)
             self.logger.error(f"Erreur lors de la création de l'embed admin: {e}")
 
-    async def find_tupperbox_user(self, webhook_message: discord.Message):
+    async def find_tupperbox_user(self, webhook_message: discord.Message, extended_search=False):
         """
         Trouve l'utilisateur réel qui a envoyé un message Tupperbox en analysant l'historique.
+
+        Args:
+            webhook_message: Le message webhook Tupperbox
+            extended_search: Si True, recherche étendue pour les messages historiques
         """
         try:
-            # Chercher dans les 20 messages précédents (dans une fenêtre de 2 minutes)
-            time_window = webhook_message.created_at - timedelta(minutes=2)
+            if extended_search:
+                # Pour les messages historiques, recherche plus large
+                # Chercher dans les 100 messages précédents (dans une fenêtre de 30 minutes)
+                time_window = webhook_message.created_at - timedelta(minutes=30)
+                search_limit = 100
+                max_time_diff = 300  # 5 minutes
+                self.logger.debug(f"Recherche étendue pour message historique: {webhook_message.author.display_name}")
+            else:
+                # Pour les messages récents, recherche rapide
+                time_window = webhook_message.created_at - timedelta(minutes=2)
+                search_limit = 20
+                max_time_diff = 30  # 30 secondes
 
-            async for message in webhook_message.channel.history(limit=20, before=webhook_message.created_at):
+            candidates = []
+
+            async for message in webhook_message.channel.history(limit=search_limit, before=webhook_message.created_at):
                 # Arrêter si on dépasse la fenêtre de temps
                 if message.created_at < time_window:
                     break
@@ -2791,14 +2807,20 @@ class ChannelMonitor(commands.Cog):
                 if message.author.bot or message.webhook_id:
                     continue
 
-                # Vérifier si c'est potentiellement l'utilisateur qui a envoyé le message Tupperbox
-                # Les messages Tupperbox sont généralement envoyés immédiatement après la commande
+                # Calculer la différence de temps
                 time_diff = (webhook_message.created_at - message.created_at).total_seconds()
 
-                # Si le message est dans les 30 secondes précédentes, c'est probablement le bon utilisateur
-                if 0 <= time_diff <= 30:
-                    self.logger.debug(f"Utilisateur potentiel trouvé: {message.author.display_name} ({time_diff:.1f}s avant le webhook)")
-                    return message.author
+                # Si le message est dans la fenêtre de temps acceptable
+                if 0 <= time_diff <= max_time_diff:
+                    candidates.append((message.author, time_diff))
+                    self.logger.debug(f"Candidat trouvé: {message.author.display_name} ({time_diff:.1f}s avant le webhook)")
+
+            if candidates:
+                # Prendre le candidat le plus proche dans le temps
+                candidates.sort(key=lambda x: x[1])  # Trier par temps croissant
+                best_candidate = candidates[0]
+                self.logger.info(f"Meilleur candidat sélectionné: {best_candidate[0].display_name} ({best_candidate[1]:.1f}s avant)")
+                return best_candidate[0]
 
             return None
 
@@ -2819,9 +2841,14 @@ class ChannelMonitor(commands.Cog):
             'webhook_id': message.webhook_id if is_webhook else None
         }
 
-    async def extract_activity_from_message(self, message: discord.Message):
+    async def extract_activity_from_message(self, message: discord.Message, is_historical=False):
         """
         Extrait les informations d'activité d'un message (utilisateur normal ou webhook).
+
+        Args:
+            message: Le message à analyser
+            is_historical: True si c'est un message historique (recherche étendue pour Tupperbox)
+
         Retourne un dictionnaire avec les informations ou None si le message doit être ignoré.
         """
         if message.author.bot:
@@ -2830,7 +2857,8 @@ class ChannelMonitor(commands.Cog):
                 self.logger.info(f"Message webhook détecté: {message.author.display_name} dans le salon {message.channel.id}")
 
                 # Essayer de trouver l'utilisateur réel qui a envoyé le message Tupperbox
-                real_user = await self.find_tupperbox_user(message)
+                # Utiliser la recherche étendue pour les messages historiques
+                real_user = await self.find_tupperbox_user(message, extended_search=is_historical)
                 if real_user:
                     self.logger.info(f"Utilisateur réel trouvé pour le webhook: {real_user.display_name} (ID: {real_user.id})")
                     # Créer les infos d'activité avec l'utilisateur réel mais garder le nom du personnage
