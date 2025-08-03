@@ -220,30 +220,81 @@ class SurveillanceScene(commands.Cog):
 
             guild = self.bot.get_guild(guild_id)
             if not guild:
+                logging.error(f"Guild {guild_id} non trouvée")
                 return None
 
-            channel = guild.get_channel(channel_id)
-            if not channel:
-                return None
-
-            # Si c'est un thread ou un post de forum
+            # Si c'est un thread ou un post de forum (3ème ID présent)
             if thread_id:
-                if hasattr(channel, 'get_thread'):
-                    thread = channel.get_thread(thread_id)
-                    if thread:
-                        return thread
-
-                # Essayer de récupérer le thread via l'API
+                # D'abord essayer de récupérer directement le thread/post
                 try:
                     thread = await self.bot.fetch_channel(thread_id)
-                    return thread
-                except:
-                    pass
+                    if thread:
+                        logging.info(f"Thread/Post trouvé directement: {thread.name} (ID: {thread.id})")
+                        return thread
+                except discord.NotFound:
+                    logging.error(f"Thread/Post {thread_id} non trouvé via fetch_channel")
+                except discord.Forbidden:
+                    logging.error(f"Pas d'autorisation pour accéder au thread/post {thread_id}")
+                except Exception as e:
+                    logging.error(f"Erreur lors de la récupération du thread/post {thread_id}: {e}")
 
-            return channel
+                # Essayer via le canal parent
+                channel = guild.get_channel(channel_id)
+                if channel:
+                    logging.info(f"Canal parent trouvé: {channel.name} (Type: {type(channel).__name__})")
+
+                    # Pour les forums, essayer de récupérer le post
+                    if isinstance(channel, discord.ForumChannel):
+                        try:
+                            # Récupérer tous les threads du forum
+                            async for thread in channel.archived_threads(limit=None):
+                                if thread.id == thread_id:
+                                    logging.info(f"Post de forum trouvé dans les archives: {thread.name}")
+                                    return thread
+
+                            # Vérifier les threads actifs
+                            for thread in channel.threads:
+                                if thread.id == thread_id:
+                                    logging.info(f"Post de forum trouvé dans les actifs: {thread.name}")
+                                    return thread
+
+                        except Exception as e:
+                            logging.error(f"Erreur lors de la recherche dans le forum: {e}")
+
+                    # Pour les canaux texte, essayer de récupérer le thread
+                    elif isinstance(channel, discord.TextChannel):
+                        try:
+                            # Vérifier les threads actifs
+                            for thread in channel.threads:
+                                if thread.id == thread_id:
+                                    logging.info(f"Thread trouvé dans les actifs: {thread.name}")
+                                    return thread
+
+                            # Vérifier les threads archivés
+                            async for thread in channel.archived_threads(limit=None):
+                                if thread.id == thread_id:
+                                    logging.info(f"Thread trouvé dans les archives: {thread.name}")
+                                    return thread
+
+                        except Exception as e:
+                            logging.error(f"Erreur lors de la recherche de thread: {e}")
+
+                logging.error(f"Impossible de trouver le thread/post {thread_id}")
+                return None
+
+            # Sinon, récupérer le canal principal
+            channel = guild.get_channel(channel_id)
+            if channel:
+                logging.info(f"Canal principal trouvé: {channel.name} (Type: {type(channel).__name__})")
+                return channel
+            else:
+                logging.error(f"Canal {channel_id} non trouvé dans la guild {guild_id}")
+                return None
 
         except Exception as e:
             logging.error(f"Erreur lors de la récupération du canal: {e}")
+            import traceback
+            logging.error(f"Traceback: {traceback.format_exc()}")
             return None
 
     def parse_date(self, date_str: str) -> datetime:
@@ -269,7 +320,16 @@ class SurveillanceScene(commands.Cog):
         participants = set()
 
         try:
+            # Vérifier si le canal existe et est accessible
+            if not channel:
+                logging.error("Canal non fourni pour get_channel_participants")
+                return []
+
+            logging.info(f"Récupération des participants pour {channel.name} (Type: {type(channel).__name__}) depuis {start_date}")
+
+            message_count = 0
             async for message in channel.history(limit=None, after=start_date):
+                message_count += 1
                 if message.author.bot:
                     # Vérifier si c'est un webhook (Tupperbox)
                     webhook_name = await self.get_webhook_username(message)
@@ -278,14 +338,26 @@ class SurveillanceScene(commands.Cog):
                 else:
                     participants.add(message.author.display_name)
 
+            logging.info(f"Analysé {message_count} messages, trouvé {len(participants)} participants")
+
+        except discord.Forbidden:
+            logging.error(f"Pas d'autorisation pour lire l'historique de {channel.name}")
         except Exception as e:
             logging.error(f"Erreur lors de la récupération des participants: {e}")
+            import traceback
+            logging.error(f"Traceback: {traceback.format_exc()}")
 
         return list(participants)
 
     async def get_last_activity(self, channel: Union[discord.TextChannel, discord.Thread]) -> Optional[dict]:
         """Récupère la dernière activité dans un canal."""
         try:
+            if not channel:
+                logging.error("Canal non fourni pour get_last_activity")
+                return None
+
+            logging.info(f"Récupération de la dernière activité pour {channel.name}")
+
             async for message in channel.history(limit=1):
                 user_name = message.author.display_name
 
@@ -295,13 +367,21 @@ class SurveillanceScene(commands.Cog):
                     if webhook_name:
                         user_name = f"{webhook_name} (Webhook)"
 
-                return {
+                activity = {
                     'user': user_name,
                     'date': message.created_at.astimezone(self.paris_tz),
                     'message_id': message.id
                 }
+
+                logging.info(f"Dernière activité trouvée: {user_name} le {activity['date']}")
+                return activity
+
+        except discord.Forbidden:
+            logging.error(f"Pas d'autorisation pour lire l'historique de {channel.name}")
         except Exception as e:
             logging.error(f"Erreur lors de la récupération de la dernière activité: {e}")
+            import traceback
+            logging.error(f"Traceback: {traceback.format_exc()}")
 
         return None
 
@@ -422,11 +502,16 @@ class SurveillanceScene(commands.Cog):
             return
 
         try:
+            logging.info(f"Tentative de surveillance pour le lien: {channel_link}")
+
             # Récupérer le canal
             channel = await self.get_channel_from_link(channel_link)
             if not channel:
-                await ctx.send("❌ Impossible de trouver le salon spécifié.")
+                logging.error(f"Canal non trouvé pour le lien: {channel_link}")
+                await ctx.send(f"❌ Impossible de trouver le salon spécifié.\n**Lien fourni:** {channel_link}\n\n**Formats supportés:**\n• Salon: `https://discord.com/channels/GUILD_ID/CHANNEL_ID`\n• Thread: `https://discord.com/channels/GUILD_ID/CHANNEL_ID/THREAD_ID`\n• Post de forum: `https://discord.com/channels/GUILD_ID/FORUM_ID/POST_ID`")
                 return
+
+            logging.info(f"Canal trouvé: {channel.name} (ID: {channel.id}, Type: {type(channel).__name__})")
 
             # Parser la date
             if date:
