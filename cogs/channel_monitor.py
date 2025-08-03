@@ -263,6 +263,10 @@ class ChannelMonitor(commands.Cog):
         """Initialisation asynchrone du cog."""
         await self.bot.wait_until_ready()
         self.setup_google_sheets()
+
+        # Nettoyer les en-têtes dupliqués si nécessaire
+        self.clean_google_sheet()
+
         self.load_monitored_channels()
 
         # IMPORTANT: D'abord vérifier l'activité manquée pour mettre à jour les données
@@ -396,9 +400,14 @@ class ChannelMonitor(commands.Cog):
 
             # Charger les données (ignorer la première ligne qui est l'en-tête)
             self.monitored_channels = {}
-            for row in all_values[1:]:
+            for i, row in enumerate(all_values[1:], start=2):  # Commencer à la ligne 2
                 if len(row) >= 2 and row[0] and row[1]:
                     try:
+                        # Vérifier que ce n'est pas une ligne d'en-tête dupliquée
+                        if row[0] == "channel_id":
+                            self.logger.warning(f"Ligne d'en-tête dupliquée ignorée à la ligne {i}")
+                            continue
+
                         channel_id = int(row[0])
                         mj_user_id = int(row[1])
                         message_id = int(row[2]) if len(row) > 2 and row[2] else None
@@ -463,6 +472,30 @@ class ChannelMonitor(commands.Cog):
         except Exception as e:
             self.logger.error(f"Erreur lors du chargement des salons surveillés: {e}")
             self.monitored_channels = {}
+
+    def clean_google_sheet(self):
+        """Nettoie le Google Sheet des en-têtes dupliqués."""
+        try:
+            if not self.sheet:
+                return
+
+            all_values = self.sheet.get_all_values()
+            if len(all_values) <= 1:
+                return
+
+            # Compter les en-têtes dupliqués
+            header_count = 0
+            for row in all_values:
+                if len(row) > 0 and row[0] == "channel_id":
+                    header_count += 1
+
+            if header_count > 1:
+                self.logger.warning(f"🧹 Nettoyage du Google Sheet: {header_count} en-têtes dupliqués détectés")
+                # Forcer une sauvegarde propre
+                self.save_monitored_channels()
+
+        except Exception as e:
+            self.logger.error(f"Erreur lors du nettoyage du Google Sheet: {e}")
 
     def save_monitored_channels(self):
         """Sauvegarde la liste des salons surveillés dans Google Sheets de manière sécurisée."""
@@ -2789,12 +2822,13 @@ class ChannelMonitor(commands.Cog):
                 time_window = webhook_message.created_at - timedelta(minutes=30)
                 search_limit = 100
                 max_time_diff = 300  # 5 minutes
-                self.logger.debug(f"Recherche étendue pour message historique: {webhook_message.author.display_name}")
+                self.logger.info(f"🔍 Recherche étendue pour message historique: '{webhook_message.author.display_name}' (limite: {search_limit}, fenêtre: 30min)")
             else:
                 # Pour les messages récents, recherche rapide
                 time_window = webhook_message.created_at - timedelta(minutes=2)
                 search_limit = 20
                 max_time_diff = 30  # 30 secondes
+                self.logger.debug(f"🔍 Recherche rapide pour message récent: '{webhook_message.author.display_name}' (limite: {search_limit}, fenêtre: 2min)")
 
             candidates = []
 
@@ -2854,23 +2888,24 @@ class ChannelMonitor(commands.Cog):
         if message.author.bot:
             # Vérifier si c'est un webhook (Tupperbot/PluralKit)
             if message.webhook_id:
-                self.logger.info(f"Message webhook détecté: {message.author.display_name} dans le salon {message.channel.id}")
+                self.logger.info(f"🎭 Message webhook détecté: '{message.author.display_name}' (ID: {message.webhook_id}) dans le salon {message.channel.id}")
 
                 # Essayer de trouver l'utilisateur réel qui a envoyé le message Tupperbox
                 # Utiliser la recherche étendue pour les messages historiques
                 real_user = await self.find_tupperbox_user(message, extended_search=is_historical)
                 if real_user:
-                    self.logger.info(f"Utilisateur réel trouvé pour le webhook: {real_user.display_name} (ID: {real_user.id})")
+                    self.logger.info(f"✅ Utilisateur réel trouvé pour le webhook: {real_user.display_name} (ID: {real_user.id})")
                     # Créer les infos d'activité avec l'utilisateur réel mais garder le nom du personnage
                     activity_info = self.create_activity_info(real_user, message, is_webhook=True)
                     activity_info['character_name'] = message.author.display_name  # Nom du personnage Tupperbox
                     return activity_info
                 else:
                     # Fallback: utiliser les informations du webhook
-                    self.logger.warning(f"Impossible de trouver l'utilisateur réel pour le webhook {message.author.display_name}")
+                    self.logger.warning(f"⚠️ Impossible de trouver l'utilisateur réel pour le webhook '{message.author.display_name}' - utilisation du webhook comme fallback")
                     return self.create_activity_info(message.author, message, is_webhook=True)
             else:
                 # Autres bots - ignorer
+                self.logger.debug(f"🤖 Bot ignoré: {message.author.display_name} (ID: {message.author.id})")
                 return None
         else:
             # Utilisateur normal
