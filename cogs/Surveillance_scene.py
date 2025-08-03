@@ -381,10 +381,12 @@ class SurveillanceScene(commands.Cog):
 
     def should_ignore_message(self, message: discord.Message) -> bool:
         """Détermine si un message doit être ignoré dans la surveillance (ex: Maître du Jeu)."""
-        # Ignorer tous les webhooks qui ont le nom "Maître du Jeu"
+        # Ignorer tous les webhooks qui ont le nom "Maître du Jeu" (avec ou sans caractères invisibles)
         if message.author.bot and message.webhook_id:
             user_name = self.get_user_display_name(message)
-            if user_name == "Maître du Jeu":
+            # Nettoyer le nom en supprimant les caractères invisibles et espaces
+            clean_name = ''.join(char for char in user_name if char.isprintable()).strip()
+            if clean_name == "Maître du Jeu" or user_name.startswith("Maître du Jeu"):
                 return True
         return False
 
