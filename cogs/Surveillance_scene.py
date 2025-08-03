@@ -823,6 +823,45 @@ class SurveillanceScene(commands.Cog):
             logging.error(f"Erreur dans la commande list_sheet_data: {e}")
             await ctx.send(f"❌ Erreur lors de la récupération des données: {e}")
 
+    @commands.command(name='fix_sheet_header')
+    @commands.has_permissions(administrator=True)
+    async def fix_sheet_header_command(self, ctx):
+        """
+        Commande pour réparer l'en-tête du Google Sheet.
+        Usage: !fix_sheet_header
+        """
+        if not self.sheet:
+            await ctx.send("❌ Erreur de configuration Google Sheets.")
+            return
+
+        try:
+            # Vérifier l'état actuel
+            all_values = self.sheet.get_all_values()
+
+            if len(all_values) == 0:
+                await ctx.send("❌ Le Google Sheet est complètement vide.")
+                return
+
+            # Vérifier si l'en-tête existe déjà
+            expected_header = ["channel_id", "scene_name", "gm_id", "start_date", "participants", "last_activity_user", "last_activity_date", "message_id", "channel_type", "guild_id"]
+
+            if len(all_values) > 0 and all_values[0] == expected_header:
+                await ctx.send("✅ L'en-tête est déjà correct.")
+                return
+
+            # Insérer l'en-tête en première ligne
+            self.sheet.insert_row(expected_header, 1)
+
+            await ctx.send("✅ En-tête ajouté avec succès ! Vous pouvez maintenant utiliser `!update_scenes`.")
+
+            # Optionnel : recharger automatiquement les scènes
+            await self.refresh_monitored_scenes()
+            await ctx.send(f"🔄 Scènes rechargées : {len(self.monitored_scenes)} scène(s) trouvée(s).")
+
+        except Exception as e:
+            logging.error(f"Erreur dans la commande fix_sheet_header: {e}")
+            await ctx.send(f"❌ Erreur lors de la réparation de l'en-tête: {e}")
+
     async def update_scene_message_id(self, channel_id: str, message_id: str):
         """Met à jour l'ID du message de surveillance dans Google Sheets."""
         try:
