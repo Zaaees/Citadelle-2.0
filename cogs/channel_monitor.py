@@ -859,8 +859,9 @@ class ChannelMonitor(commands.Cog):
                         failed_count += 1
                         continue
 
-                    # Créer le nouvel embed avec le format amélioré (version asynchrone)
-                    embed = await self.create_scene_embed_async(channel, mj_user, data.get('participants', []))
+                    # Créer le nouvel embed avec le format amélioré et les informations d'activité
+                    activity_info = data.get('last_activity_info')
+                    embed = await self.create_scene_embed_async_with_activity(channel, mj_user, data.get('participants', []), activity_info)
 
                     # Créer la NOUVELLE vue avec seulement 2 boutons (sans le bouton Actualiser)
                     view = SceneView(self, channel_id)
