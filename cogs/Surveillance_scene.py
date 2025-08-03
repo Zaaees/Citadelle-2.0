@@ -209,18 +209,30 @@ class SurveillanceScene(commands.Cog):
     async def refresh_monitored_scenes(self):
         """Recharge les scènes surveillées depuis Google Sheets."""
         if not self.sheet:
+            logging.error("Aucune feuille Google Sheets configurée")
             return
 
         try:
             records = self.sheet.get_all_records()
+            logging.info(f"Récupération de {len(records)} enregistrements depuis Google Sheets")
             self.monitored_scenes.clear()
 
-            for record in records:
-                if record.get('channel_id'):
-                    self.monitored_scenes[record['channel_id']] = record
+            for i, record in enumerate(records):
+                channel_id = record.get('channel_id')
+                logging.info(f"Enregistrement {i+1}: channel_id='{channel_id}', scene_name='{record.get('scene_name', 'N/A')}'")
+
+                if channel_id and str(channel_id).strip():  # Vérifier que channel_id n'est pas vide
+                    self.monitored_scenes[str(channel_id)] = record
+                    logging.info(f"Scène ajoutée: {channel_id} - {record.get('scene_name', 'N/A')}")
+                else:
+                    logging.warning(f"Enregistrement {i+1} ignoré: channel_id vide ou invalide")
+
+            logging.info(f"Total des scènes chargées: {len(self.monitored_scenes)}")
 
         except Exception as e:
             logging.error(f"Erreur lors du rechargement des scènes: {e}")
+            import traceback
+            logging.error(f"Traceback: {traceback.format_exc()}")
 
     async def get_channel_from_link(self, channel_link: str) -> Optional[Union[discord.TextChannel, discord.Thread, discord.ForumChannel]]:
         """Récupère un canal à partir d'un lien Discord."""
@@ -704,6 +716,59 @@ class SurveillanceScene(commands.Cog):
         except Exception as e:
             logging.error(f"Erreur dans la commande update_scenes: {e}")
             await ctx.send("❌ Une erreur est survenue lors de la mise à jour des scènes.")
+
+    @commands.command(name='debug_scenes')
+    @commands.has_permissions(administrator=True)
+    async def debug_scenes_command(self, ctx):
+        """
+        Commande pour déboguer les scènes surveillées.
+        Usage: !debug_scenes
+        """
+        if not self.sheet:
+            await ctx.send("❌ Erreur de configuration Google Sheets.")
+            return
+
+        try:
+            # Récupérer les données brutes
+            all_values = self.sheet.get_all_values()
+            records = self.sheet.get_all_records()
+
+            embed = discord.Embed(
+                title="🔍 Debug des scènes surveillées",
+                color=0xe74c3c
+            )
+
+            embed.add_field(
+                name="📊 Statistiques",
+                value=f"• Lignes totales: {len(all_values)}\n• Enregistrements: {len(records)}\n• Scènes en cache: {len(self.monitored_scenes)}",
+                inline=False
+            )
+
+            if len(all_values) > 0:
+                embed.add_field(
+                    name="📋 En-têtes",
+                    value=f"```{', '.join(all_values[0])}```",
+                    inline=False
+                )
+
+            if len(records) > 0:
+                scenes_info = []
+                for i, record in enumerate(records[:3]):  # Limiter à 3 pour éviter les messages trop longs
+                    channel_id = record.get('channel_id', 'N/A')
+                    scene_name = record.get('scene_name', 'N/A')
+                    scenes_info.append(f"{i+1}. ID: {channel_id} | Nom: {scene_name}")
+
+                embed.add_field(
+                    name="🎭 Premières scènes",
+                    value="```" + "\n".join(scenes_info) + "```",
+                    inline=False
+                )
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            logging.error(f"Erreur dans la commande debug_scenes: {e}")
+            await ctx.send(f"❌ Erreur lors du debug: {e}")
 
     async def update_scene_message_id(self, channel_id: str, message_id: str):
         """Met à jour l'ID du message de surveillance dans Google Sheets."""
