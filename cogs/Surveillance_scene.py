@@ -679,6 +679,32 @@ class SurveillanceScene(commands.Cog):
             logging.error(f"Erreur dans la commande scene: {e}")
             await ctx.send("❌ Une erreur est survenue lors de l'initialisation de la surveillance.")
 
+    @commands.command(name='update_scenes')
+    @commands.has_permissions(administrator=True)
+    async def update_scenes_command(self, ctx):
+        """
+        Commande pour forcer la mise à jour de toutes les scènes surveillées.
+        Usage: !update_scenes
+        """
+        if not self.sheet:
+            await ctx.send("❌ Erreur de configuration Google Sheets.")
+            return
+
+        try:
+            await ctx.send("🔄 Mise à jour de toutes les scènes en cours...")
+
+            # Recharger les scènes depuis Google Sheets
+            await self.refresh_monitored_scenes()
+
+            # Mettre à jour toutes les scènes
+            await self.update_all_scenes()
+
+            await ctx.send(f"✅ Mise à jour terminée ! {len(self.monitored_scenes)} scène(s) mise(s) à jour.")
+
+        except Exception as e:
+            logging.error(f"Erreur dans la commande update_scenes: {e}")
+            await ctx.send("❌ Une erreur est survenue lors de la mise à jour des scènes.")
+
     async def update_scene_message_id(self, channel_id: str, message_id: str):
         """Met à jour l'ID du message de surveillance dans Google Sheets."""
         try:
