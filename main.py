@@ -318,6 +318,7 @@ class CustomBot(commands.Bot):
             'cogs.validation',
             'cogs.InactiveUserTracker',
             'cogs.excès',
+            'cogs.Surveillance_scene',
         ]
 
         for ext in extensions:
