@@ -770,6 +770,59 @@ class SurveillanceScene(commands.Cog):
             logging.error(f"Erreur dans la commande debug_scenes: {e}")
             await ctx.send(f"❌ Erreur lors du debug: {e}")
 
+    @commands.command(name='list_sheet_data')
+    @commands.has_permissions(administrator=True)
+    async def list_sheet_data_command(self, ctx):
+        """
+        Commande pour voir toutes les données brutes du Google Sheet.
+        Usage: !list_sheet_data
+        """
+        if not self.sheet:
+            await ctx.send("❌ Erreur de configuration Google Sheets.")
+            return
+
+        try:
+            # Récupérer toutes les valeurs brutes
+            all_values = self.sheet.get_all_values()
+
+            embed = discord.Embed(
+                title="📋 Données brutes du Google Sheet",
+                color=0x3498db
+            )
+
+            if len(all_values) == 0:
+                embed.add_field(name="❌ Aucune donnée", value="Le Google Sheet est complètement vide", inline=False)
+            elif len(all_values) == 1:
+                embed.add_field(name="📋 En-tête seulement", value=f"```{', '.join(all_values[0])}```", inline=False)
+                embed.add_field(name="ℹ️ Info", value="Il n'y a que l'en-tête, aucune scène surveillée", inline=False)
+            else:
+                # Afficher l'en-tête
+                embed.add_field(name="📋 En-tête", value=f"```{', '.join(all_values[0])}```", inline=False)
+
+                # Afficher les données (limiter à 5 lignes pour éviter les messages trop longs)
+                data_lines = []
+                for i, row in enumerate(all_values[1:6]):  # Lignes 2 à 6 max
+                    if any(cell.strip() for cell in row):  # Ignorer les lignes complètement vides
+                        data_lines.append(f"Ligne {i+2}: {', '.join(row)}")
+
+                if data_lines:
+                    embed.add_field(
+                        name="📊 Données (5 premières lignes)",
+                        value="```" + "\n".join(data_lines) + "```",
+                        inline=False
+                    )
+                else:
+                    embed.add_field(name="❌ Aucune donnée", value="Toutes les lignes de données sont vides", inline=False)
+
+                if len(all_values) > 6:
+                    embed.add_field(name="ℹ️ Info", value=f"... et {len(all_values) - 6} autres lignes", inline=False)
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            logging.error(f"Erreur dans la commande list_sheet_data: {e}")
+            await ctx.send(f"❌ Erreur lors de la récupération des données: {e}")
+
     async def update_scene_message_id(self, channel_id: str, message_id: str):
         """Met à jour l'ID du message de surveillance dans Google Sheets."""
         try:
