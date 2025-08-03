@@ -707,11 +707,54 @@ class SurveillanceScene(commands.Cog):
 
             # Recharger les scènes depuis Google Sheets
             await self.refresh_monitored_scenes()
+            await ctx.send(f"📋 {len(self.monitored_scenes)} scène(s) chargée(s) depuis Google Sheets.")
 
-            # Mettre à jour toutes les scènes
-            await self.update_all_scenes()
+            if len(self.monitored_scenes) == 0:
+                await ctx.send("❌ Aucune scène trouvée. Vérifiez votre Google Sheet.")
+                return
 
-            await ctx.send(f"✅ Mise à jour terminée ! {len(self.monitored_scenes)} scène(s) mise(s) à jour.")
+            # Mettre à jour toutes les scènes ET forcer la mise à jour des messages
+            updated_count = 0
+            for channel_id, scene_data in self.monitored_scenes.items():
+                try:
+                    logging.info(f"Mise à jour forcée de la scène {channel_id}")
+
+                    # Récupérer le canal
+                    channel = self.bot.get_channel(int(channel_id))
+                    if not channel:
+                        try:
+                            channel = await self.bot.fetch_channel(int(channel_id))
+                        except:
+                            logging.error(f"Impossible de récupérer le canal {channel_id}")
+                            continue
+
+                    # Récupérer les nouvelles données
+                    start_date = datetime.fromisoformat(scene_data['start_date'])
+                    if start_date.tzinfo is None:
+                        start_date = self.paris_tz.localize(start_date)
+
+                    participants = await self.get_channel_participants(channel, start_date)
+                    last_activity = await self.get_last_activity(channel)
+
+                    # Mettre à jour les données locales
+                    scene_data['participants'] = json.dumps(participants)
+                    if last_activity:
+                        scene_data['last_activity_user'] = last_activity['user']
+                        scene_data['last_activity_date'] = last_activity['date'].isoformat()
+
+                    # Mettre à jour Google Sheets
+                    await self.update_scene_data(channel_id, scene_data)
+
+                    # FORCER la mise à jour du message de surveillance
+                    await self.update_surveillance_message(scene_data)
+
+                    updated_count += 1
+                    logging.info(f"Scène {channel_id} mise à jour avec succès")
+
+                except Exception as e:
+                    logging.error(f"Erreur lors de la mise à jour de la scène {channel_id}: {e}")
+
+            await ctx.send(f"✅ Mise à jour terminée ! {updated_count}/{len(self.monitored_scenes)} scène(s) mise(s) à jour.")
 
         except Exception as e:
             logging.error(f"Erreur dans la commande update_scenes: {e}")
