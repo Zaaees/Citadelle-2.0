@@ -859,14 +859,8 @@ class ChannelMonitor(commands.Cog):
                         failed_count += 1
                         continue
 
-                    # NOUVEAU: Forcer la récupération de l'activité récente avant de mettre à jour l'embed
-                    await self.force_refresh_scene_data(channel_id)
-
-                    # Récupérer les informations d'activité pour l'affichage correct
-                    activity_info = data.get('last_activity_info')
-
                     # Créer le nouvel embed avec le format amélioré (version asynchrone)
-                    embed = await self.create_scene_embed_async_with_activity(channel, mj_user, data.get('participants', []), activity_info)
+                    embed = await self.create_scene_embed_async(channel, mj_user, data.get('participants', []))
 
                     # Créer la NOUVELLE vue avec seulement 2 boutons (sans le bouton Actualiser)
                     view = SceneView(self, channel_id)
@@ -888,7 +882,7 @@ class ChannelMonitor(commands.Cog):
             if failed_count > 0:
                 self.save_monitored_channels()
 
-            self.logger.info(f"Mise à jour des embeds terminée: {updated_count} réussis, {failed_count} échoués")
+            self.logger.info(f"✅ Mise à jour automatique des embeds terminée: {updated_count} réussis, {failed_count} échoués - Nouveau format d'activité appliqué")
 
         except Exception as e:
             self.logger.error(f"Erreur lors de la mise à jour globale des embeds: {e}")
