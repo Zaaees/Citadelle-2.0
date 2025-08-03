@@ -165,6 +165,9 @@ class SurveillanceScene(commands.Cog):
         await self.bot.wait_until_ready()
         await asyncio.sleep(10)  # Attendre un peu plus pour s'assurer que tout est initialisé
         await self.refresh_monitored_scenes()
+        # Forcer une mise à jour complète au démarrage
+        logging.info("Mise à jour complète des scènes au démarrage du bot")
+        await self.update_all_scenes()
     
     @tasks.loop(hours=24)
     async def check_inactive_scenes(self):
@@ -337,6 +340,15 @@ class SurveillanceScene(commands.Cog):
             pass
         return None
 
+    def get_user_display_name(self, message: discord.Message) -> str:
+        """Récupère le nom d'affichage d'un utilisateur (avec gestion des webhooks)."""
+        if message.author.bot and message.webhook_id:
+            # C'est un webhook (Tupperbox), utiliser le nom du personnage
+            return message.author.display_name
+        else:
+            # Utilisateur normal
+            return message.author.display_name
+
     async def get_channel_participants(self, channel: Union[discord.TextChannel, discord.Thread], start_date: datetime) -> List[str]:
         """Récupère la liste des participants depuis une date donnée."""
         participants = set()
@@ -352,15 +364,15 @@ class SurveillanceScene(commands.Cog):
             message_count = 0
             async for message in channel.history(limit=None, after=start_date):
                 message_count += 1
-                if message.author.bot:
-                    # Vérifier si c'est un webhook (Tupperbox)
-                    webhook_name = await self.get_webhook_username(message)
-                    if webhook_name:
-                        participants.add(f"{webhook_name} (Webhook)")
-                else:
-                    participants.add(message.author.display_name)
+                # Utiliser la nouvelle fonction pour obtenir le nom d'affichage
+                user_name = self.get_user_display_name(message)
+                participants.add(user_name)
 
-            logging.info(f"Analysé {message_count} messages, trouvé {len(participants)} participants")
+                # Log pour debug
+                if message_count <= 5:  # Log seulement les 5 premiers pour éviter le spam
+                    logging.info(f"Message {message_count}: {user_name} ({'webhook' if message.webhook_id else 'user'})")
+
+            logging.info(f"Analysé {message_count} messages, trouvé {len(participants)} participants: {list(participants)}")
 
         except discord.Forbidden:
             logging.error(f"Pas d'autorisation pour lire l'historique de {channel.name}")
@@ -381,13 +393,8 @@ class SurveillanceScene(commands.Cog):
             logging.info(f"Récupération de la dernière activité pour {channel.name}")
 
             async for message in channel.history(limit=1):
-                user_name = message.author.display_name
-
-                # Vérifier si c'est un webhook
-                if message.author.bot:
-                    webhook_name = await self.get_webhook_username(message)
-                    if webhook_name:
-                        user_name = f"{webhook_name} (Webhook)"
+                # Utiliser la nouvelle fonction pour obtenir le nom d'affichage
+                user_name = self.get_user_display_name(message)
 
                 activity = {
                     'user': user_name,
@@ -803,11 +810,7 @@ class SurveillanceScene(commands.Cog):
             scene_data = self.monitored_scenes[channel_id]
 
             # Mettre à jour la dernière activité
-            user_name = message.author.display_name
-            if message.author.bot:
-                webhook_name = await self.get_webhook_username(message)
-                if webhook_name:
-                    user_name = f"{webhook_name} (Webhook)"
+            user_name = self.get_user_display_name(message)
 
             scene_data['last_activity_user'] = user_name
             scene_data['last_activity_date'] = message.created_at.astimezone(self.paris_tz).isoformat()
