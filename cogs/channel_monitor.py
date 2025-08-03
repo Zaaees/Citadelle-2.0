@@ -2709,6 +2709,18 @@ class ChannelMonitor(commands.Cog):
             await status_message.edit(content="", embed=error_embed)
             self.logger.error(f"Erreur lors de la mise à jour forcée des embeds: {e}")
 
+    @commands.command(name="test_refresh")
+    async def test_refresh_command(self, ctx: commands.Context):
+        """
+        Commande de test pour vérifier que les commandes fonctionnent.
+        """
+        # Vérifier les permissions MJ
+        if not self.is_mj(ctx.author):
+            await ctx.send("❌ Cette commande est réservée aux MJ.", delete_after=5)
+            return
+
+        await ctx.send("✅ Commande de test fonctionnelle ! Le cog channel_monitor répond correctement.", delete_after=10)
+
 async def setup(bot: commands.Bot):
     """Fonction de setup du cog."""
     await bot.add_cog(ChannelMonitor(bot))
