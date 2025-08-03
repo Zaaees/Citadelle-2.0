@@ -465,19 +465,20 @@ class ChannelMonitor(commands.Cog):
             self.monitored_channels = {}
 
     def save_monitored_channels(self):
-        """Sauvegarde la liste des salons surveillés dans Google Sheets."""
+        """Sauvegarde la liste des salons surveillés dans Google Sheets de manière sécurisée."""
         try:
             if not self.sheet:
                 self.logger.error("Google Sheets non configuré, impossible de sauvegarder")
                 return
 
-            # Effacer le contenu existant (garder l'en-tête)
-            self.sheet.clear()
+            # APPROCHE SÉCURISÉE: Préparer toutes les données AVANT de supprimer quoi que ce soit
+            all_rows = []
 
-            # Réécrire l'en-tête
-            self.sheet.append_row(["channel_id", "mj_user_id", "message_id", "participant_1", "participant_2", "participant_3", "participant_4", "participant_5", "participant_6", "added_at", "last_activity", "last_alert_sent", "last_reminder_message_id", "last_activity_info"])
+            # Préparer l'en-tête
+            header = ["channel_id", "mj_user_id", "message_id", "participant_1", "participant_2", "participant_3", "participant_4", "participant_5", "participant_6", "added_at", "last_activity", "last_alert_sent", "last_reminder_message_id", "last_activity_info"]
+            all_rows.append(header)
 
-            # Ajouter toutes les données
+            # Préparer toutes les données en mémoire AVANT de toucher au sheet
             current_time = get_current_datetime().isoformat()
             for channel_id, data in self.monitored_channels.items():
                 # Préparer la ligne avec les participants dans des colonnes séparées
@@ -517,11 +518,30 @@ class ChannelMonitor(commands.Cog):
                 else:
                     row.append("")
 
-                self.sheet.append_row(row)
+                all_rows.append(row)
 
-            self.logger.info(f"Sauvegardé {len(self.monitored_channels)} salons surveillés dans Google Sheets")
+            # MAINTENANT seulement, effacer et réécrire de manière atomique
+            self.logger.info(f"💾 Sauvegarde sécurisée: préparation de {len(all_rows)} lignes (dont en-tête)")
+
+            self.sheet.clear()
+            self.logger.debug("✅ Sheet effacé, écriture des nouvelles données...")
+
+            # Écrire toutes les données d'un coup pour minimiser le risque d'erreur
+            if all_rows:
+                self.sheet.append_rows(all_rows)
+                self.logger.info(f"✅ Sauvegarde réussie: {len(self.monitored_channels)} salons surveillés sauvegardés dans Google Sheets")
+            else:
+                self.logger.warning("⚠️ Aucune donnée à sauvegarder")
+
         except Exception as e:
-            self.logger.error(f"Erreur lors de la sauvegarde des salons surveillés: {e}")
+            self.logger.error(f"❌ ERREUR CRITIQUE lors de la sauvegarde des salons surveillés: {e}")
+            self.logger.error(f"❌ Type d'erreur: {type(e).__name__}")
+            # En cas d'erreur, essayer de restaurer au moins l'en-tête
+            try:
+                self.sheet.append_row(["channel_id", "mj_user_id", "message_id", "participant_1", "participant_2", "participant_3", "participant_4", "participant_5", "participant_6", "added_at", "last_activity", "last_alert_sent", "last_reminder_message_id", "last_activity_info"])
+                self.logger.info("🔧 En-tête restauré après erreur")
+            except:
+                self.logger.error("❌ Impossible de restaurer l'en-tête")
 
     def has_alert_been_sent_today(self, channel_id: int) -> bool:
         """Vérifie si une alerte d'inactivité a déjà été envoyée aujourd'hui pour ce salon."""
