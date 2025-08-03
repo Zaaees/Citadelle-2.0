@@ -269,27 +269,6 @@ def check_cog_tasks_health(bot):
     try:
         logger.info("🔍 Vérification de la santé des tâches des cogs...")
 
-        # Vérifier les tâches du cog channel_monitor
-        channel_monitor_cog = bot.get_cog('ChannelMonitor')
-        if channel_monitor_cog:
-            try:
-                if hasattr(channel_monitor_cog, 'cleanup_ping_messages'):
-                    if not channel_monitor_cog.cleanup_ping_messages.is_running():
-                        logger.warning("⚠️ Tâche cleanup_ping_messages arrêtée, tentative de redémarrage...")
-                        channel_monitor_cog._restart_task_if_needed(
-                            channel_monitor_cog.cleanup_ping_messages,
-                            "cleanup_ping_messages"
-                        )
-
-                if hasattr(channel_monitor_cog, 'check_inactive_scenes'):
-                    if not channel_monitor_cog.check_inactive_scenes.is_running():
-                        logger.warning("⚠️ Tâche check_inactive_scenes arrêtée, tentative de redémarrage...")
-                        channel_monitor_cog._restart_task_if_needed(
-                            channel_monitor_cog.check_inactive_scenes,
-                            "check_inactive_scenes"
-                        )
-            except Exception as e:
-                logger.error(f"❌ Erreur lors de la vérification des tâches ChannelMonitor: {e}")
 
         # Vérifier les tâches du cog bump
         bump_cog = bot.get_cog('Bump')
@@ -339,7 +318,6 @@ class CustomBot(commands.Bot):
             'cogs.validation',
             'cogs.InactiveUserTracker',
             'cogs.excès',
-            'cogs.channel_monitor',
         ]
 
         for ext in extensions:
