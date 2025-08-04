@@ -259,6 +259,11 @@ class SurveillanceScene(commands.Cog):
             logging.warning(f"Impossible de convertir '{value}' en entier")
             return str(value).lstrip("'")
 
+    def format_id_for_sheets(self, id_value) -> str:
+        """Formate un ID pour Google Sheets en ajoutant l'apostrophe si nécessaire."""
+        clean_id = str(id_value).lstrip("'")
+        return f"'{clean_id}"
+
     async def refresh_monitored_scenes(self):
         """Recharge les scènes surveillées depuis Google Sheets."""
         if not self.sheet:
@@ -748,7 +753,7 @@ class SurveillanceScene(commands.Cog):
 
             # Ajouter à Google Sheets (avec apostrophe pour forcer le format texte sur les IDs)
             self.sheet.append_row([
-                f"'{scene_data['channel_id']}",  # Apostrophe pour forcer le format texte
+                self.format_id_for_sheets(scene_data['channel_id']),
                 scene_data['scene_name'],
                 scene_data['gm_id'],
                 scene_data['start_date'],
@@ -757,7 +762,7 @@ class SurveillanceScene(commands.Cog):
                 scene_data['last_activity_date'],
                 scene_data['message_id'],
                 scene_data['channel_type'],
-                f"'{scene_data['guild_id']}"  # Apostrophe pour forcer le format texte
+                self.format_id_for_sheets(scene_data['guild_id'])
             ])
 
             # Ajouter au cache local
@@ -921,7 +926,7 @@ class SurveillanceScene(commands.Cog):
                 if str(record_channel_id) == str(channel_id):
                     # Mettre à jour toute la ligne (avec apostrophe pour forcer le format texte sur les IDs)
                     self.sheet.update(f'A{i}:J{i}', [[
-                        f"'{scene_data['channel_id']}",  # Apostrophe pour forcer le format texte
+                        self.format_id_for_sheets(scene_data['channel_id']),
                         scene_data['scene_name'],
                         scene_data['gm_id'],
                         scene_data['start_date'],
@@ -930,7 +935,7 @@ class SurveillanceScene(commands.Cog):
                         scene_data['last_activity_date'],
                         scene_data['message_id'],
                         scene_data['channel_type'],
-                        f"'{scene_data['guild_id']}"  # Apostrophe pour forcer le format texte
+                        self.format_id_for_sheets(scene_data['guild_id'])
                     ]])
                     logging.info(f"Données mises à jour dans Google Sheets ligne {i}")
                     found = True
@@ -941,7 +946,7 @@ class SurveillanceScene(commands.Cog):
                 logging.warning(f"Canal {channel_id} non trouvé dans Google Sheets - ajout automatique")
                 try:
                     self.sheet.append_row([
-                        f"'{scene_data['channel_id']}",  # Apostrophe pour forcer le format texte
+                        self.format_id_for_sheets(scene_data['channel_id']),
                         scene_data['scene_name'],
                         scene_data['gm_id'],
                         scene_data['start_date'],
@@ -950,7 +955,7 @@ class SurveillanceScene(commands.Cog):
                         scene_data['last_activity_date'],
                         scene_data['message_id'],
                         scene_data['channel_type'],
-                        f"'{scene_data['guild_id']}"  # Apostrophe pour forcer le format texte
+                        self.format_id_for_sheets(scene_data['guild_id'])
                     ])
                     logging.info(f"Canal {channel_id} ajouté automatiquement à Google Sheets")
                 except Exception as add_error:
