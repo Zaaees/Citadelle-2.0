@@ -452,16 +452,22 @@ class SurveillanceScene(commands.Cog):
             return None
 
     def parse_date(self, date_str: str) -> datetime:
-        """Parse une date au format JJ/MM/AA."""
+        """Parse une date au format JJ/MM/AA ou JJ/MM/AAAA."""
         try:
-            # Parser la date et la mettre au début de la journée (00:00:00)
-            parsed_date = datetime.strptime(date_str, "%d/%m/%y").replace(hour=0, minute=0, second=0, microsecond=0)
+            # Essayer d'abord le format avec année sur 4 chiffres (JJ/MM/AAAA)
+            parsed_date = datetime.strptime(date_str, "%d/%m/%Y").replace(hour=0, minute=0, second=0, microsecond=0)
             # Ajouter la timezone Paris
             return self.paris_tz.localize(parsed_date)
         except ValueError:
-            # Si le format est incorrect, utiliser la date d'aujourd'hui au début de la journée
-            today = datetime.now(self.paris_tz).replace(hour=0, minute=0, second=0, microsecond=0)
-            return today
+            try:
+                # Essayer le format avec année sur 2 chiffres (JJ/MM/AA)
+                parsed_date = datetime.strptime(date_str, "%d/%m/%y").replace(hour=0, minute=0, second=0, microsecond=0)
+                # Ajouter la timezone Paris
+                return self.paris_tz.localize(parsed_date)
+            except ValueError:
+                # Si aucun format ne fonctionne, utiliser la date d'aujourd'hui au début de la journée
+                today = datetime.now(self.paris_tz).replace(hour=0, minute=0, second=0, microsecond=0)
+                return today
 
     async def get_webhook_username(self, message: discord.Message) -> Optional[str]:
         """Récupère le nom d'utilisateur d'un webhook (pour Tupperbox)."""
@@ -598,12 +604,20 @@ class SurveillanceScene(commands.Cog):
                 timestamp=datetime.now(self.paris_tz)
             )
 
-            # Nom de la scène
-            embed.add_field(
-                name="📍 Scène",
-                value=scene_data.get('scene_name', 'Nom inconnu'),
-                inline=True
-            )
+            # Lien vers la scène (remplace le nom par un lien cliquable)
+            channel_id = scene_data.get('channel_id')
+            if channel_id:
+                embed.add_field(
+                    name="📍 Scène",
+                    value=f"<#{channel_id}>",
+                    inline=True
+                )
+            else:
+                embed.add_field(
+                    name="📍 Scène",
+                    value=scene_data.get('scene_name', 'Nom inconnu'),
+                    inline=True
+                )
 
             # MJ responsable
             gm_id = scene_data.get('gm_id')
@@ -613,15 +627,6 @@ class SurveillanceScene(commands.Cog):
                 value=gm_mention,
                 inline=True
             )
-
-            # Lien vers le salon surveillé
-            channel_id = scene_data.get('channel_id')
-            if channel_id:
-                embed.add_field(
-                    name="🔗 Salon surveillé",
-                    value=f"<#{channel_id}>",
-                    inline=True
-                )
 
             # Date de début
             start_date = scene_data.get('start_date', '')
@@ -706,7 +711,7 @@ class SurveillanceScene(commands.Cog):
     async def scene_command(self, ctx, channel_link: str = None, date: str = None, gm_id: str = None):
         """
         Commande pour initier la surveillance d'une scène.
-        Usage: !scene [Lien du salon] [Date JJ/MM/AA] [ID du MJ]
+        Usage: !scene [Lien du salon] [Date JJ/MM/AA ou JJ/MM/AAAA] [ID du MJ]
         """
         if not self.sheet:
             await ctx.send("❌ Erreur de configuration Google Sheets.")
