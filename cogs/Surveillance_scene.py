@@ -252,6 +252,9 @@ class SurveillanceScene(commands.Cog):
         try:
             records = self.sheet.get_all_records()
             logging.info(f"Récupération de {len(records)} enregistrements depuis Google Sheets")
+
+            # Sauvegarder l'ancien cache pour comparaison
+            old_scenes = set(self.monitored_scenes.keys())
             self.monitored_scenes.clear()
 
             for i, record in enumerate(records):
@@ -263,6 +266,16 @@ class SurveillanceScene(commands.Cog):
                     logging.info(f"Scène ajoutée: {channel_id} - {record.get('scene_name', 'N/A')}")
                 else:
                     logging.warning(f"Enregistrement {i+1} ignoré: channel_id vide ou invalide")
+
+            # Identifier les scènes qui ont été supprimées de Google Sheets
+            new_scenes = set(self.monitored_scenes.keys())
+            removed_scenes = old_scenes - new_scenes
+            added_scenes = new_scenes - old_scenes
+
+            if removed_scenes:
+                logging.info(f"Scènes supprimées de Google Sheets: {removed_scenes}")
+            if added_scenes:
+                logging.info(f"Nouvelles scènes dans Google Sheets: {added_scenes}")
 
             logging.info(f"Total des scènes chargées: {len(self.monitored_scenes)}")
 
@@ -878,8 +891,15 @@ class SurveillanceScene(commands.Cog):
                     logging.error(f"Erreur lors du décodage des participants: {participants_data}")
 
             records = self.sheet.get_all_records()
+            logging.info(f"Recherche du canal {channel_id} (type: {type(channel_id)}) dans {len(records)} enregistrements")
+
+            found = False
             for i, record in enumerate(records, start=2):
-                if record.get('channel_id') == channel_id:
+                record_channel_id = record.get('channel_id')
+                logging.info(f"Ligne {i}: channel_id='{record_channel_id}' (type: {type(record_channel_id)}) vs recherché='{channel_id}'")
+
+                # Comparaison robuste en convertissant les deux en string
+                if str(record_channel_id) == str(channel_id):
                     # Mettre à jour toute la ligne
                     self.sheet.update(f'A{i}:J{i}', [[
                         scene_data['channel_id'],
@@ -894,9 +914,28 @@ class SurveillanceScene(commands.Cog):
                         scene_data['guild_id']
                     ]])
                     logging.info(f"Données mises à jour dans Google Sheets ligne {i}")
+                    found = True
                     break
-            else:
-                logging.error(f"Canal {channel_id} non trouvé dans Google Sheets pour mise à jour")
+
+            if not found:
+                # Canal non trouvé dans Google Sheets - l'ajouter automatiquement
+                logging.warning(f"Canal {channel_id} non trouvé dans Google Sheets après vérification - ajout automatique")
+                try:
+                    self.sheet.append_row([
+                        scene_data['channel_id'],
+                        scene_data['scene_name'],
+                        scene_data['gm_id'],
+                        scene_data['start_date'],
+                        scene_data['participants'],
+                        scene_data['last_activity_user'],
+                        scene_data['last_activity_date'],
+                        scene_data['message_id'],
+                        scene_data['channel_type'],
+                        scene_data['guild_id']
+                    ])
+                    logging.info(f"Canal {channel_id} ajouté automatiquement à Google Sheets")
+                except Exception as add_error:
+                    logging.error(f"Erreur lors de l'ajout automatique du canal {channel_id}: {add_error}")
 
         except Exception as e:
             logging.error(f"Erreur lors de la mise à jour des données: {e}")
