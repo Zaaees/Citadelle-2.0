@@ -404,9 +404,19 @@ class SurveillanceScene(commands.Cog):
             # message.author.display_name donne le nickname sur le serveur s'il existe, sinon le nom global
             return message.author.display_name
 
-    def should_ignore_message(self, message: discord.Message) -> bool:
-        """Détermine si un message doit être ignoré dans la surveillance (ex: Maître du Jeu)."""
+    def should_ignore_message_for_participants(self, message: discord.Message) -> bool:
+        """Détermine si un message doit être ignoré pour la liste des participants (ex: Maître du Jeu)."""
         # Ignorer tous les webhooks qui ont le nom "Maître du Jeu" (avec ou sans caractères invisibles)
+        if message.author.bot and message.webhook_id:
+            user_name = self.get_user_display_name(message)
+            # Nettoyer le nom en supprimant les caractères invisibles et espaces
+            clean_name = ''.join(char for char in user_name if char.isprintable()).strip()
+            if clean_name == "Maître du Jeu" or user_name.startswith("Maître du Jeu"):
+                return True
+        return False
+
+    def is_game_master_message(self, message: discord.Message) -> bool:
+        """Détermine si un message provient du 'Maître du Jeu'."""
         if message.author.bot and message.webhook_id:
             user_name = self.get_user_display_name(message)
             # Nettoyer le nom en supprimant les caractères invisibles et espaces
@@ -442,8 +452,8 @@ class SurveillanceScene(commands.Cog):
             async for message in channel.history(limit=None, after=start_date):
                 message_count += 1
 
-                # Ignorer les messages qui doivent être filtrés (ex: Maître du Jeu)
-                if self.should_ignore_message(message):
+                # Ignorer les messages qui doivent être filtrés pour les participants (ex: Maître du Jeu)
+                if self.should_ignore_message_for_participants(message):
                     continue
 
                 # Utiliser la nouvelle fonction pour obtenir le nom d'affichage
@@ -476,10 +486,9 @@ class SurveillanceScene(commands.Cog):
 
             logging.info(f"Récupération de la dernière activité pour {channel.name}")
 
-            async for message in channel.history(limit=50):  # Augmenter la limite pour trouver un message valide
-                # Ignorer les messages qui doivent être filtrés (ex: Maître du Jeu)
-                if self.should_ignore_message(message):
-                    continue
+            async for message in channel.history(limit=50):
+                # Pour la dernière activité, on prend TOUS les messages (y compris Maître du Jeu)
+                # car on veut savoir quand la scène a vraiment été active pour la dernière fois
 
                 # Utiliser la nouvelle fonction pour obtenir le nom d'affichage
                 user_name = self.get_user_display_name(message)
@@ -737,6 +746,22 @@ class SurveillanceScene(commands.Cog):
             logging.error(f"Erreur dans la commande scene: {e}")
             await ctx.send("❌ Une erreur est survenue lors de l'initialisation de la surveillance.")
 
+    @commands.command(name='test_inactive')
+    @commands.has_permissions(administrator=True)
+    async def test_inactive_command(self, ctx):
+        """Commande temporaire pour tester la vérification d'inactivité."""
+        if not self.sheet:
+            await ctx.send("❌ Erreur de configuration Google Sheets.")
+            return
+
+        try:
+            await ctx.send("🔄 Test de vérification d'inactivité en cours...")
+            await self.check_inactive_scenes()
+            await ctx.send("✅ Vérification terminée. Consultez les logs pour plus de détails.")
+        except Exception as e:
+            await ctx.send(f"❌ Erreur lors du test: {e}")
+            logging.error(f"Erreur dans test_inactive: {e}")
+
     async def update_scene_message_id(self, channel_id: str, message_id: str):
         """Met à jour l'ID du message de surveillance dans Google Sheets."""
         try:
@@ -987,20 +1012,16 @@ class SurveillanceScene(commands.Cog):
         if channel_id not in self.monitored_scenes:
             return
 
-        # Ignorer les messages qui doivent être filtrés (ex: Maître du Jeu)
-        if self.should_ignore_message(message):
-            return
-
         try:
             scene_data = self.monitored_scenes[channel_id]
 
-            # Mettre à jour la dernière activité
+            # Mettre à jour la dernière activité (TOUJOURS, même pour Maître du Jeu)
             user_name = self.get_user_display_name(message)
 
             scene_data['last_activity_user'] = user_name
             scene_data['last_activity_date'] = message.created_at.astimezone(self.paris_tz).isoformat()
 
-            # Mettre à jour les participants
+            # Mettre à jour les participants (en filtrant Maître du Jeu)
             start_date = datetime.fromisoformat(scene_data['start_date'])
             participants = await self.get_channel_participants(message.channel, start_date)
             scene_data['participants'] = json.dumps(participants)
@@ -1011,26 +1032,29 @@ class SurveillanceScene(commands.Cog):
             # Mettre à jour le message de surveillance
             await self.update_surveillance_message(scene_data)
 
-            # Notifier le MJ avec système anti-spam
-            gm = self.bot.get_user(int(scene_data['gm_id']))
-            if gm and gm.id != message.author.id:
-                # Vérifier si on doit notifier (anti-spam)
-                if self.should_notify_gm(channel_id, message.author.id):
-                    try:
-                        embed = discord.Embed(
-                            title="📝 Nouvelle activité",
-                            description=f"Nouveau message dans **{scene_data['scene_name']}**",
-                            color=0x2ecc71,
-                            timestamp=message.created_at
-                        )
-                        embed.add_field(name="Auteur", value=user_name, inline=True)
-                        embed.add_field(name="Canal", value=message.channel.mention, inline=True)
-                        embed.add_field(name="Aperçu", value=message.content[:100] + "..." if len(message.content) > 100 else message.content, inline=False)
+            # Notifier le MJ avec système anti-spam (SAUF si c'est un message de Maître du Jeu)
+            if not self.is_game_master_message(message):
+                gm = self.bot.get_user(int(scene_data['gm_id']))
+                if gm and gm.id != message.author.id:
+                    # Vérifier si on doit notifier (anti-spam)
+                    if self.should_notify_gm(channel_id, message.author.id):
+                        try:
+                            embed = discord.Embed(
+                                title="📝 Nouvelle activité",
+                                description=f"Nouveau message dans **{scene_data['scene_name']}**",
+                                color=0x2ecc71,
+                                timestamp=message.created_at
+                            )
+                            embed.add_field(name="Auteur", value=user_name, inline=True)
+                            embed.add_field(name="Canal", value=message.channel.mention, inline=True)
+                            embed.add_field(name="Aperçu", value=message.content[:100] + "..." if len(message.content) > 100 else message.content, inline=False)
 
-                        await gm.send(embed=embed)
-                        logging.info(f"Notification envoyée au MJ pour la scène {scene_data['scene_name']}")
-                    except Exception as e:
-                        logging.error(f"Erreur lors de l'envoi de notification au MJ: {e}")
+                            await gm.send(embed=embed)
+                            logging.info(f"Notification envoyée au MJ pour la scène {scene_data['scene_name']}")
+                        except Exception as e:
+                            logging.error(f"Erreur lors de l'envoi de notification au MJ: {e}")
+            else:
+                logging.info(f"Message de Maître du Jeu détecté - pas de notification envoyée au MJ")
 
         except Exception as e:
             logging.error(f"Erreur lors du traitement du message: {e}")
