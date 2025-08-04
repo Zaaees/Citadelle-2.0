@@ -113,6 +113,9 @@ class SurveillanceScene(commands.Cog):
         # Cache pour éviter le spam de notifications (channel_id -> {user_id: timestamp})
         self.last_notifications: Dict[str, Dict[str, float]] = {}
 
+        # Cache pour tracker les scènes inactives notifiées (pour éviter spam et détecter retour d'activité)
+        self.notified_inactive_scenes: set = set()
+
         # Démarrer les tâches
         self.update_surveillance.start()
         self.check_inactive_scenes.start()
@@ -215,8 +218,18 @@ class SurveillanceScene(commands.Cog):
                     logging.info(f"Scène {scene_data.get('scene_name', 'Inconnue')}: dernière activité il y a {time_since_activity.days} jours")
 
                     if time_since_activity >= timedelta(days=7):
-                        logging.info(f"Scène inactive détectée: {scene_data.get('scene_name', 'Inconnue')}")
-                        await self.notify_inactive_scene(scene_data)
+                        scene_id = scene_data.get('channel_id')
+                        # Ne notifier que si on ne l'a pas déjà fait
+                        if scene_id not in self.notified_inactive_scenes:
+                            logging.info(f"Scène inactive détectée: {scene_data.get('scene_name', 'Inconnue')}")
+                            await self.notify_inactive_scene(scene_data)
+                            self.notified_inactive_scenes.add(scene_id)
+                    else:
+                        # Scène active, retirer du cache des scènes inactives notifiées
+                        scene_id = scene_data.get('channel_id')
+                        if scene_id in self.notified_inactive_scenes:
+                            self.notified_inactive_scenes.remove(scene_id)
+                            logging.info(f"Scène redevenue active: {scene_data.get('scene_name', 'Inconnue')}")
 
                 except Exception as scene_error:
                     logging.error(f"Erreur lors de la vérification de la scène {scene_data.get('scene_name', 'Inconnue')}: {scene_error}")
@@ -1014,23 +1027,28 @@ class SurveillanceScene(commands.Cog):
 
         try:
             scene_data = self.monitored_scenes[channel_id]
+            logging.info(f"Traitement message de {message.author.display_name} dans {scene_data.get('scene_name', 'Inconnue')}")
 
             # Mettre à jour la dernière activité (TOUJOURS, même pour Maître du Jeu)
             user_name = self.get_user_display_name(message)
 
             scene_data['last_activity_user'] = user_name
             scene_data['last_activity_date'] = message.created_at.astimezone(self.paris_tz).isoformat()
+            logging.info(f"Dernière activité mise à jour: {user_name} le {scene_data['last_activity_date']}")
 
             # Mettre à jour les participants (en filtrant Maître du Jeu)
             start_date = datetime.fromisoformat(scene_data['start_date'])
             participants = await self.get_channel_participants(message.channel, start_date)
             scene_data['participants'] = json.dumps(participants)
+            logging.info(f"Participants mis à jour: {len(participants)} participants trouvés")
 
             # Mettre à jour Google Sheets
             await self.update_scene_data(channel_id, scene_data)
+            logging.info("Google Sheets mis à jour")
 
             # Mettre à jour le message de surveillance
             await self.update_surveillance_message(scene_data)
+            logging.info("Message de surveillance mis à jour")
 
             # Notifier le MJ avec système anti-spam (SAUF si c'est un message de Maître du Jeu)
             if not self.is_game_master_message(message):
