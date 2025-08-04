@@ -822,6 +822,92 @@ class SurveillanceScene(commands.Cog):
             logging.error(f"Erreur dans la commande scene: {e}")
             await ctx.send("❌ Une erreur est survenue lors de l'initialisation de la surveillance.")
 
+    @commands.command(name='diagnose_sheet')
+    @commands.has_permissions(administrator=True)
+    async def diagnose_sheet_command(self, ctx):
+        """Diagnostique l'état du Google Sheet pour identifier les problèmes."""
+        if not self.sheet:
+            await ctx.send("❌ Erreur de configuration Google Sheets.")
+            return
+
+        try:
+            records = self.sheet.get_all_records()
+
+            issues = {
+                'double_apostrophes': 0,
+                'scientific_notation': 0,
+                'missing_message_id': 0,
+                'empty_ids': 0,
+                'duplicates': 0
+            }
+
+            seen_channels = set()
+
+            for i, record in enumerate(records, start=2):
+                channel_id = str(record.get('channel_id', ''))
+                gm_id = str(record.get('gm_id', ''))
+                message_id = str(record.get('message_id', ''))
+                guild_id = str(record.get('guild_id', ''))
+
+                # Vérifier les doubles apostrophes
+                for id_name, id_value in [('channel_id', channel_id), ('gm_id', gm_id), ('message_id', message_id), ('guild_id', guild_id)]:
+                    if id_value.startswith("''"):
+                        issues['double_apostrophes'] += 1
+                        logging.info(f"Double apostrophe détectée ligne {i} {id_name}: {id_value}")
+
+                # Vérifier la notation scientifique
+                for id_value in [channel_id, gm_id, message_id, guild_id]:
+                    if 'E+' in id_value.upper():
+                        issues['scientific_notation'] += 1
+                        logging.info(f"Notation scientifique détectée ligne {i}: {id_value}")
+
+                # Vérifier les message_id manquants
+                if not message_id or message_id.strip() == '' or message_id.lower() == 'nan':
+                    issues['missing_message_id'] += 1
+                    logging.info(f"Message_id manquant ligne {i}")
+
+                # Vérifier les IDs vides
+                if not channel_id.lstrip("'").strip():
+                    issues['empty_ids'] += 1
+                    logging.info(f"Channel_id vide ligne {i}")
+
+                # Vérifier les doublons
+                clean_channel_id = channel_id.lstrip("'")
+                if clean_channel_id in seen_channels:
+                    issues['duplicates'] += 1
+                    logging.info(f"Doublon détecté ligne {i}: {clean_channel_id}")
+                else:
+                    seen_channels.add(clean_channel_id)
+
+            embed = discord.Embed(
+                title="🔍 Diagnostic du Google Sheet",
+                color=0x3498db
+            )
+
+            embed.add_field(
+                name="📊 Résumé des problèmes",
+                value=f"• Doubles apostrophes: {issues['double_apostrophes']}\n"
+                      f"• Notation scientifique: {issues['scientific_notation']}\n"
+                      f"• Message_id manquants: {issues['missing_message_id']}\n"
+                      f"• IDs vides: {issues['empty_ids']}\n"
+                      f"• Doublons: {issues['duplicates']}",
+                inline=False
+            )
+
+            embed.add_field(
+                name="🛠️ Actions recommandées",
+                value="• `!fix_sheet_ids` - Corriger les formats d'IDs\n"
+                      "• `!restore_message_ids` - Restaurer les message_id\n"
+                      "• `!remove_duplicates` - Supprimer les doublons",
+                inline=False
+            )
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            logging.error(f"Erreur lors du diagnostic: {e}")
+            await ctx.send(f"❌ Erreur lors du diagnostic: {str(e)}")
+
     @commands.command(name='remove_duplicates')
     @commands.has_permissions(administrator=True)
     async def remove_duplicates_command(self, ctx):
@@ -863,6 +949,131 @@ class SurveillanceScene(commands.Cog):
             logging.error(f"Erreur lors de la suppression des doublons: {e}")
             await ctx.send(f"❌ Erreur lors de la suppression: {str(e)}")
 
+    @commands.command(name='recover_message_ids')
+    @commands.has_permissions(administrator=True)
+    async def recover_message_ids_command(self, ctx):
+        """Récupère les message_id depuis les messages existants dans le canal de surveillance."""
+        if not self.sheet:
+            await ctx.send("❌ Erreur de configuration Google Sheets.")
+            return
+
+        try:
+            await ctx.send("🔧 Récupération des message_id depuis le canal de surveillance...")
+
+            surveillance_channel = self.bot.get_channel(SURVEILLANCE_CHANNEL_ID)
+            if not surveillance_channel:
+                await ctx.send("❌ Canal de surveillance non trouvé.")
+                return
+
+            # Récupérer les messages récents du canal de surveillance
+            messages = []
+            async for message in surveillance_channel.history(limit=200):
+                if message.author == self.bot.user and message.embeds:
+                    embed = message.embeds[0]
+                    # Chercher le channel_id dans l'embed
+                    for field in embed.fields:
+                        if "Canal:" in field.value or "Informations de debug" in field.name:
+                            # Extraire l'ID du canal depuis le mention <#123456>
+                            import re
+                            channel_match = re.search(r'<#(\d+)>', field.value)
+                            if channel_match:
+                                channel_id = channel_match.group(1)
+                                messages.append((channel_id, str(message.id)))
+                                break
+
+            await ctx.send(f"📋 {len(messages)} messages de surveillance trouvés.")
+
+            # Mettre à jour Google Sheets
+            records = self.sheet.get_all_records()
+            updated_count = 0
+
+            for i, record in enumerate(records, start=2):
+                record_channel_id = str(record.get('channel_id', '')).lstrip("'")
+                current_message_id = record.get('message_id', '')
+
+                # Chercher le message_id correspondant
+                for msg_channel_id, msg_id in messages:
+                    if record_channel_id == msg_channel_id:
+                        if not current_message_id or current_message_id.strip() == '' or current_message_id.lower() == 'nan':
+                            # Mettre à jour le message_id
+                            self.sheet.update(f'H{i}', self.format_id_for_sheets(msg_id))
+                            updated_count += 1
+                            logging.info(f"Message_id récupéré pour canal {record_channel_id}: {msg_id}")
+                        break
+
+            await ctx.send(f"✅ Récupération terminée ! {updated_count} message_id récupérés.")
+
+            # Recharger le cache
+            await self.refresh_monitored_scenes()
+            await ctx.send("🔄 Cache des scènes rechargé.")
+
+        except Exception as e:
+            logging.error(f"Erreur lors de la récupération des message_id: {e}")
+            await ctx.send(f"❌ Erreur lors de la récupération: {str(e)}")
+
+    @commands.command(name='restore_message_ids')
+    @commands.has_permissions(administrator=True)
+    async def restore_message_ids_command(self, ctx):
+        """Restaure les message_id manquants en recréant les messages de surveillance."""
+        if not self.sheet:
+            await ctx.send("❌ Erreur de configuration Google Sheets.")
+            return
+
+        try:
+            await ctx.send("🔧 Restauration des message_id en cours...")
+
+            records = self.sheet.get_all_records()
+            restored_count = 0
+
+            surveillance_channel = self.bot.get_channel(SURVEILLANCE_CHANNEL_ID)
+            if not surveillance_channel:
+                await ctx.send("❌ Canal de surveillance non trouvé.")
+                return
+
+            for i, record in enumerate(records, start=2):
+                message_id = record.get('message_id', '')
+                channel_id = record.get('channel_id', '')
+
+                # Si message_id est vide ou invalide
+                if not message_id or message_id.strip() == '' or message_id.lower() == 'nan':
+                    try:
+                        # Créer un nouveau message de surveillance
+                        scene_data = {
+                            'channel_id': self.convert_scientific_to_int(channel_id),
+                            'scene_name': record.get('scene_name', ''),
+                            'gm_id': self.convert_scientific_to_int(record.get('gm_id', '')),
+                            'start_date': record.get('start_date', ''),
+                            'participants': record.get('participants', '[]'),
+                            'last_activity_user': record.get('last_activity_user', ''),
+                            'last_activity_date': record.get('last_activity_date', ''),
+                            'channel_type': record.get('channel_type', ''),
+                            'guild_id': self.convert_scientific_to_int(record.get('guild_id', ''))
+                        }
+
+                        embed = await self.create_surveillance_embed(scene_data)
+                        view = SceneSurveillanceView(self, scene_data)
+
+                        new_message = await surveillance_channel.send(embed=embed, view=view)
+
+                        # Mettre à jour le message_id dans Google Sheets
+                        self.sheet.update(f'H{i}', self.format_id_for_sheets(str(new_message.id)))
+                        restored_count += 1
+
+                        logging.info(f"Message_id restauré pour la scène {scene_data['scene_name']}: {new_message.id}")
+
+                    except Exception as e:
+                        logging.error(f"Erreur lors de la restauration du message_id ligne {i}: {e}")
+
+            await ctx.send(f"✅ Restauration terminée ! {restored_count} message_id restaurés.")
+
+            # Recharger le cache
+            await self.refresh_monitored_scenes()
+            await ctx.send("🔄 Cache des scènes rechargé.")
+
+        except Exception as e:
+            logging.error(f"Erreur lors de la restauration des message_id: {e}")
+            await ctx.send(f"❌ Erreur lors de la restauration: {str(e)}")
+
     @commands.command(name='fix_sheet_ids')
     @commands.has_permissions(administrator=True)
     async def fix_sheet_ids_command(self, ctx):
@@ -901,24 +1112,46 @@ class SurveillanceScene(commands.Cog):
                         original_value = str(value)
 
                         # Vérifier si l'ID a besoin d'être corrigé
-                        needs_id_fix = (
-                            'E+' in original_value.upper() or  # Notation scientifique
-                            original_value.startswith("''") or  # Double apostrophe
-                            not original_value.startswith("'") or  # Pas d'apostrophe
-                            original_value.lstrip("'") == ""  # Vide après nettoyage
-                        )
+                        needs_id_fix = False
+
+                        if 'E+' in original_value.upper():  # Notation scientifique
+                            needs_id_fix = True
+                        elif original_value.startswith("''"):  # Double apostrophe
+                            needs_id_fix = True
+                        elif original_value and not original_value.startswith("'") and original_value.strip() and original_value.lower() != 'nan':  # Pas d'apostrophe mais pas vide
+                            needs_id_fix = True
 
                         if needs_id_fix:
                             # Convertir et formater l'ID
-                            clean_id = self.convert_scientific_to_int(value)
-                            if clean_id:
-                                formatted_id = self.format_id_for_sheets(clean_id)
-                                updated_row.append(formatted_id)
-                                needs_update = True
-                                logging.info(f"ID corrigé: '{original_value}' → '{formatted_id}'")
+                            if 'E+' in original_value.upper():
+                                # Notation scientifique - convertir
+                                clean_id = self.convert_scientific_to_int(value)
+                                if clean_id and clean_id.strip():
+                                    formatted_id = self.format_id_for_sheets(clean_id)
+                                    updated_row.append(formatted_id)
+                                    needs_update = True
+                                    logging.info(f"ID converti (notation scientifique): '{original_value}' → '{formatted_id}'")
+                                else:
+                                    updated_row.append(original_value)
+                            elif original_value.startswith("''"):
+                                # Double apostrophe - corriger
+                                clean_id = original_value.lstrip("'")
+                                if clean_id and clean_id.strip():
+                                    formatted_id = self.format_id_for_sheets(clean_id)
+                                    updated_row.append(formatted_id)
+                                    needs_update = True
+                                    logging.info(f"ID corrigé (double apostrophe): '{original_value}' → '{formatted_id}'")
+                                else:
+                                    updated_row.append(original_value)
                             else:
-                                updated_row.append("")  # ID vide si conversion impossible
-                                needs_update = True
+                                # Pas d'apostrophe - ajouter une apostrophe
+                                if original_value and original_value.strip() and original_value.lower() != 'nan':
+                                    formatted_id = self.format_id_for_sheets(original_value)
+                                    updated_row.append(formatted_id)
+                                    needs_update = True
+                                    logging.info(f"ID formaté (ajout apostrophe): '{original_value}' → '{formatted_id}'")
+                                else:
+                                    updated_row.append(original_value)
                         else:
                             updated_row.append(value)
                     else:
