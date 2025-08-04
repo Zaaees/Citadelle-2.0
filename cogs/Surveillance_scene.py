@@ -786,7 +786,70 @@ class SurveillanceScene(commands.Cog):
             logging.error(f"Erreur dans la commande scene: {e}")
             await ctx.send("❌ Une erreur est survenue lors de l'initialisation de la surveillance.")
 
+    @commands.command(name='check_channels')
+    @commands.has_permissions(administrator=True)
+    async def check_channels_command(self, ctx):
+        """Vérifie l'accès aux canaux surveillés."""
+        if not self.sheet:
+            await ctx.send("❌ Erreur de configuration Google Sheets.")
+            return
 
+        try:
+            await self.refresh_monitored_scenes()
+
+            embed = discord.Embed(
+                title="🔍 Vérification des canaux surveillés",
+                color=0x3498db
+            )
+
+            accessible = 0
+            inaccessible = 0
+            details = []
+
+            for channel_id, scene_data in self.monitored_scenes.items():
+                clean_channel_id = self.convert_scientific_to_int(channel_id)
+                scene_name = scene_data.get('scene_name', 'Inconnu')
+
+                try:
+                    channel = self.bot.get_channel(int(clean_channel_id))
+                    if not channel:
+                        channel = await self.bot.fetch_channel(int(clean_channel_id))
+
+                    accessible += 1
+                    details.append(f"✅ {scene_name} ({clean_channel_id})")
+
+                except discord.NotFound:
+                    inaccessible += 1
+                    details.append(f"❌ {scene_name} ({clean_channel_id}) - Canal non trouvé")
+                except discord.Forbidden:
+                    inaccessible += 1
+                    details.append(f"🔒 {scene_name} ({clean_channel_id}) - Permissions insuffisantes")
+                except Exception as e:
+                    inaccessible += 1
+                    details.append(f"⚠️ {scene_name} ({clean_channel_id}) - Erreur: {str(e)[:50]}")
+
+            embed.add_field(
+                name="📊 Résumé",
+                value=f"Accessibles: {accessible}\nInaccessibles: {inaccessible}",
+                inline=False
+            )
+
+            # Limiter les détails pour éviter les messages trop longs
+            if details:
+                details_text = "\n".join(details[:10])
+                if len(details) > 10:
+                    details_text += f"\n... et {len(details) - 10} autres"
+
+                embed.add_field(
+                    name="📋 Détails",
+                    value=f"```{details_text}```",
+                    inline=False
+                )
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            await ctx.send(f"❌ Erreur lors de la vérification: {e}")
 
     async def update_scene_message_id(self, channel_id: str, message_id: str):
         """Met à jour l'ID du message de surveillance dans Google Sheets."""
@@ -914,12 +977,15 @@ class SurveillanceScene(commands.Cog):
                     logging.error(f"ID de canal invalide '{clean_channel_id}': {ve}")
                     continue
                 except discord.NotFound:
-                    # Canal supprimé ou inaccessible - supprimer de la surveillance
-                    logging.warning(f"Canal {clean_channel_id} ({scene_data.get('scene_name', 'Inconnu')}) n'existe plus - suppression de la surveillance")
-                    await self.remove_scene_surveillance(clean_channel_id)
+                    # Canal non trouvé - peut être supprimé ou inaccessible
+                    logging.warning(f"Canal {clean_channel_id} ({scene_data.get('scene_name', 'Inconnu')}) non trouvé (404) - vérifiez les permissions ou si le canal existe")
+                    continue
+                except discord.Forbidden:
+                    # Pas de permissions pour accéder au canal
+                    logging.warning(f"Canal {clean_channel_id} ({scene_data.get('scene_name', 'Inconnu')}) inaccessible - permissions insuffisantes")
                     continue
                 except Exception as e:
-                    logging.error(f"Impossible de récupérer le canal {clean_channel_id}: {e}")
+                    logging.error(f"Impossible de récupérer le canal {clean_channel_id} ({scene_data.get('scene_name', 'Inconnu')}): {e}")
                     continue
 
                 # Récupérer les nouvelles données
