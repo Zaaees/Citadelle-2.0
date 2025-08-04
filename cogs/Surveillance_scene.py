@@ -243,6 +243,19 @@ class SurveillanceScene(commands.Cog):
         await self.bot.wait_until_ready()
         await asyncio.sleep(60)
 
+    def convert_scientific_to_int(self, value) -> str:
+        """Convertit une notation scientifique en entier string (pour les IDs Discord)."""
+        try:
+            if isinstance(value, str) and ('E+' in value or 'e+' in value):
+                # Convertir la notation scientifique en entier
+                float_val = float(value.replace(',', '.'))  # Gérer les virgules européennes
+                int_val = int(float_val)
+                return str(int_val)
+            return str(value)
+        except (ValueError, TypeError):
+            logging.warning(f"Impossible de convertir '{value}' en entier")
+            return str(value)
+
     async def refresh_monitored_scenes(self):
         """Recharge les scènes surveillées depuis Google Sheets."""
         if not self.sheet:
@@ -258,14 +271,19 @@ class SurveillanceScene(commands.Cog):
             self.monitored_scenes.clear()
 
             for i, record in enumerate(records):
-                channel_id = record.get('channel_id')
-                logging.info(f"Enregistrement {i+1}: channel_id='{channel_id}', scene_name='{record.get('scene_name', 'N/A')}'")
+                channel_id_raw = record.get('channel_id')
+                # Convertir la notation scientifique si nécessaire
+                channel_id = self.convert_scientific_to_int(channel_id_raw)
 
-                if channel_id and str(channel_id).strip():  # Vérifier que channel_id n'est pas vide
+                logging.info(f"Enregistrement {i+1}: channel_id_raw='{channel_id_raw}' -> channel_id='{channel_id}', scene_name='{record.get('scene_name', 'N/A')}'")
+
+                if channel_id and str(channel_id).strip() and channel_id != 'nan':  # Vérifier que channel_id n'est pas vide
+                    # Mettre à jour le record avec l'ID corrigé
+                    record['channel_id'] = channel_id
                     self.monitored_scenes[str(channel_id)] = record
                     logging.info(f"Scène ajoutée: {channel_id} - {record.get('scene_name', 'N/A')}")
                 else:
-                    logging.warning(f"Enregistrement {i+1} ignoré: channel_id vide ou invalide")
+                    logging.warning(f"Enregistrement {i+1} ignoré: channel_id vide ou invalide ('{channel_id}')")
 
             # Identifier les scènes qui ont été supprimées de Google Sheets
             new_scenes = set(self.monitored_scenes.keys())
@@ -948,16 +966,21 @@ class SurveillanceScene(commands.Cog):
 
         for channel_id, scene_data in self.monitored_scenes.items():
             try:
-                logging.info(f"Mise à jour de la scène {channel_id} ({scene_data.get('scene_name', 'Nom inconnu')})")
+                # Convertir l'ID en cas de notation scientifique
+                clean_channel_id = self.convert_scientific_to_int(channel_id)
+                logging.info(f"Mise à jour de la scène {clean_channel_id} ({scene_data.get('scene_name', 'Nom inconnu')})")
 
-                channel = self.bot.get_channel(int(channel_id))
-                if not channel:
-                    # Essayer de récupérer via l'API
-                    try:
-                        channel = await self.bot.fetch_channel(int(channel_id))
-                    except:
-                        logging.error(f"Impossible de récupérer le canal {channel_id}")
-                        continue
+                try:
+                    channel = self.bot.get_channel(int(clean_channel_id))
+                    if not channel:
+                        # Essayer de récupérer via l'API
+                        channel = await self.bot.fetch_channel(int(clean_channel_id))
+                except ValueError as ve:
+                    logging.error(f"ID de canal invalide '{clean_channel_id}': {ve}")
+                    continue
+                except Exception as e:
+                    logging.error(f"Impossible de récupérer le canal {clean_channel_id}: {e}")
+                    continue
 
                 # Récupérer les nouvelles données
                 start_date = datetime.fromisoformat(scene_data['start_date'])
