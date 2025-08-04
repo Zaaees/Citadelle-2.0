@@ -491,7 +491,7 @@ class SurveillanceScene(commands.Cog):
             return message.author.display_name
 
     def should_ignore_message_for_participants(self, message: discord.Message) -> bool:
-        """Détermine si un message doit être ignoré pour la liste des participants (ex: Maître du Jeu)."""
+        """Détermine si un message doit être ignoré pour la liste des participants (ex: Maître du Jeu, message initiateur de forum)."""
         # Ignorer tous les webhooks qui ont le nom "Maître du Jeu" (avec ou sans caractères invisibles)
         if message.author.bot and message.webhook_id:
             user_name = self.get_user_display_name(message)
@@ -499,16 +499,37 @@ class SurveillanceScene(commands.Cog):
             clean_name = ''.join(char for char in user_name if char.isprintable()).strip()
             if clean_name == "Maître du Jeu" or user_name.startswith("Maître du Jeu"):
                 return True
+
+        # Ignorer le message initiateur des posts de forum
+        if isinstance(message.channel, discord.Thread) and hasattr(message.channel, 'parent'):
+            # Vérifier si c'est un thread de forum
+            if isinstance(message.channel.parent, discord.ForumChannel):
+                # Vérifier si c'est le message initiateur en utilisant l'ID du thread
+                # Le message initiateur d'un post de forum a le même ID que le thread
+                if message.id == message.channel.id:
+                    return True
+
         return False
 
     def is_game_master_message(self, message: discord.Message) -> bool:
-        """Détermine si un message provient du 'Maître du Jeu'."""
+        """Détermine si un message provient du 'Maître du Jeu' ou doit être ignoré pour l'activité."""
+        # Ignorer les messages du Maître du Jeu
         if message.author.bot and message.webhook_id:
             user_name = self.get_user_display_name(message)
             # Nettoyer le nom en supprimant les caractères invisibles et espaces
             clean_name = ''.join(char for char in user_name if char.isprintable()).strip()
             if clean_name == "Maître du Jeu" or user_name.startswith("Maître du Jeu"):
                 return True
+
+        # Ignorer le message initiateur des posts de forum pour les notifications
+        if isinstance(message.channel, discord.Thread) and hasattr(message.channel, 'parent'):
+            # Vérifier si c'est un thread de forum
+            if isinstance(message.channel.parent, discord.ForumChannel):
+                # Vérifier si c'est le message initiateur en utilisant l'ID du thread
+                # Le message initiateur d'un post de forum a le même ID que le thread
+                if message.id == message.channel.id:
+                    return True
+
         return False
 
     async def get_channel_participants(self, channel: Union[discord.TextChannel, discord.Thread], start_date: datetime) -> List[str]:
