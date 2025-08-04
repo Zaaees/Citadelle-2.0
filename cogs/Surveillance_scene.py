@@ -247,21 +247,39 @@ class SurveillanceScene(commands.Cog):
         """Convertit une notation scientifique en entier string (pour les IDs Discord)."""
         try:
             # Nettoyer la valeur (supprimer apostrophes de Google Sheets)
-            clean_value = str(value).lstrip("'")
+            clean_value = str(value).lstrip("'").strip()
 
-            if isinstance(clean_value, str) and ('E+' in clean_value or 'e+' in clean_value):
+            # Si la valeur est vide ou 'nan', retourner une chaîne vide
+            if not clean_value or clean_value.lower() == 'nan':
+                return ""
+
+            # Vérifier si c'est de la notation scientifique
+            if isinstance(clean_value, str) and ('E+' in clean_value.upper() or 'e+' in clean_value):
                 # Convertir la notation scientifique en entier
                 float_val = float(clean_value.replace(',', '.'))  # Gérer les virgules européennes
                 int_val = int(float_val)
                 return str(int_val)
+
+            # Si c'est déjà un nombre valide, le retourner tel quel
+            if clean_value.isdigit():
+                return clean_value
+
             return clean_value
-        except (ValueError, TypeError):
-            logging.warning(f"Impossible de convertir '{value}' en entier")
-            return str(value).lstrip("'")
+        except (ValueError, TypeError) as e:
+            logging.warning(f"Impossible de convertir '{value}' en entier: {e}")
+            return str(value).lstrip("'").strip()
 
     def format_id_for_sheets(self, id_value) -> str:
         """Formate un ID pour Google Sheets en ajoutant l'apostrophe si nécessaire."""
-        clean_id = str(id_value).lstrip("'")
+        if not id_value:
+            return ""
+
+        clean_id = str(id_value).lstrip("'")  # Supprimer toutes les apostrophes existantes
+
+        # Ne pas ajouter d'apostrophe si l'ID est vide après nettoyage
+        if not clean_id or clean_id.lower() == 'nan':
+            return ""
+
         return f"'{clean_id}"
 
     async def refresh_monitored_scenes(self):
@@ -284,8 +302,12 @@ class SurveillanceScene(commands.Cog):
                 channel_id = self.convert_scientific_to_int(channel_id_raw)
 
                 if channel_id and str(channel_id).strip() and channel_id != 'nan':  # Vérifier que channel_id n'est pas vide
-                    # Mettre à jour le record avec l'ID corrigé
+                    # Convertir tous les autres IDs aussi
                     record['channel_id'] = channel_id
+                    record['gm_id'] = self.convert_scientific_to_int(record.get('gm_id', ''))
+                    record['message_id'] = self.convert_scientific_to_int(record.get('message_id', ''))
+                    record['guild_id'] = self.convert_scientific_to_int(record.get('guild_id', ''))
+
                     self.monitored_scenes[str(channel_id)] = record
                     logging.info(f"Scène ajoutée: {channel_id} - {record.get('scene_name', 'N/A')}")
                 else:
@@ -755,12 +777,12 @@ class SurveillanceScene(commands.Cog):
             self.sheet.append_row([
                 self.format_id_for_sheets(scene_data['channel_id']),
                 scene_data['scene_name'],
-                scene_data['gm_id'],
+                self.format_id_for_sheets(scene_data['gm_id']),
                 scene_data['start_date'],
                 scene_data['participants'],
                 scene_data['last_activity_user'],
                 scene_data['last_activity_date'],
-                scene_data['message_id'],
+                self.format_id_for_sheets(scene_data['message_id']),
                 scene_data['channel_type'],
                 self.format_id_for_sheets(scene_data['guild_id'])
             ])
@@ -793,6 +815,82 @@ class SurveillanceScene(commands.Cog):
         except Exception as e:
             logging.error(f"Erreur dans la commande scene: {e}")
             await ctx.send("❌ Une erreur est survenue lors de l'initialisation de la surveillance.")
+
+    @commands.command(name='fix_sheet_ids')
+    @commands.has_permissions(administrator=True)
+    async def fix_sheet_ids_command(self, ctx):
+        """Corrige les IDs Discord mal formatés dans Google Sheets."""
+        if not self.sheet:
+            await ctx.send("❌ Erreur de configuration Google Sheets.")
+            return
+
+        try:
+            await ctx.send("🔧 Correction des IDs Discord en cours...")
+
+            records = self.sheet.get_all_records()
+            fixed_count = 0
+
+            for i, record in enumerate(records, start=2):  # Start=2 car ligne 1 = en-tête
+                needs_update = False
+                updated_row = []
+
+                # Colonnes à corriger : A=channel_id, C=gm_id, H=message_id, J=guild_id
+                columns_to_fix = {
+                    'A': record.get('channel_id', ''),
+                    'B': record.get('scene_name', ''),
+                    'C': record.get('gm_id', ''),
+                    'D': record.get('start_date', ''),
+                    'E': record.get('participants', ''),
+                    'F': record.get('last_activity_user', ''),
+                    'G': record.get('last_activity_date', ''),
+                    'H': record.get('message_id', ''),
+                    'I': record.get('channel_type', ''),
+                    'J': record.get('guild_id', '')
+                }
+
+                # Vérifier et corriger les IDs
+                for col, value in columns_to_fix.items():
+                    if col in ['A', 'C', 'H', 'J']:  # Colonnes contenant des IDs Discord
+                        original_value = str(value)
+
+                        # Vérifier si l'ID a besoin d'être corrigé
+                        needs_id_fix = (
+                            'E+' in original_value.upper() or  # Notation scientifique
+                            original_value.startswith("''") or  # Double apostrophe
+                            not original_value.startswith("'") or  # Pas d'apostrophe
+                            original_value.lstrip("'") == ""  # Vide après nettoyage
+                        )
+
+                        if needs_id_fix:
+                            # Convertir et formater l'ID
+                            clean_id = self.convert_scientific_to_int(value)
+                            if clean_id:
+                                formatted_id = self.format_id_for_sheets(clean_id)
+                                updated_row.append(formatted_id)
+                                needs_update = True
+                                logging.info(f"ID corrigé: '{original_value}' → '{formatted_id}'")
+                            else:
+                                updated_row.append("")  # ID vide si conversion impossible
+                                needs_update = True
+                        else:
+                            updated_row.append(value)
+                    else:
+                        updated_row.append(value)
+
+                if needs_update:
+                    self.sheet.update(f'A{i}:J{i}', [updated_row])
+                    fixed_count += 1
+                    logging.info(f"Ligne {i} corrigée")
+
+            await ctx.send(f"✅ Correction terminée ! {fixed_count} lignes ont été corrigées.")
+
+            # Recharger le cache
+            await self.refresh_monitored_scenes()
+            await ctx.send("🔄 Cache des scènes rechargé.")
+
+        except Exception as e:
+            logging.error(f"Erreur lors de la correction des IDs: {e}")
+            await ctx.send(f"❌ Erreur lors de la correction: {str(e)}")
 
     @commands.command(name='check_channels')
     @commands.has_permissions(administrator=True)
@@ -865,7 +963,7 @@ class SurveillanceScene(commands.Cog):
             records = self.sheet.get_all_records()
             for i, record in enumerate(records, start=2):  # Start=2 car ligne 1 = en-tête
                 if record.get('channel_id') == channel_id:
-                    self.sheet.update(f'H{i}', message_id)  # Colonne H = message_id
+                    self.sheet.update(f'H{i}', self.format_id_for_sheets(message_id))  # Colonne H = message_id
                     break
         except Exception as e:
             logging.error(f"Erreur lors de la mise à jour de l'ID du message: {e}")
@@ -876,7 +974,7 @@ class SurveillanceScene(commands.Cog):
             records = self.sheet.get_all_records()
             for i, record in enumerate(records, start=2):
                 if record.get('channel_id') == channel_id:
-                    self.sheet.update(f'C{i}', new_gm_id)  # Colonne C = gm_id
+                    self.sheet.update(f'C{i}', self.format_id_for_sheets(new_gm_id))  # Colonne C = gm_id
                     break
         except Exception as e:
             logging.error(f"Erreur lors de la mise à jour du MJ: {e}")
@@ -928,12 +1026,12 @@ class SurveillanceScene(commands.Cog):
                     self.sheet.update(f'A{i}:J{i}', [[
                         self.format_id_for_sheets(scene_data['channel_id']),
                         scene_data['scene_name'],
-                        scene_data['gm_id'],
+                        self.format_id_for_sheets(scene_data['gm_id']),
                         scene_data['start_date'],
                         scene_data['participants'],
                         scene_data['last_activity_user'],
                         scene_data['last_activity_date'],
-                        scene_data['message_id'],
+                        self.format_id_for_sheets(scene_data['message_id']),
                         scene_data['channel_type'],
                         self.format_id_for_sheets(scene_data['guild_id'])
                     ]])
@@ -948,12 +1046,12 @@ class SurveillanceScene(commands.Cog):
                     self.sheet.append_row([
                         self.format_id_for_sheets(scene_data['channel_id']),
                         scene_data['scene_name'],
-                        scene_data['gm_id'],
+                        self.format_id_for_sheets(scene_data['gm_id']),
                         scene_data['start_date'],
                         scene_data['participants'],
                         scene_data['last_activity_user'],
                         scene_data['last_activity_date'],
-                        scene_data['message_id'],
+                        self.format_id_for_sheets(scene_data['message_id']),
                         scene_data['channel_type'],
                         self.format_id_for_sheets(scene_data['guild_id'])
                     ])
