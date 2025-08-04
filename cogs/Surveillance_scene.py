@@ -70,28 +70,30 @@ class SceneSurveillanceView(discord.ui.View):
         try:
             # Supprimer de Google Sheets
             await self.cog.remove_scene_surveillance(self.scene_data['channel_id'])
-            
-            # Notifier le MJ
-            gm = self.cog.bot.get_user(int(self.scene_data['gm_id']))
-            if gm:
-                try:
-                    await gm.send(f"🔒 **Scène clôturée**\nLa surveillance de la scène **{self.scene_data['scene_name']}** a été fermée par {interaction.user.mention}.")
-                except:
-                    pass
-            
-            # Désactiver tous les boutons et mettre à jour le message
-            for child in self.children:
-                child.disabled = True
-            
-            embed = discord.Embed(
-                title="🔒 Surveillance clôturée",
-                description=f"La surveillance de **{self.scene_data['scene_name']}** a été fermée.",
-                color=0x95a5a6,
-                timestamp=datetime.now(PARIS_TZ)
+
+            # Répondre à l'interaction puis supprimer le message
+            await interaction.response.send_message(
+                f"🔒 **Surveillance clôturée**\nLa surveillance de **{self.scene_data['scene_name']}** a été fermée.",
+                ephemeral=True
             )
-            embed.set_footer(text=f"Clôturée par {interaction.user.display_name}")
-            
-            await interaction.response.edit_message(embed=embed, view=self)
+
+            # Supprimer le message de surveillance
+            try:
+                await interaction.followup.delete_message(interaction.message.id)
+            except:
+                # Si la suppression échoue, essayer de modifier le message
+                embed = discord.Embed(
+                    title="🔒 Surveillance clôturée",
+                    description=f"La surveillance de **{self.scene_data['scene_name']}** a été fermée.",
+                    color=0x95a5a6,
+                    timestamp=datetime.now(PARIS_TZ)
+                )
+                embed.set_footer(text=f"Clôturée par {interaction.user.display_name}")
+
+                for child in self.children:
+                    child.disabled = True
+
+                await interaction.edit_original_response(embed=embed, view=self)
             
         except Exception as e:
             logging.error(f"Erreur lors de la clôture de scène: {e}")
@@ -611,6 +613,15 @@ class SurveillanceScene(commands.Cog):
                 value=gm_mention,
                 inline=True
             )
+
+            # Lien vers le salon surveillé
+            channel_id = scene_data.get('channel_id')
+            if channel_id:
+                embed.add_field(
+                    name="🔗 Salon surveillé",
+                    value=f"<#{channel_id}>",
+                    inline=True
+                )
 
             # Date de début
             start_date = scene_data.get('start_date', '')
