@@ -775,6 +775,56 @@ class SurveillanceScene(commands.Cog):
             await ctx.send(f"❌ Erreur lors du test: {e}")
             logging.error(f"Erreur dans test_inactive: {e}")
 
+    @commands.command(name='force_update')
+    @commands.has_permissions(administrator=True)
+    async def force_update_command(self, ctx, channel_id: str = None):
+        """Commande temporaire pour forcer la mise à jour d'une scène."""
+        if not self.sheet:
+            await ctx.send("❌ Erreur de configuration Google Sheets.")
+            return
+
+        try:
+            if not channel_id:
+                # Mettre à jour toutes les scènes
+                await ctx.send("🔄 Mise à jour forcée de toutes les scènes...")
+                await self.refresh_monitored_scenes()
+                await self.update_all_scenes()
+                await ctx.send(f"✅ {len(self.monitored_scenes)} scènes mises à jour.")
+            else:
+                # Mettre à jour une scène spécifique
+                if channel_id in self.monitored_scenes:
+                    await ctx.send(f"🔄 Mise à jour forcée de la scène {channel_id}...")
+                    scene_data = self.monitored_scenes[channel_id]
+
+                    # Récupérer le canal
+                    channel = self.bot.get_channel(int(channel_id))
+                    if not channel:
+                        channel = await self.bot.fetch_channel(int(channel_id))
+
+                    # Mettre à jour les données
+                    start_date = datetime.fromisoformat(scene_data['start_date'])
+                    if start_date.tzinfo is None:
+                        start_date = self.paris_tz.localize(start_date)
+
+                    participants = await self.get_channel_participants(channel, start_date)
+                    last_activity = await self.get_last_activity(channel)
+
+                    scene_data['participants'] = json.dumps(participants)
+                    if last_activity:
+                        scene_data['last_activity_user'] = last_activity['user']
+                        scene_data['last_activity_date'] = last_activity['date'].isoformat()
+
+                    await self.update_scene_data(channel_id, scene_data)
+                    await self.update_surveillance_message(scene_data)
+
+                    await ctx.send(f"✅ Scène {scene_data.get('scene_name', 'Inconnue')} mise à jour.")
+                else:
+                    await ctx.send(f"❌ Scène {channel_id} non trouvée.")
+
+        except Exception as e:
+            await ctx.send(f"❌ Erreur lors de la mise à jour: {e}")
+            logging.error(f"Erreur dans force_update: {e}")
+
     async def update_scene_message_id(self, channel_id: str, message_id: str):
         """Met à jour l'ID du message de surveillance dans Google Sheets."""
         try:
@@ -1043,12 +1093,23 @@ class SurveillanceScene(commands.Cog):
             logging.info(f"Participants mis à jour: {len(participants)} participants trouvés")
 
             # Mettre à jour Google Sheets
-            await self.update_scene_data(channel_id, scene_data)
-            logging.info("Google Sheets mis à jour")
+            try:
+                await self.update_scene_data(channel_id, scene_data)
+                logging.info("Google Sheets mis à jour avec succès")
+            except Exception as sheets_error:
+                logging.error(f"ERREUR Google Sheets: {sheets_error}")
+                # Continuer même si Google Sheets échoue
 
             # Mettre à jour le message de surveillance
-            await self.update_surveillance_message(scene_data)
-            logging.info("Message de surveillance mis à jour")
+            try:
+                await self.update_surveillance_message(scene_data)
+                logging.info("Message de surveillance mis à jour avec succès")
+            except Exception as message_error:
+                logging.error(f"ERREUR mise à jour message: {message_error}")
+
+            # Forcer la mise à jour du cache local pour être sûr
+            self.monitored_scenes[channel_id] = scene_data
+            logging.info("Cache local forcé")
 
             # Notifier le MJ avec système anti-spam (SAUF si c'est un message de Maître du Jeu)
             if not self.is_game_master_message(message):
