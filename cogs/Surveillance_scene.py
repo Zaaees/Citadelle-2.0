@@ -246,15 +246,18 @@ class SurveillanceScene(commands.Cog):
     def convert_scientific_to_int(self, value) -> str:
         """Convertit une notation scientifique en entier string (pour les IDs Discord)."""
         try:
-            if isinstance(value, str) and ('E+' in value or 'e+' in value):
+            # Nettoyer la valeur (supprimer apostrophes de Google Sheets)
+            clean_value = str(value).lstrip("'")
+
+            if isinstance(clean_value, str) and ('E+' in clean_value or 'e+' in clean_value):
                 # Convertir la notation scientifique en entier
-                float_val = float(value.replace(',', '.'))  # Gérer les virgules européennes
+                float_val = float(clean_value.replace(',', '.'))  # Gérer les virgules européennes
                 int_val = int(float_val)
                 return str(int_val)
-            return str(value)
+            return clean_value
         except (ValueError, TypeError):
             logging.warning(f"Impossible de convertir '{value}' en entier")
-            return str(value)
+            return str(value).lstrip("'")
 
     async def refresh_monitored_scenes(self):
         """Recharge les scènes surveillées depuis Google Sheets."""
@@ -743,9 +746,9 @@ class SurveillanceScene(commands.Cog):
                 'guild_id': str(channel.guild.id)
             }
 
-            # Ajouter à Google Sheets
+            # Ajouter à Google Sheets (avec apostrophe pour forcer le format texte sur les IDs)
             self.sheet.append_row([
-                scene_data['channel_id'],
+                f"'{scene_data['channel_id']}",  # Apostrophe pour forcer le format texte
                 scene_data['scene_name'],
                 scene_data['gm_id'],
                 scene_data['start_date'],
@@ -754,7 +757,7 @@ class SurveillanceScene(commands.Cog):
                 scene_data['last_activity_date'],
                 scene_data['message_id'],
                 scene_data['channel_type'],
-                scene_data['guild_id']
+                f"'{scene_data['guild_id']}"  # Apostrophe pour forcer le format texte
             ])
 
             # Ajouter au cache local
@@ -916,9 +919,9 @@ class SurveillanceScene(commands.Cog):
 
                 # Comparaison robuste en convertissant les deux en string
                 if str(record_channel_id) == str(channel_id):
-                    # Mettre à jour toute la ligne
+                    # Mettre à jour toute la ligne (avec apostrophe pour forcer le format texte sur les IDs)
                     self.sheet.update(f'A{i}:J{i}', [[
-                        scene_data['channel_id'],
+                        f"'{scene_data['channel_id']}",  # Apostrophe pour forcer le format texte
                         scene_data['scene_name'],
                         scene_data['gm_id'],
                         scene_data['start_date'],
@@ -927,7 +930,7 @@ class SurveillanceScene(commands.Cog):
                         scene_data['last_activity_date'],
                         scene_data['message_id'],
                         scene_data['channel_type'],
-                        scene_data['guild_id']
+                        f"'{scene_data['guild_id']}"  # Apostrophe pour forcer le format texte
                     ]])
                     logging.info(f"Données mises à jour dans Google Sheets ligne {i}")
                     found = True
@@ -938,7 +941,7 @@ class SurveillanceScene(commands.Cog):
                 logging.warning(f"Canal {channel_id} non trouvé dans Google Sheets - ajout automatique")
                 try:
                     self.sheet.append_row([
-                        scene_data['channel_id'],
+                        f"'{scene_data['channel_id']}",  # Apostrophe pour forcer le format texte
                         scene_data['scene_name'],
                         scene_data['gm_id'],
                         scene_data['start_date'],
@@ -947,7 +950,7 @@ class SurveillanceScene(commands.Cog):
                         scene_data['last_activity_date'],
                         scene_data['message_id'],
                         scene_data['channel_type'],
-                        scene_data['guild_id']
+                        f"'{scene_data['guild_id']}"  # Apostrophe pour forcer le format texte
                     ])
                     logging.info(f"Canal {channel_id} ajouté automatiquement à Google Sheets")
                 except Exception as add_error:
