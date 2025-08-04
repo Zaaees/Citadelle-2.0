@@ -274,12 +274,18 @@ class SurveillanceScene(commands.Cog):
         if not id_value:
             return ""
 
-        clean_id = str(id_value).lstrip("'")  # Supprimer toutes les apostrophes existantes
+        str_value = str(id_value)
 
-        # Ne pas ajouter d'apostrophe si l'ID est vide après nettoyage
-        if not clean_id or clean_id.lower() == 'nan':
+        # Ne pas ajouter d'apostrophe si l'ID est vide ou nan
+        if not str_value or str_value.lower() == 'nan':
             return ""
 
+        # Si l'ID commence déjà par une apostrophe, le retourner tel quel
+        if str_value.startswith("'"):
+            return str_value
+
+        # Sinon, nettoyer et ajouter l'apostrophe
+        clean_id = str_value.lstrip("'")
         return f"'{clean_id}"
 
     async def refresh_monitored_scenes(self):
@@ -816,6 +822,47 @@ class SurveillanceScene(commands.Cog):
             logging.error(f"Erreur dans la commande scene: {e}")
             await ctx.send("❌ Une erreur est survenue lors de l'initialisation de la surveillance.")
 
+    @commands.command(name='remove_duplicates')
+    @commands.has_permissions(administrator=True)
+    async def remove_duplicates_command(self, ctx):
+        """Supprime les doublons dans Google Sheets basés sur channel_id."""
+        if not self.sheet:
+            await ctx.send("❌ Erreur de configuration Google Sheets.")
+            return
+
+        try:
+            await ctx.send("🔧 Suppression des doublons en cours...")
+
+            records = self.sheet.get_all_records()
+            seen_channels = set()
+            rows_to_delete = []
+
+            # Identifier les doublons (en partant de la fin pour éviter les problèmes d'index)
+            for i, record in enumerate(records, start=2):
+                channel_id = str(record.get('channel_id', '')).lstrip("'")
+
+                if channel_id and channel_id != 'nan':
+                    if channel_id in seen_channels:
+                        rows_to_delete.append(i)
+                        logging.info(f"Doublon détecté ligne {i}: {channel_id}")
+                    else:
+                        seen_channels.add(channel_id)
+
+            # Supprimer les doublons (en commençant par la fin)
+            for row_num in reversed(rows_to_delete):
+                self.sheet.delete_rows(row_num)
+                logging.info(f"Ligne {row_num} supprimée")
+
+            await ctx.send(f"✅ Suppression terminée ! {len(rows_to_delete)} doublons supprimés.")
+
+            # Recharger le cache
+            await self.refresh_monitored_scenes()
+            await ctx.send("🔄 Cache des scènes rechargé.")
+
+        except Exception as e:
+            logging.error(f"Erreur lors de la suppression des doublons: {e}")
+            await ctx.send(f"❌ Erreur lors de la suppression: {str(e)}")
+
     @commands.command(name='fix_sheet_ids')
     @commands.has_permissions(administrator=True)
     async def fix_sheet_ids_command(self, ctx):
@@ -962,7 +1009,9 @@ class SurveillanceScene(commands.Cog):
         try:
             records = self.sheet.get_all_records()
             for i, record in enumerate(records, start=2):  # Start=2 car ligne 1 = en-tête
-                if record.get('channel_id') == channel_id:
+                record_channel_id = str(record.get('channel_id')).lstrip("'")
+                clean_channel_id = str(channel_id).lstrip("'")
+                if record_channel_id == clean_channel_id:
                     self.sheet.update(f'H{i}', self.format_id_for_sheets(message_id))  # Colonne H = message_id
                     break
         except Exception as e:
@@ -973,7 +1022,9 @@ class SurveillanceScene(commands.Cog):
         try:
             records = self.sheet.get_all_records()
             for i, record in enumerate(records, start=2):
-                if record.get('channel_id') == channel_id:
+                record_channel_id = str(record.get('channel_id')).lstrip("'")
+                clean_channel_id = str(channel_id).lstrip("'")
+                if record_channel_id == clean_channel_id:
                     self.sheet.update(f'C{i}', self.format_id_for_sheets(new_gm_id))  # Colonne C = gm_id
                     break
         except Exception as e:
@@ -996,7 +1047,9 @@ class SurveillanceScene(commands.Cog):
         try:
             records = self.sheet.get_all_records()
             for i, record in enumerate(records, start=2):
-                if str(record.get('channel_id')) == str(channel_id):
+                record_channel_id = str(record.get('channel_id')).lstrip("'")
+                clean_channel_id = str(channel_id).lstrip("'")
+                if record_channel_id == clean_channel_id:
                     self.sheet.delete_rows(i)
                     break
 
@@ -1020,8 +1073,11 @@ class SurveillanceScene(commands.Cog):
             for i, record in enumerate(records, start=2):
                 record_channel_id = record.get('channel_id')
 
-                # Comparaison robuste en convertissant les deux en string
-                if str(record_channel_id) == str(channel_id):
+                # Comparaison robuste en nettoyant les apostrophes des deux côtés
+                clean_record_id = str(record_channel_id).lstrip("'")
+                clean_channel_id = str(channel_id).lstrip("'")
+
+                if clean_record_id == clean_channel_id:
                     # Mettre à jour toute la ligne (avec apostrophe pour forcer le format texte sur les IDs)
                     self.sheet.update(f'A{i}:J{i}', [[
                         self.format_id_for_sheets(scene_data['channel_id']),
