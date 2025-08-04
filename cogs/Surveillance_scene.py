@@ -486,12 +486,23 @@ class SurveillanceScene(commands.Cog):
             # Le nom du personnage est dans message.author.name pour Tupperbox
             return message.author.name if message.author.name else message.author.display_name
         else:
-            # Utilisateur normal - utiliser le nom d'affichage sur le serveur (nickname ou nom global)
-            # message.author.display_name donne le nickname sur le serveur s'il existe, sinon le nom global
+            # Utilisateur normal - récupérer le Member pour avoir le nickname du serveur
+            if message.guild:
+                member = message.guild.get_member(message.author.id)
+                if member:
+                    # member.display_name retourne le nickname s'il existe, sinon le nom global
+                    return member.display_name
+
+            # Fallback si pas de serveur ou membre non trouvé
             return message.author.display_name
 
     def should_ignore_message_for_participants(self, message: discord.Message) -> bool:
         """Détermine si un message doit être ignoré pour la liste des participants (ex: Maître du Jeu, message initiateur de forum)."""
+        # Ignorer des utilisateurs spécifiques par leur ID
+        ignored_user_ids = [249497144698863617, 496737005720436756]
+        if message.author.id in ignored_user_ids:
+            return True
+
         # Ignorer tous les webhooks qui ont le nom "Maître du Jeu" (avec ou sans caractères invisibles)
         if message.author.bot and message.webhook_id:
             user_name = self.get_user_display_name(message)
@@ -513,6 +524,11 @@ class SurveillanceScene(commands.Cog):
 
     def is_game_master_message(self, message: discord.Message) -> bool:
         """Détermine si un message provient du 'Maître du Jeu' ou doit être ignoré pour l'activité."""
+        # Ignorer des utilisateurs spécifiques par leur ID
+        ignored_user_ids = [249497144698863617, 496737005720436756]
+        if message.author.id in ignored_user_ids:
+            return True
+
         # Ignorer les messages du Maître du Jeu
         if message.author.bot and message.webhook_id:
             user_name = self.get_user_display_name(message)
