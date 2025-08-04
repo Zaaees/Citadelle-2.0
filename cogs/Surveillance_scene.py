@@ -275,15 +275,13 @@ class SurveillanceScene(commands.Cog):
                 # Convertir la notation scientifique si nécessaire
                 channel_id = self.convert_scientific_to_int(channel_id_raw)
 
-                logging.info(f"Enregistrement {i+1}: channel_id_raw='{channel_id_raw}' -> channel_id='{channel_id}', scene_name='{record.get('scene_name', 'N/A')}'")
-
                 if channel_id and str(channel_id).strip() and channel_id != 'nan':  # Vérifier que channel_id n'est pas vide
                     # Mettre à jour le record avec l'ID corrigé
                     record['channel_id'] = channel_id
                     self.monitored_scenes[str(channel_id)] = record
                     logging.info(f"Scène ajoutée: {channel_id} - {record.get('scene_name', 'N/A')}")
                 else:
-                    logging.warning(f"Enregistrement {i+1} ignoré: channel_id vide ou invalide ('{channel_id}')")
+                    logging.warning(f"Enregistrement {i+1} ignoré: channel_id vide ou invalide")
 
             # Identifier les scènes qui ont été supprimées de Google Sheets
             new_scenes = set(self.monitored_scenes.keys())
@@ -504,9 +502,7 @@ class SurveillanceScene(commands.Cog):
                 user_name = self.get_user_display_name(message)
                 participants.add(user_name)
 
-                # Log détaillé pour debug
-                if message_count <= 10:  # Log les 10 premiers pour mieux diagnostiquer
-                    logging.info(f"Message {message_count}: '{user_name}' le {message.created_at} - Bot: {message.author.bot}, Webhook: {message.webhook_id is not None}, Author.name: '{message.author.name}', Author.display_name: '{message.author.display_name}'")
+
 
             # Convertir en liste triée et dédoublonnée (le set garantit déjà l'unicité)
             participants_list = sorted(list(participants))  # Trier pour plus de lisibilité
@@ -790,71 +786,7 @@ class SurveillanceScene(commands.Cog):
             logging.error(f"Erreur dans la commande scene: {e}")
             await ctx.send("❌ Une erreur est survenue lors de l'initialisation de la surveillance.")
 
-    @commands.command(name='test_inactive')
-    @commands.has_permissions(administrator=True)
-    async def test_inactive_command(self, ctx):
-        """Commande temporaire pour tester la vérification d'inactivité."""
-        if not self.sheet:
-            await ctx.send("❌ Erreur de configuration Google Sheets.")
-            return
 
-        try:
-            await ctx.send("🔄 Test de vérification d'inactivité en cours...")
-            await self.check_inactive_scenes()
-            await ctx.send("✅ Vérification terminée. Consultez les logs pour plus de détails.")
-        except Exception as e:
-            await ctx.send(f"❌ Erreur lors du test: {e}")
-            logging.error(f"Erreur dans test_inactive: {e}")
-
-    @commands.command(name='force_update')
-    @commands.has_permissions(administrator=True)
-    async def force_update_command(self, ctx, channel_id: str = None):
-        """Commande temporaire pour forcer la mise à jour d'une scène."""
-        if not self.sheet:
-            await ctx.send("❌ Erreur de configuration Google Sheets.")
-            return
-
-        try:
-            if not channel_id:
-                # Mettre à jour toutes les scènes
-                await ctx.send("🔄 Mise à jour forcée de toutes les scènes...")
-                await self.refresh_monitored_scenes()
-                await self.update_all_scenes()
-                await ctx.send(f"✅ {len(self.monitored_scenes)} scènes mises à jour.")
-            else:
-                # Mettre à jour une scène spécifique
-                if channel_id in self.monitored_scenes:
-                    await ctx.send(f"🔄 Mise à jour forcée de la scène {channel_id}...")
-                    scene_data = self.monitored_scenes[channel_id]
-
-                    # Récupérer le canal
-                    channel = self.bot.get_channel(int(channel_id))
-                    if not channel:
-                        channel = await self.bot.fetch_channel(int(channel_id))
-
-                    # Mettre à jour les données
-                    start_date = datetime.fromisoformat(scene_data['start_date'])
-                    if start_date.tzinfo is None:
-                        start_date = self.paris_tz.localize(start_date)
-
-                    participants = await self.get_channel_participants(channel, start_date)
-                    last_activity = await self.get_last_activity(channel)
-
-                    scene_data['participants'] = json.dumps(participants)
-                    if last_activity:
-                        scene_data['last_activity_user'] = last_activity['user']
-                        scene_data['last_activity_date'] = last_activity['date'].isoformat()
-
-                    await self.update_scene_data(channel_id, scene_data)
-                    await self.update_surveillance_message(scene_data)
-
-                    await ctx.send(f"✅ Scène {scene_data.get('scene_name', 'Inconnue')} mise à jour.")
-                else:
-                    await ctx.send(f"❌ Scène {channel_id} non trouvée.")
-
-        except Exception as e:
-            await ctx.send(f"❌ Erreur lors de la mise à jour: {e}")
-            logging.error(f"Erreur dans force_update: {e}")
 
     async def update_scene_message_id(self, channel_id: str, message_id: str):
         """Met à jour l'ID du message de surveillance dans Google Sheets."""
@@ -899,22 +831,13 @@ class SurveillanceScene(commands.Cog):
         try:
             logging.info(f"Mise à jour des données pour le canal {channel_id}")
 
-            # Décoder les participants pour logging
-            participants_data = scene_data.get('participants', '[]')
-            if isinstance(participants_data, str):
-                try:
-                    participants_list = json.loads(participants_data)
-                    logging.info(f"Participants à sauvegarder: {participants_list}")
-                except:
-                    logging.error(f"Erreur lors du décodage des participants: {participants_data}")
+
 
             records = self.sheet.get_all_records()
-            logging.info(f"Recherche du canal {channel_id} (type: {type(channel_id)}) dans {len(records)} enregistrements")
 
             found = False
             for i, record in enumerate(records, start=2):
                 record_channel_id = record.get('channel_id')
-                logging.info(f"Ligne {i}: channel_id='{record_channel_id}' (type: {type(record_channel_id)}) vs recherché='{channel_id}'")
 
                 # Comparaison robuste en convertissant les deux en string
                 if str(record_channel_id) == str(channel_id):
@@ -937,7 +860,7 @@ class SurveillanceScene(commands.Cog):
 
             if not found:
                 # Canal non trouvé dans Google Sheets - l'ajouter automatiquement
-                logging.warning(f"Canal {channel_id} non trouvé dans Google Sheets après vérification - ajout automatique")
+                logging.warning(f"Canal {channel_id} non trouvé dans Google Sheets - ajout automatique")
                 try:
                     self.sheet.append_row([
                         scene_data['channel_id'],
@@ -1139,39 +1062,26 @@ class SurveillanceScene(commands.Cog):
 
         try:
             scene_data = self.monitored_scenes[channel_id]
-            logging.info(f"Traitement message de {message.author.display_name} dans {scene_data.get('scene_name', 'Inconnue')}")
 
             # Mettre à jour la dernière activité (TOUJOURS, même pour Maître du Jeu)
             user_name = self.get_user_display_name(message)
 
             scene_data['last_activity_user'] = user_name
             scene_data['last_activity_date'] = message.created_at.astimezone(self.paris_tz).isoformat()
-            logging.info(f"Dernière activité mise à jour: {user_name} le {scene_data['last_activity_date']}")
 
             # Mettre à jour les participants (en filtrant Maître du Jeu)
             start_date = datetime.fromisoformat(scene_data['start_date'])
             participants = await self.get_channel_participants(message.channel, start_date)
             scene_data['participants'] = json.dumps(participants)
-            logging.info(f"Participants mis à jour: {len(participants)} participants trouvés")
 
             # Mettre à jour Google Sheets
-            try:
-                await self.update_scene_data(channel_id, scene_data)
-                logging.info("Google Sheets mis à jour avec succès")
-            except Exception as sheets_error:
-                logging.error(f"ERREUR Google Sheets: {sheets_error}")
-                # Continuer même si Google Sheets échoue
+            await self.update_scene_data(channel_id, scene_data)
 
             # Mettre à jour le message de surveillance
-            try:
-                await self.update_surveillance_message(scene_data)
-                logging.info("Message de surveillance mis à jour avec succès")
-            except Exception as message_error:
-                logging.error(f"ERREUR mise à jour message: {message_error}")
+            await self.update_surveillance_message(scene_data)
 
             # Forcer la mise à jour du cache local pour être sûr
             self.monitored_scenes[channel_id] = scene_data
-            logging.info("Cache local forcé")
 
             # Notifier le MJ avec système anti-spam (SAUF si c'est un message de Maître du Jeu)
             if not self.is_game_master_message(message):
@@ -1191,11 +1101,8 @@ class SurveillanceScene(commands.Cog):
                             embed.add_field(name="Aperçu", value=message.content[:100] + "..." if len(message.content) > 100 else message.content, inline=False)
 
                             await gm.send(embed=embed)
-                            logging.info(f"Notification envoyée au MJ pour la scène {scene_data['scene_name']}")
                         except Exception as e:
                             logging.error(f"Erreur lors de l'envoi de notification au MJ: {e}")
-            else:
-                logging.info(f"Message de Maître du Jeu détecté - pas de notification envoyée au MJ")
 
         except Exception as e:
             logging.error(f"Erreur lors du traitement du message: {e}")
