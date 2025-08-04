@@ -810,12 +810,24 @@ class SurveillanceScene(commands.Cog):
         except Exception as e:
             logging.error(f"Erreur lors de la mise à jour du MJ: {e}")
 
+    async def remove_scene_from_sheets(self, channel_id: str):
+        """Supprime une scène de Google Sheets seulement (pour nettoyage)."""
+        try:
+            records = self.sheet.get_all_records()
+            for i, record in enumerate(records, start=2):
+                if str(record.get('channel_id')) == str(channel_id):
+                    self.sheet.delete_rows(i)
+                    logging.info(f"Scène {channel_id} supprimée de Google Sheets")
+                    break
+        except Exception as e:
+            logging.error(f"Erreur lors de la suppression de Google Sheets: {e}")
+
     async def remove_scene_surveillance(self, channel_id: str):
         """Supprime une scène de la surveillance."""
         try:
             records = self.sheet.get_all_records()
             for i, record in enumerate(records, start=2):
-                if record.get('channel_id') == channel_id:
+                if str(record.get('channel_id')) == str(channel_id):
                     self.sheet.delete_rows(i)
                     break
 
@@ -900,6 +912,11 @@ class SurveillanceScene(commands.Cog):
                         channel = await self.bot.fetch_channel(int(clean_channel_id))
                 except ValueError as ve:
                     logging.error(f"ID de canal invalide '{clean_channel_id}': {ve}")
+                    continue
+                except discord.NotFound:
+                    # Canal supprimé ou inaccessible - supprimer de la surveillance
+                    logging.warning(f"Canal {clean_channel_id} ({scene_data.get('scene_name', 'Inconnu')}) n'existe plus - suppression de la surveillance")
+                    await self.remove_scene_surveillance(clean_channel_id)
                     continue
                 except Exception as e:
                     logging.error(f"Impossible de récupérer le canal {clean_channel_id}: {e}")
