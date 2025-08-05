@@ -1290,6 +1290,60 @@ class SurveillanceScene(commands.Cog):
         except Exception as e:
             await ctx.send(f"❌ Erreur lors de la vérification: {e}")
 
+    @commands.command(name="refresh_embeds")
+    @commands.has_permissions(administrator=True)
+    async def refresh_embeds(self, ctx):
+        """Force la mise à jour de tous les embeds de surveillance avec les noms d'utilisateur actuels."""
+        if not self.sheet:
+            await ctx.send("❌ Google Sheets non configuré.")
+            return
+
+        try:
+            await ctx.send("🔄 Mise à jour forcée de tous les embeds en cours...")
+
+            # Recharger les données depuis Google Sheets
+            await self.refresh_monitored_scenes()
+
+            updated_count = 0
+            failed_count = 0
+
+            for channel_id, scene_data in self.monitored_scenes.items():
+                try:
+                    # Récupérer le canal
+                    channel = self.bot.get_channel(int(channel_id))
+                    if not channel:
+                        channel = await self.bot.fetch_channel(int(channel_id))
+
+                    # Recalculer les participants et la dernière activité avec les nouveaux noms
+                    start_date = datetime.fromisoformat(scene_data['start_date'])
+                    participants = await self.get_channel_participants(channel, start_date)
+                    last_activity = await self.get_last_activity(channel)
+
+                    # Mettre à jour les données
+                    scene_data['participants'] = json.dumps(participants)
+                    if last_activity:
+                        scene_data['last_activity_user'] = last_activity['user']
+                        scene_data['last_activity_date'] = last_activity['date'].isoformat()
+
+                    # Forcer la mise à jour de l'embed
+                    await self.update_surveillance_message(scene_data)
+
+                    # Mettre à jour Google Sheets
+                    await self.update_scene_data(channel_id, scene_data)
+
+                    updated_count += 1
+                    logging.info(f"Embed mis à jour pour la scène: {scene_data.get('scene_name', 'Inconnu')}")
+
+                except Exception as e:
+                    failed_count += 1
+                    logging.error(f"Erreur lors de la mise à jour de l'embed pour {channel_id}: {e}")
+
+            await ctx.send(f"✅ Mise à jour terminée ! {updated_count} embeds mis à jour, {failed_count} échecs.")
+
+        except Exception as e:
+            await ctx.send(f"❌ Erreur lors de la mise à jour des embeds: {e}")
+            logging.error(f"Erreur dans refresh_embeds: {e}")
+
     async def update_scene_message_id(self, channel_id: str, message_id: str):
         """Met à jour l'ID du message de surveillance dans Google Sheets."""
         try:
