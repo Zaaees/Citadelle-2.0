@@ -479,23 +479,54 @@ class SurveillanceScene(commands.Cog):
             pass
         return None
 
-    def get_user_display_name(self, message: discord.Message) -> str:
-        """Récupère le nom d'affichage d'un utilisateur (avec gestion des webhooks)."""
+    async def get_user_display_name_async(self, message: discord.Message) -> str:
+        """Version asynchrone pour récupérer le nom d'affichage d'un utilisateur."""
         if message.author.bot and message.webhook_id:
             # C'est un webhook (Tupperbox), utiliser le nom du personnage
-            # Le nom du personnage est dans message.author.name pour Tupperbox
+            return message.author.name if message.author.name else message.author.display_name
+        else:
+            # Utilisateur normal - récupérer le Member pour avoir le nickname du serveur
+            if message.guild:
+                # Essayer d'abord le cache
+                member = message.guild.get_member(message.author.id)
+
+                # Si pas dans le cache, essayer de le récupérer via l'API
+                if not member:
+                    try:
+                        member = await message.guild.fetch_member(message.author.id)
+                        logging.debug(f"Membre {message.author.id} récupéré via fetch_member")
+                    except discord.NotFound:
+                        logging.warning(f"Membre {message.author.id} non trouvé dans le serveur {message.guild.id}")
+                    except discord.Forbidden:
+                        logging.warning(f"Pas de permission pour récupérer le membre {message.author.id}")
+                    except Exception as e:
+                        logging.error(f"Erreur lors de la récupération du membre {message.author.id}: {e}")
+
+                if member:
+                    display_name = member.display_name
+                    logging.debug(f"Nom d'affichage pour {message.author.id}: '{display_name}' (nickname: '{member.nick}', global_name: '{member.global_name}', username: '{member.name}')")
+                    return display_name
+
+            # Fallback si pas de serveur ou membre non trouvé
+            fallback_name = message.author.display_name
+            logging.debug(f"Fallback pour {message.author.id}: '{fallback_name}'")
+            return fallback_name
+
+    def get_user_display_name(self, message: discord.Message) -> str:
+        """Récupère le nom d'affichage d'un utilisateur (version synchrone pour compatibilité)."""
+        if message.author.bot and message.webhook_id:
+            # C'est un webhook (Tupperbox), utiliser le nom du personnage
             return message.author.name if message.author.name else message.author.display_name
         else:
             # Utilisateur normal - récupérer le Member pour avoir le nickname du serveur
             if message.guild:
                 member = message.guild.get_member(message.author.id)
                 if member:
-                    # member.display_name retourne le nickname s'il existe, sinon le nom global
                     display_name = member.display_name
                     logging.debug(f"Nom d'affichage pour {message.author.id}: '{display_name}' (nickname: '{member.nick}', global_name: '{member.global_name}', username: '{member.name}')")
                     return display_name
                 else:
-                    logging.warning(f"Membre {message.author.id} non trouvé dans le serveur {message.guild.id}")
+                    logging.warning(f"Membre {message.author.id} non trouvé dans le cache du serveur {message.guild.id}")
 
             # Fallback si pas de serveur ou membre non trouvé
             fallback_name = message.author.display_name
@@ -585,8 +616,8 @@ class SurveillanceScene(commands.Cog):
                 if self.should_ignore_message_for_participants(message):
                     continue
 
-                # Utiliser la nouvelle fonction pour obtenir le nom d'affichage
-                user_name = self.get_user_display_name(message)
+                # Utiliser la version asynchrone pour obtenir le nom d'affichage
+                user_name = await self.get_user_display_name_async(message)
                 participants.add(user_name)
 
 
@@ -617,8 +648,8 @@ class SurveillanceScene(commands.Cog):
                 # Pour la dernière activité, on prend TOUS les messages (y compris Maître du Jeu)
                 # car on veut savoir quand la scène a vraiment été active pour la dernière fois
 
-                # Utiliser la nouvelle fonction pour obtenir le nom d'affichage
-                user_name = self.get_user_display_name(message)
+                # Utiliser la version asynchrone pour obtenir le nom d'affichage
+                user_name = await self.get_user_display_name_async(message)
 
                 activity = {
                     'user': user_name,
@@ -1368,11 +1399,20 @@ class SurveillanceScene(commands.Cog):
             test_results = []
             async for message in channel.history(limit=10):
                 if not message.author.bot or message.webhook_id:  # Inclure les webhooks mais pas les autres bots
-                    user_name = self.get_user_display_name(message)
+                    user_name = await self.get_user_display_name_async(message)
 
                     # Informations détaillées
                     if message.guild:
+                        # Essayer d'abord le cache
                         member = message.guild.get_member(message.author.id)
+
+                        # Si pas dans le cache, essayer fetch_member
+                        if not member:
+                            try:
+                                member = await message.guild.fetch_member(message.author.id)
+                            except:
+                                pass
+
                         if member:
                             info = f"**{user_name}** (ID: {message.author.id})\n"
                             info += f"  • Nickname: `{member.nick}`\n"
@@ -1382,7 +1422,7 @@ class SurveillanceScene(commands.Cog):
                             if message.webhook_id:
                                 info += f"  • Webhook: `{message.author.name}`"
                         else:
-                            info = f"**{user_name}** (ID: {message.author.id}) - Membre non trouvé"
+                            info = f"**{user_name}** (ID: {message.author.id}) - Membre non trouvé (cache + fetch)"
                     else:
                         info = f"**{user_name}** (ID: {message.author.id}) - Pas de serveur"
 
@@ -1711,7 +1751,7 @@ class SurveillanceScene(commands.Cog):
             scene_data = self.monitored_scenes[channel_id]
 
             # Mettre à jour la dernière activité (TOUJOURS, même pour Maître du Jeu)
-            user_name = self.get_user_display_name(message)
+            user_name = await self.get_user_display_name_async(message)
 
             scene_data['last_activity_user'] = user_name
             scene_data['last_activity_date'] = message.created_at.astimezone(self.paris_tz).isoformat()
