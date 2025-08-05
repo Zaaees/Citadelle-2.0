@@ -491,10 +491,16 @@ class SurveillanceScene(commands.Cog):
                 member = message.guild.get_member(message.author.id)
                 if member:
                     # member.display_name retourne le nickname s'il existe, sinon le nom global
-                    return member.display_name
+                    display_name = member.display_name
+                    logging.debug(f"Nom d'affichage pour {message.author.id}: '{display_name}' (nickname: '{member.nick}', global_name: '{member.global_name}', username: '{member.name}')")
+                    return display_name
+                else:
+                    logging.warning(f"Membre {message.author.id} non trouvé dans le serveur {message.guild.id}")
 
             # Fallback si pas de serveur ou membre non trouvé
-            return message.author.display_name
+            fallback_name = message.author.display_name
+            logging.debug(f"Fallback pour {message.author.id}: '{fallback_name}'")
+            return fallback_name
 
     def should_ignore_message_for_participants(self, message: discord.Message) -> bool:
         """Détermine si un message doit être ignoré pour la liste des participants (ex: Maître du Jeu, message initiateur de forum)."""
@@ -1343,6 +1349,62 @@ class SurveillanceScene(commands.Cog):
         except Exception as e:
             await ctx.send(f"❌ Erreur lors de la mise à jour des embeds: {e}")
             logging.error(f"Erreur dans refresh_embeds: {e}")
+
+    @commands.command(name="test_names")
+    @commands.has_permissions(administrator=True)
+    async def test_names(self, ctx, channel_id: str = None):
+        """Teste la récupération des noms d'utilisateur dans un canal spécifique."""
+        try:
+            if channel_id:
+                channel = self.bot.get_channel(int(channel_id))
+                if not channel:
+                    channel = await self.bot.fetch_channel(int(channel_id))
+            else:
+                channel = ctx.channel
+
+            await ctx.send(f"🔍 Test des noms d'utilisateur dans {channel.mention}...")
+
+            # Récupérer les 10 derniers messages
+            test_results = []
+            async for message in channel.history(limit=10):
+                if not message.author.bot or message.webhook_id:  # Inclure les webhooks mais pas les autres bots
+                    user_name = self.get_user_display_name(message)
+
+                    # Informations détaillées
+                    if message.guild:
+                        member = message.guild.get_member(message.author.id)
+                        if member:
+                            info = f"**{user_name}** (ID: {message.author.id})\n"
+                            info += f"  • Nickname: `{member.nick}`\n"
+                            info += f"  • Global name: `{member.global_name}`\n"
+                            info += f"  • Username: `{member.name}`\n"
+                            info += f"  • Display name: `{member.display_name}`\n"
+                            if message.webhook_id:
+                                info += f"  • Webhook: `{message.author.name}`"
+                        else:
+                            info = f"**{user_name}** (ID: {message.author.id}) - Membre non trouvé"
+                    else:
+                        info = f"**{user_name}** (ID: {message.author.id}) - Pas de serveur"
+
+                    test_results.append(info)
+
+            if test_results:
+                # Diviser en chunks pour éviter les messages trop longs
+                chunk_size = 5
+                for i in range(0, len(test_results), chunk_size):
+                    chunk = test_results[i:i+chunk_size]
+                    embed = discord.Embed(
+                        title=f"🔍 Test des noms - Partie {i//chunk_size + 1}",
+                        description="\n\n".join(chunk),
+                        color=0x3498db
+                    )
+                    await ctx.send(embed=embed)
+            else:
+                await ctx.send("❌ Aucun message d'utilisateur trouvé dans ce canal.")
+
+        except Exception as e:
+            await ctx.send(f"❌ Erreur lors du test: {e}")
+            logging.error(f"Erreur dans test_names: {e}")
 
     async def update_scene_message_id(self, channel_id: str, message_id: str):
         """Met à jour l'ID du message de surveillance dans Google Sheets."""
