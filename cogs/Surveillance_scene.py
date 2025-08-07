@@ -1655,7 +1655,11 @@ class SurveillanceScene(commands.Cog):
             logging.error(f"Erreur lors de la mise à jour du message de surveillance: {e}")
 
     async def reorder_surveillance_messages(self):
-        """Réordonne les messages de surveillance par date d'activité."""
+        """Réordonne les messages de surveillance par date d'activité.
+
+        Les scènes les moins actives sont affichées dans les messages les plus
+        récents du salon de surveillance.
+        """
         try:
             surveillance_channel = self.bot.get_channel(SURVEILLANCE_CHANNEL_ID)
             if not surveillance_channel:
@@ -1677,7 +1681,8 @@ class SurveillanceScene(commands.Cog):
                 except Exception:
                     return datetime.fromtimestamp(0, tz=self.paris_tz)
 
-            scenes.sort(key=activity_date)
+            # Place the least active scenes in the most recent messages
+            scenes.sort(key=activity_date, reverse=True)
             message_ids = sorted(int(s['message_id']) for s in scenes)
 
             for msg_id, scene in zip(message_ids, scenes):
