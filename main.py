@@ -20,6 +20,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger('bot')
+cards_logger = logging.getLogger('cards')
 
 # Charger les variables d'environnement
 load_dotenv()

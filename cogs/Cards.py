@@ -27,10 +27,7 @@ from .cards.utils import *
 from .cards.models import *
 from .cards.views import *
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
+logger = logging.getLogger("cards")
 
 
 class Cards(commands.Cog):
@@ -46,16 +43,16 @@ class Cards(commands.Cog):
 
         # Tenter d'initialiser les credentials Google
         try:
-            logging.info("[CARDS] 🔄 Initialisation des credentials Google Sheets...")
+            logger.info("[CARDS] 🔄 Initialisation des credentials Google Sheets...")
 
             service_account_json = os.getenv('SERVICE_ACCOUNT_JSON')
             if not service_account_json:
-                logging.critical("[CARDS] ❌ SERVICE_ACCOUNT_JSON non trouvé dans les variables d'environnement. Arrêt du cog.")
+                logger.critical("[CARDS] ❌ SERVICE_ACCOUNT_JSON non trouvé dans les variables d'environnement. Arrêt du cog.")
                 raise SystemExit(1)
 
             spreadsheet_id = os.getenv('GOOGLE_SHEET_ID_CARTES')
             if not spreadsheet_id:
-                logging.critical("[CARDS] ❌ GOOGLE_SHEET_ID_CARTES non trouvé dans les variables d'environnement. Arrêt du cog.")
+                logger.critical("[CARDS] ❌ GOOGLE_SHEET_ID_CARTES non trouvé dans les variables d'environnement. Arrêt du cog.")
                 raise SystemExit(1)
 
             creds_info = json.loads(service_account_json)
@@ -66,21 +63,21 @@ class Cards(commands.Cog):
 
             # Client Google Sheets
             self.gspread_client = gspread.authorize(creds)
-            logging.info("[CARDS] ✅ Client Google Sheets initialisé")
+            logger.info("[CARDS] ✅ Client Google Sheets initialisé")
 
             # Service Google Drive pour accéder aux images des cartes
             self.drive_service = build('drive', 'v3', credentials=creds)
-            logging.info("[CARDS] ✅ Service Google Drive initialisé")
+            logger.info("[CARDS] ✅ Service Google Drive initialisé")
 
             # Initialiser le système de stockage
             self.storage = CardsStorage(self.gspread_client, spreadsheet_id)
-            logging.info("[CARDS] ✅ Système de stockage initialisé")
+            logger.info("[CARDS] ✅ Système de stockage initialisé")
 
         except Exception as e:
-            logging.error(f"[CARDS] ❌ Erreur lors de l'initialisation des credentials Google: {e}")
-            logging.error("[CARDS] ⚠️ Le système de cartes fonctionnera en mode dégradé")
+            logger.error(f"[CARDS] ❌ Erreur lors de l'initialisation des credentials Google: {e}")
+            logger.error("[CARDS] ⚠️ Le système de cartes fonctionnera en mode dégradé")
             import traceback
-            logging.error(f"[CARDS] Traceback: {traceback.format_exc()}")
+            logger.error(f"[CARDS] Traceback: {traceback.format_exc()}")
 
             # Créer un storage minimal pour éviter les erreurs
             self.storage = None
@@ -105,7 +102,7 @@ class Cards(commands.Cog):
         # Initialiser les gestionnaires seulement si le storage est disponible
         if self.storage is not None:
             try:
-                logging.info("[CARDS] 🔄 Initialisation des gestionnaires...")
+                logger.info("[CARDS] 🔄 Initialisation des gestionnaires...")
 
                 # Charger les fichiers de cartes
                 self._load_card_files()
@@ -128,14 +125,14 @@ class Cards(commands.Cog):
                 # Initialiser le système de vérification automatique des upgrades
                 self._users_needing_upgrade_check = set()
 
-                logging.info("[CARDS] ✅ Tous les gestionnaires initialisés avec succès")
+                logger.info("[CARDS] ✅ Tous les gestionnaires initialisés avec succès")
 
             except Exception as e:
-                logging.error(f"[CARDS] ❌ Erreur lors de l'initialisation des gestionnaires: {e}")
+                logger.error(f"[CARDS] ❌ Erreur lors de l'initialisation des gestionnaires: {e}")
                 import traceback
-                logging.error(f"[CARDS] Traceback: {traceback.format_exc()}")
+                logger.error(f"[CARDS] Traceback: {traceback.format_exc()}")
                 # Ne pas réinitialiser le storage à None, juste les gestionnaires défaillants
-                logging.warning("[CARDS] ⚠️ Initialisation des gestionnaires par défaut suite à l'erreur")
+                logger.warning("[CARDS] ⚠️ Initialisation des gestionnaires par défaut suite à l'erreur")
                 self.discovery_manager = None
                 self.vault_manager = None
                 self.drawing_manager = None
@@ -143,7 +140,7 @@ class Cards(commands.Cog):
                 self.forum_manager = None
                 self._users_needing_upgrade_check = set()
         else:
-            logging.warning("[CARDS] ⚠️ Gestionnaires non initialisés (storage indisponible)")
+            logger.warning("[CARDS] ⚠️ Gestionnaires non initialisés (storage indisponible)")
             # Initialiser des gestionnaires par défaut ou None
             self.discovery_manager = None
             self.vault_manager = None
@@ -166,11 +163,11 @@ class Cards(commands.Cog):
     def _load_card_files(self):
         """Charge les fichiers de cartes depuis Google Drive."""
         if self.drive_service is None:
-            logging.warning("[CARDS] ⚠️ Service Google Drive non disponible, impossible de charger les fichiers de cartes")
+            logger.warning("[CARDS] ⚠️ Service Google Drive non disponible, impossible de charger les fichiers de cartes")
             return
 
         try:
-            logging.info("[CARDS] 🔄 Chargement des fichiers de cartes depuis Google Drive...")
+            logger.info("[CARDS] 🔄 Chargement des fichiers de cartes depuis Google Drive...")
 
             for category, folder_id in self.FOLDER_IDS.items():
                 if folder_id:
@@ -196,7 +193,7 @@ class Cards(commands.Cog):
                 full_folder_id = os.getenv(full_folder_var)
 
                 if full_folder_id:
-                    logging.info(f"[CARDS] Chargement des cartes Full pour {category} depuis le dossier {full_folder_id}")
+                    logger.info(f"[CARDS] Chargement des cartes Full pour {category} depuis le dossier {full_folder_id}")
                     full_results = self.drive_service.files().list(
                         q=f"'{full_folder_id}' in parents",
                         fields="files(id, name, mimeType)"
@@ -208,17 +205,17 @@ class Cards(commands.Cog):
                         and f['name'].lower().endswith('.png')
                     ]
                     self.upgrade_cards_by_category[category] = full_files
-                    logging.info(f"[CARDS] {len(full_files)} cartes Full chargées pour {category}")
+                    logger.info(f"[CARDS] {len(full_files)} cartes Full chargées pour {category}")
                 else:
-                    logging.warning(f"[CARDS] Variable d'environnement {full_folder_var} non définie - aucune carte Full pour {category}")
+                    logger.warning(f"[CARDS] Variable d'environnement {full_folder_var} non définie - aucune carte Full pour {category}")
                     self.upgrade_cards_by_category[category] = []
 
-            logging.info("[CARDS] ✅ Chargement des fichiers de cartes terminé")
+            logger.info("[CARDS] ✅ Chargement des fichiers de cartes terminé")
 
         except Exception as e:
-            logging.error(f"[CARDS] ❌ Erreur lors du chargement des fichiers de cartes: {e}")
+            logger.error(f"[CARDS] ❌ Erreur lors du chargement des fichiers de cartes: {e}")
             import traceback
-            logging.error(f"[CARDS] Traceback: {traceback.format_exc()}")
+            logger.error(f"[CARDS] Traceback: {traceback.format_exc()}")
             # Initialiser des dictionnaires vides en cas d'erreur
             self.cards_by_category = {}
             self.upgrade_cards_by_category = {}
@@ -228,7 +225,7 @@ class Cards(commands.Cog):
     def get_user_cards(self, user_id: int) -> list[tuple[str, str]]:
         """Récupère les cartes d'un utilisateur."""
         if not self.storage:
-            logging.warning("[CARDS] ⚠️ Storage non disponible dans get_user_cards")
+            logger.warning("[CARDS] ⚠️ Storage non disponible dans get_user_cards")
             return []
 
         cards_cache = self.storage.get_cards_cache()
@@ -249,7 +246,7 @@ class Cards(commands.Cog):
                     if int(uid) == user_id:
                         user_cards.extend([(cat, name)] * int(count))
                 except (ValueError, IndexError) as e:
-                    logging.warning(f"[SECURITY] Données corrompues dans get_user_cards: {cell}, erreur: {e}")
+                    logger.warning(f"[SECURITY] Données corrompues dans get_user_cards: {cell}, erreur: {e}")
                     continue
         return user_cards
     
@@ -350,7 +347,7 @@ class Cards(commands.Cog):
                 return True
 
             except Exception as e:
-                logging.error(f"[CARDS] Erreur lors de l'ajout de carte: {e}")
+                logger.error(f"[CARDS] Erreur lors de l'ajout de carte: {e}")
                 return False
     
     def remove_card_from_user(self, user_id: int, category: str, name: str,
@@ -407,7 +404,7 @@ class Cards(commands.Cog):
                 return False
                 
             except Exception as e:
-                logging.error(f"[CARDS] Erreur lors du retrait de carte: {e}")
+                logger.error(f"[CARDS] Erreur lors du retrait de carte: {e}")
                 return False
 
     def batch_remove_cards_from_user(self, user_id: int, cards_to_remove: list[tuple[str, str]]) -> bool:
@@ -426,7 +423,7 @@ class Cards(commands.Cog):
             try:
                 # Validation des paramètres d'entrée
                 if user_id <= 0 or not cards_to_remove:
-                    logging.error(f"[SECURITY] Paramètres invalides pour batch_remove_cards_from_user: user_id={user_id}, cards={len(cards_to_remove)}")
+                    logger.error(f"[SECURITY] Paramètres invalides pour batch_remove_cards_from_user: user_id={user_id}, cards={len(cards_to_remove)}")
                     return False
 
                 # Compter les cartes à supprimer
@@ -439,7 +436,7 @@ class Cards(commands.Cog):
 
                 for (cat, name), count_needed in cards_counter.items():
                     if user_cards_counter.get((cat, name), 0) < count_needed:
-                        logging.error(f"[SECURITY] Tentative de suppression batch d'une carte non possédée en quantité suffisante: user_id={user_id}, carte=({cat}, {name}), besoin={count_needed}, possédé={user_cards_counter.get((cat, name), 0)}")
+                        logger.error(f"[SECURITY] Tentative de suppression batch d'une carte non possédée en quantité suffisante: user_id={user_id}, carte=({cat}, {name}), besoin={count_needed}, possédé={user_cards_counter.get((cat, name), 0)}")
                         return False
 
                 # Effectuer les suppressions en batch
@@ -476,7 +473,7 @@ class Cards(commands.Cog):
                                     row_modified = True
                                     break
                                 except (ValueError, IndexError) as e:
-                                    logging.error(f"[SECURITY] Données corrompues dans batch_remove_cards_from_user: {cell}, erreur: {e}")
+                                    logger.error(f"[SECURITY] Données corrompues dans batch_remove_cards_from_user: {cell}, erreur: {e}")
                                     return False
 
                         if row_modified:
@@ -491,11 +488,11 @@ class Cards(commands.Cog):
 
                 # Rafraîchir le cache une seule fois
                 self.storage.refresh_cards_cache()
-                logging.info(f"[BATCH] Suppression batch réussie: {len(cards_to_remove)} cartes pour l'utilisateur {user_id}")
+                logger.info(f"[BATCH] Suppression batch réussie: {len(cards_to_remove)} cartes pour l'utilisateur {user_id}")
                 return True
 
             except Exception as e:
-                logging.error(f"[SECURITY] Erreur lors de la suppression batch de cartes: {e}")
+                logger.error(f"[SECURITY] Erreur lors de la suppression batch de cartes: {e}")
                 return False
 
     def batch_add_cards_to_user(self, user_id: int, cards_to_add: list[tuple[str, str]]) -> bool:
@@ -514,7 +511,7 @@ class Cards(commands.Cog):
             try:
                 # Validation des paramètres d'entrée
                 if user_id <= 0 or not cards_to_add:
-                    logging.error(f"[SECURITY] Paramètres invalides pour batch_add_cards_to_user: user_id={user_id}, cards={len(cards_to_add)}")
+                    logger.error(f"[SECURITY] Paramètres invalides pour batch_add_cards_to_user: user_id={user_id}, cards={len(cards_to_add)}")
                     return False
 
                 # Compter les cartes à ajouter
@@ -534,7 +531,7 @@ class Cards(commands.Cog):
                         for f in all_files.get(cat, [])
                     )
                     if not card_exists:
-                        logging.error(f"[SECURITY] Tentative d'ajout batch d'une carte inexistante: ({cat}, {name})")
+                        logger.error(f"[SECURITY] Tentative d'ajout batch d'une carte inexistante: ({cat}, {name})")
                         return False
 
                 # Effectuer les ajouts en batch
@@ -566,7 +563,7 @@ class Cards(commands.Cog):
                                         user_found = True
                                         break
                                     except (ValueError, IndexError) as e:
-                                        logging.error(f"[SECURITY] Données corrompues dans batch_add_cards_to_user: {cell}, erreur: {e}")
+                                        logger.error(f"[SECURITY] Données corrompues dans batch_add_cards_to_user: {cell}, erreur: {e}")
                                         return False
 
                             if not user_found:
@@ -593,11 +590,11 @@ class Cards(commands.Cog):
 
                 # Rafraîchir le cache une seule fois
                 self.storage.refresh_cards_cache()
-                logging.info(f"[BATCH] Ajout batch réussi: {len(cards_to_add)} cartes pour l'utilisateur {user_id}")
+                logger.info(f"[BATCH] Ajout batch réussi: {len(cards_to_add)} cartes pour l'utilisateur {user_id}")
                 return True
 
             except Exception as e:
-                logging.error(f"[SECURITY] Erreur lors de l'ajout batch de cartes: {e}")
+                logger.error(f"[SECURITY] Erreur lors de l'ajout batch de cartes: {e}")
                 return False
 
     def build_card_embed(self, cat: str, name: str, file_bytes: bytes, user: discord.User = None,
@@ -643,7 +640,7 @@ class Cards(commands.Cog):
                     else:
                         description += f"\n💫 Version **Full** pas encore obtenue"
             except Exception as e:
-                logging.error(f"[EMBED] Erreur lors de l'ajout des informations d'inventaire: {e}")
+                logger.error(f"[EMBED] Erreur lors de l'ajout des informations d'inventaire: {e}")
                 # Continuer sans les informations d'inventaire en cas d'erreur
 
         embed = discord.Embed(
@@ -693,7 +690,7 @@ class Cards(commands.Cog):
                 # Télécharger l'image
                 file_bytes = self.download_drive_file(file_id)
                 if not file_bytes:
-                    logging.error(f"[FORUM] Impossible de télécharger l'image pour {name} ({cat})")
+                    logger.error(f"[FORUM] Impossible de télécharger l'image pour {name} ({cat})")
                     continue
 
                 # Poster dans le forum (la méthode gère la création de thread si nécessaire)
@@ -703,13 +700,13 @@ class Cards(commands.Cog):
                 )
 
                 if not success:
-                    logging.error(f"[FORUM] Échec du post de la carte {name} ({cat}) dans le forum")
+                    logger.error(f"[FORUM] Échec du post de la carte {name} ({cat}) dans le forum")
 
             # 5) Mettre à jour le message de progression dans le canal principal
             await self._update_progress_message(discovered_cards, new_draws)
 
         except Exception as e:
-            logging.error(f"[FORUM] Erreur lors du posting forum: {e}")
+            logger.error(f"[FORUM] Erreur lors du posting forum: {e}")
 
     async def _update_progress_message(self, discovered_cards: set, new_draws: list):
         """Met à jour le message de progression des découvertes dans le forum."""
@@ -731,20 +728,20 @@ class Cards(commands.Cog):
                     try:
                         await self.forum_manager.update_category_thread_header(forum_channel, category)
                     except Exception as e:
-                        logging.error(f"[FORUM] Erreur mise à jour header {category}: {e}")
+                        logger.error(f"[FORUM] Erreur mise à jour header {category}: {e}")
         except Exception as e:
-            logging.error(f"[PROGRESS] Erreur lors de la mise à jour du message de progression: {e}")
+            logger.error(f"[PROGRESS] Erreur lors de la mise à jour du message de progression: {e}")
 
     def download_drive_file(self, file_id: str) -> bytes | None:
         """Télécharge un fichier depuis Google Drive."""
         try:
-            logging.debug(f"[DRIVE] Téléchargement du fichier {file_id}")
+            logger.debug(f"[DRIVE] Téléchargement du fichier {file_id}")
             request = self.drive_service.files().get_media(fileId=file_id)
             file_bytes = request.execute()
-            logging.debug(f"[DRIVE] Fichier téléchargé avec succès: {len(file_bytes)} bytes")
+            logger.debug(f"[DRIVE] Fichier téléchargé avec succès: {len(file_bytes)} bytes")
             return file_bytes
         except Exception as e:
-            logging.error(f"[DRIVE] Erreur lors du téléchargement du fichier {file_id}: {e}")
+            logger.error(f"[DRIVE] Erreur lors du téléchargement du fichier {file_id}: {e}")
             return None
 
     async def check_for_upgrades(self, interaction: discord.Interaction, user_id: int, drawn_cards: list[tuple[str, str]]):
@@ -763,7 +760,7 @@ class Cards(commands.Cog):
             user_id: ID de l'utilisateur
         """
         self._users_needing_upgrade_check.add(user_id)
-        logging.debug(f"[AUTO_UPGRADE] Utilisateur {user_id} marqué pour vérification d'upgrade")
+        logger.debug(f"[AUTO_UPGRADE] Utilisateur {user_id} marqué pour vérification d'upgrade")
 
     async def auto_check_upgrades(self, interaction: discord.Interaction, user_id: int, notification_channel_id: int = None):
         """
@@ -777,9 +774,9 @@ class Cards(commands.Cog):
         """
         try:
             await self.check_for_upgrades_with_channel(interaction, user_id, [], notification_channel_id)
-            logging.info(f"[AUTO_UPGRADE] Vérification automatique des conversions terminée pour l'utilisateur {user_id}")
+            logger.info(f"[AUTO_UPGRADE] Vérification automatique des conversions terminée pour l'utilisateur {user_id}")
         except Exception as e:
-            logging.error(f"[AUTO_UPGRADE] Erreur lors de la vérification automatique des conversions pour l'utilisateur {user_id}: {e}")
+            logger.error(f"[AUTO_UPGRADE] Erreur lors de la vérification automatique des conversions pour l'utilisateur {user_id}: {e}")
 
     async def process_all_pending_upgrade_checks(self, interaction: discord.Interaction, notification_channel_id: int = None):
         """
@@ -799,7 +796,7 @@ class Cards(commands.Cog):
             try:
                 await self.auto_check_upgrades(interaction, user_id, notification_channel_id)
             except Exception as e:
-                logging.error(f"[AUTO_UPGRADE] Erreur lors de la vérification des upgrades pour l'utilisateur {user_id}: {e}")
+                logger.error(f"[AUTO_UPGRADE] Erreur lors de la vérification des upgrades pour l'utilisateur {user_id}: {e}")
 
     async def check_for_upgrades_with_channel(self, interaction: discord.Interaction, user_id: int, drawn_cards: list[tuple[str, str]], notification_channel_id: int = None):
         """
@@ -843,7 +840,7 @@ class Cards(commands.Cog):
                 if count >= seuil:
                     # VÉRIFICATION CRITIQUE: S'assurer que l'utilisateur ne possède pas déjà la carte Full
                     if self.user_has_full_version(user_id, cat, name):
-                        logging.info(f"[UPGRADE] Utilisateur {user_id} possède déjà la carte Full de {name} dans {cat}. Upgrade ignoré, cartes normales conservées.")
+                        logger.info(f"[UPGRADE] Utilisateur {user_id} possède déjà la carte Full de {name} dans {cat}. Upgrade ignoré, cartes normales conservées.")
                         continue
 
                     # NOUVELLE LOGIQUE: Vérifier d'abord si la carte Full existe avant de retirer les cartes
@@ -854,20 +851,20 @@ class Cards(commands.Cog):
 
                     # D'abord chercher dans la catégorie d'origine
                     available_full_cards = self.upgrade_cards_by_category.get(cat, [])
-                    logging.info(f"[UPGRADE] Recherche de {full_name} dans {cat}. Cartes Full disponibles: {len(available_full_cards)}")
+                    logger.info(f"[UPGRADE] Recherche de {full_name} dans {cat}. Cartes Full disponibles: {len(available_full_cards)}")
 
                     if available_full_cards:
                         for f in available_full_cards:
                             card_file_name = f['name'].removesuffix(".png")
-                            logging.debug(f"[UPGRADE] Comparaison: '{normalize_name(card_file_name)}' vs '{normalize_name(full_name)}'")
+                            logger.debug(f"[UPGRADE] Comparaison: '{normalize_name(card_file_name)}' vs '{normalize_name(full_name)}'")
                             if normalize_name(card_file_name) == normalize_name(full_name):
                                 file_id = f['id']
-                                logging.info(f"[UPGRADE] Carte Full trouvée dans {cat}: {card_file_name} (ID: {file_id})")
+                                logger.info(f"[UPGRADE] Carte Full trouvée dans {cat}: {card_file_name} (ID: {file_id})")
                                 break
 
                     # Si pas trouvée dans la catégorie d'origine, chercher dans toutes les autres catégories
                     if not file_id:
-                        logging.info(f"[UPGRADE] Carte {full_name} non trouvée dans {cat}, recherche dans toutes les catégories...")
+                        logger.info(f"[UPGRADE] Carte {full_name} non trouvée dans {cat}, recherche dans toutes les catégories...")
                         for search_cat, full_cards in self.upgrade_cards_by_category.items():
                             if search_cat == cat:  # Déjà cherché
                                 continue
@@ -875,14 +872,14 @@ class Cards(commands.Cog):
                                 card_file_name = f['name'].removesuffix(".png")
                                 if normalize_name(card_file_name) == normalize_name(full_name):
                                     file_id = f['id']
-                                    logging.info(f"[UPGRADE] Carte Full trouvée dans {search_cat}: {card_file_name} (ID: {file_id})")
+                                    logger.info(f"[UPGRADE] Carte Full trouvée dans {search_cat}: {card_file_name} (ID: {file_id})")
                                     break
                             if file_id:  # Trouvée, sortir de la boucle externe
                                 break
 
                     # Si aucune carte Full n'existe, ne pas effectuer l'upgrade
                     if not file_id:
-                        logging.warning(f"[UPGRADE] Carte Full {full_name} introuvable dans toutes les catégories. Upgrade ignoré pour éviter la perte de cartes.")
+                        logger.warning(f"[UPGRADE] Carte Full {full_name} introuvable dans toutes les catégories. Upgrade ignoré pour éviter la perte de cartes.")
                         continue
 
                     # Maintenant que nous savons que la carte Full existe, retirer les cartes normales
@@ -891,7 +888,7 @@ class Cards(commands.Cog):
                         if self.remove_card_from_user(user_id, cat, name):
                             removed += 1
                         else:
-                            logging.error(
+                            logger.error(
                                 f"[UPGRADE] Échec suppression {name} pour {user_id}. Rollback"
                             )
                             for _ in range(removed):
@@ -901,7 +898,7 @@ class Cards(commands.Cog):
                         # Toutes les cartes ont été retirées avec succès, procéder à l'ajout de la carte Full
                         file_bytes = self.download_drive_file(file_id)
                         if not file_bytes:
-                            logging.error(f"[UPGRADE] Impossible de télécharger l'image pour {full_name}")
+                            logger.error(f"[UPGRADE] Impossible de télécharger l'image pour {full_name}")
                             # Rollback: remettre les cartes retirées
                             for _ in range(removed):
                                 self.add_card_to_user(user_id, cat, name)
@@ -922,9 +919,9 @@ class Cards(commands.Cog):
                                 channel = self.bot.get_channel(notification_channel_id)
                                 if channel:
                                     await channel.send(embed=embed, file=image_file)
-                                    logging.info(f"[UPGRADE] Notification envoyée dans le salon {notification_channel_id} pour {full_name}")
+                                    logger.info(f"[UPGRADE] Notification envoyée dans le salon {notification_channel_id} pour {full_name}")
                                 else:
-                                    logging.error(f"[UPGRADE] Salon {notification_channel_id} introuvable")
+                                    logger.error(f"[UPGRADE] Salon {notification_channel_id} introuvable")
                                     # Fallback vers followup si le salon n'existe pas
                                     embed.description = (
                                         f"Vous avez échangé **{seuil}× {name}** "
@@ -932,7 +929,7 @@ class Cards(commands.Cog):
                                     )
                                     await interaction.followup.send(embed=embed, file=image_file)
                             except Exception as e:
-                                logging.error(f"[UPGRADE] Erreur envoi notification salon {notification_channel_id}: {e}")
+                                logger.error(f"[UPGRADE] Erreur envoi notification salon {notification_channel_id}: {e}")
                                 # Fallback vers followup en cas d'erreur
                                 embed.description = (
                                     f"Vous avez échangé **{seuil}× {name}** "
@@ -948,7 +945,7 @@ class Cards(commands.Cog):
 
                         # Ajouter la carte Full à l'inventaire
                         if not self.add_card_to_user(user_id, cat, full_name):
-                            logging.error(
+                            logger.error(
                                 f"[UPGRADE] Échec ajout {full_name} pour {user_id}. Rollback"
                             )
                             for _ in range(seuil):
@@ -956,10 +953,10 @@ class Cards(commands.Cog):
                         else:
                             # Mettre à jour le mur des cartes avec la nouvelle carte Full
                             await self._handle_announce_and_wall(interaction, [(cat, full_name)])
-                            logging.info(f"[UPGRADE] Upgrade réussi: {seuil}× {name} -> {full_name} pour utilisateur {user_id}")
+                            logger.info(f"[UPGRADE] Upgrade réussi: {seuil}× {name} -> {full_name} pour utilisateur {user_id}")
 
         except Exception as e:
-            logging.error(f"[UPGRADE] Erreur lors de la vérification des upgrades: {e}")
+            logger.error(f"[UPGRADE] Erreur lors de la vérification des upgrades: {e}")
     
     def _user_has_card(self, user_id: int, category: str, name: str) -> bool:
         """Vérifie si un utilisateur possède une carte spécifique."""
@@ -972,7 +969,7 @@ class Cards(commands.Cog):
             user_cards = self.get_user_cards(user_id)
             return user_cards.count((category, name))
         except Exception as e:
-            logging.error(f"[EMBED] Erreur dans get_user_card_count: {e}")
+            logger.error(f"[EMBED] Erreur dans get_user_card_count: {e}")
             return 0
 
     def is_new_card_for_user(self, user_id: int, category: str, name: str) -> bool:
@@ -980,7 +977,7 @@ class Cards(commands.Cog):
         try:
             return not self._user_has_card(user_id, category, name)
         except Exception as e:
-            logging.error(f"[EMBED] Erreur dans is_new_card_for_user: {e}")
+            logger.error(f"[EMBED] Erreur dans is_new_card_for_user: {e}")
             return False
 
     def user_has_full_version(self, user_id: int, category: str, name: str) -> bool:
@@ -990,7 +987,7 @@ class Cards(commands.Cog):
             full_name = f"{name} (Full)"
             return self._user_has_card(user_id, category, full_name)
         except Exception as e:
-            logging.error(f"[EMBED] Erreur dans user_has_full_version: {e}")
+            logger.error(f"[EMBED] Erreur dans user_has_full_version: {e}")
             return False
 
     def can_have_full_version(self, category: str, name: str) -> bool:
@@ -1003,7 +1000,7 @@ class Cards(commands.Cog):
                     return True
             return False
         except Exception as e:
-            logging.error(f"[EMBED] Erreur dans can_have_full_version: {e}")
+            logger.error(f"[EMBED] Erreur dans can_have_full_version: {e}")
             return False
 
 
@@ -1118,18 +1115,18 @@ class Cards(commands.Cog):
     def find_user_card_by_input(self, user_id: int, input_text: str) -> tuple[str, str] | None:
         """Recherche une carte dans l'inventaire d'un utilisateur par nom ou ID."""
         input_text = input_text.strip()
-        logging.debug(f"[CARD_SEARCH] Recherche pour utilisateur {user_id}: '{input_text}'")
+        logger.debug(f"[CARD_SEARCH] Recherche pour utilisateur {user_id}: '{input_text}'")
 
         # Vérifier si c'est un identifiant (C1, C2, etc.)
         if input_text.upper().startswith('C') and input_text[1:].isdigit():
             # Recherche par identifiant
             discovery_index = int(input_text[1:])
-            logging.debug(f"[CARD_SEARCH] Recherche par identifiant: C{discovery_index}")
+            logger.debug(f"[CARD_SEARCH] Recherche par identifiant: C{discovery_index}")
 
             try:
                 discoveries_cache = self.discovery_manager.storage.get_discoveries_cache()
                 if not discoveries_cache:
-                    logging.warning("[CARD_SEARCH] Cache des découvertes non disponible")
+                    logger.warning("[CARD_SEARCH] Cache des découvertes non disponible")
                     return None
 
                 for row in discoveries_cache[1:]:  # Skip header
@@ -1137,29 +1134,29 @@ class Cards(commands.Cog):
                         try:
                             if int(row[5]) == discovery_index:
                                 category, name = row[0], row[1]
-                                logging.debug(f"[CARD_SEARCH] Carte trouvée par ID: {category}/{name}")
+                                logger.debug(f"[CARD_SEARCH] Carte trouvée par ID: {category}/{name}")
 
                                 # Vérifier que l'utilisateur possède cette carte
                                 owned_cards = self.get_user_cards(user_id)
                                 if any(cat == category and n == name for cat, n in owned_cards):
-                                    logging.debug(f"[CARD_SEARCH] Utilisateur possède la carte")
+                                    logger.debug(f"[CARD_SEARCH] Utilisateur possède la carte")
                                     return (category, name)
                                 else:
-                                    logging.debug(f"[CARD_SEARCH] Utilisateur ne possède pas la carte")
+                                    logger.debug(f"[CARD_SEARCH] Utilisateur ne possède pas la carte")
                                     return None
                         except (ValueError, IndexError) as e:
-                            logging.warning(f"[CARD_SEARCH] Erreur dans les données de découverte: {e}")
+                            logger.warning(f"[CARD_SEARCH] Erreur dans les données de découverte: {e}")
                             continue
 
-                logging.debug(f"[CARD_SEARCH] Aucune carte trouvée avec l'ID C{discovery_index}")
+                logger.debug(f"[CARD_SEARCH] Aucune carte trouvée avec l'ID C{discovery_index}")
                 return None
 
             except Exception as e:
-                logging.error(f"[CARD_SEARCH] Erreur lors de la recherche par ID: {e}")
+                logger.error(f"[CARD_SEARCH] Erreur lors de la recherche par ID: {e}")
                 return None
 
         # Recherche par nom
-        logging.debug(f"[CARD_SEARCH] Recherche par nom: '{input_text}'")
+        logger.debug(f"[CARD_SEARCH] Recherche par nom: '{input_text}'")
 
         # Normaliser l'input pour la recherche
         search_input = input_text
@@ -1169,15 +1166,15 @@ class Cards(commands.Cog):
         normalized_input = normalize_name(search_input.removesuffix(".png"))
         owned_cards = self.get_user_cards(user_id)
 
-        logging.debug(f"[CARD_SEARCH] Input normalisé: '{normalized_input}', cartes possédées: {len(owned_cards)}")
+        logger.debug(f"[CARD_SEARCH] Input normalisé: '{normalized_input}', cartes possédées: {len(owned_cards)}")
 
         for cat, name in owned_cards:
             normalized_card_name = normalize_name(name.removesuffix(".png"))
             if normalized_card_name == normalized_input:
-                logging.debug(f"[CARD_SEARCH] Carte trouvée par nom: {cat}/{name}")
+                logger.debug(f"[CARD_SEARCH] Carte trouvée par nom: {cat}/{name}")
                 return (cat, name)
 
-        logging.debug(f"[CARD_SEARCH] Aucune carte trouvée par nom")
+        logger.debug(f"[CARD_SEARCH] Aucune carte trouvée par nom")
         return None
 
     def get_user_card_suggestions(self, user_id: int, input_text: str, max_suggestions: int = 5) -> list[str]:
@@ -1204,7 +1201,7 @@ class Cards(commands.Cog):
 
             return suggestions
         except Exception as e:
-            logging.error(f"[CARD_SEARCH] Erreur lors de la génération de suggestions: {e}")
+            logger.error(f"[CARD_SEARCH] Erreur lors de la génération de suggestions: {e}")
             return []
 
 
@@ -1214,9 +1211,9 @@ class Cards(commands.Cog):
         Recherche une carte par nom dans toutes les catégories.
         Retourne (catégorie, nom exact avec extension, file_id) ou None.
         """
-        logging.debug(f"[FIND_CARD] Recherche du fichier pour: '{input_name}'")
+        logger.debug(f"[FIND_CARD] Recherche du fichier pour: '{input_name}'")
         normalized_input = normalize_name(input_name.removesuffix(".png"))
-        logging.debug(f"[FIND_CARD] Input normalisé: '{normalized_input}'")
+        logger.debug(f"[FIND_CARD] Input normalisé: '{normalized_input}'")
 
         # Chercher dans les cartes normales et Full
         all_files = {}
@@ -1225,20 +1222,20 @@ class Cards(commands.Cog):
         for cat, files in self.upgrade_cards_by_category.items():
             all_files.setdefault(cat, []).extend(files)
 
-        logging.debug(f"[FIND_CARD] Catégories disponibles: {list(all_files.keys())}")
+        logger.debug(f"[FIND_CARD] Catégories disponibles: {list(all_files.keys())}")
         total_files = sum(len(files) for files in all_files.values())
-        logging.debug(f"[FIND_CARD] Total de fichiers à rechercher: {total_files}")
+        logger.debug(f"[FIND_CARD] Total de fichiers à rechercher: {total_files}")
 
         for category, files in all_files.items():
             for file_info in files:
                 file_name = file_info['name']
                 normalized_file = normalize_name(file_name.removesuffix(".png"))
                 if normalized_file == normalized_input:
-                    logging.debug(f"[FIND_CARD] Fichier trouvé: {category}/{file_name} (ID: {file_info['id']})")
+                    logger.debug(f"[FIND_CARD] Fichier trouvé: {category}/{file_name} (ID: {file_info['id']})")
                     # Retourner le nom avec extension pour correspondre au format de l'inventaire
                     return category, file_name, file_info['id']
 
-        logging.debug(f"[FIND_CARD] Aucun fichier trouvé pour '{input_name}'")
+        logger.debug(f"[FIND_CARD] Aucun fichier trouvé pour '{input_name}'")
         return None
 
 
@@ -1340,7 +1337,7 @@ class Cards(commands.Cog):
                             count_text = f' (x{c})' if c > 1 else ''
                             lines.append(f"- **{card_name}**{identifier_text}{count_text}")
                         except Exception as e:
-                            logging.error(f"[GALLERY] Erreur lors du traitement de la carte {n}: {e}")
+                            logger.error(f"[GALLERY] Erreur lors du traitement de la carte {n}: {e}")
                             continue
 
                     if lines:
@@ -1395,7 +1392,7 @@ class Cards(commands.Cog):
                                     current_fields_normal += 1
 
                                 except Exception as e:
-                                    logging.error(f"[GALLERY] Erreur lors de l'ajout du champ pour {cat}: {e}")
+                                    logger.error(f"[GALLERY] Erreur lors de l'ajout du champ pour {cat}: {e}")
                                     continue
                         else:
                             # Le field rentre dans la limite
@@ -1424,7 +1421,7 @@ class Cards(commands.Cog):
                                 current_fields_normal += 1
 
                             except Exception as e:
-                                logging.error(f"[GALLERY] Erreur lors de l'ajout du champ pour {cat}: {e}")
+                                logger.error(f"[GALLERY] Erreur lors de l'ajout du champ pour {cat}: {e}")
                                 continue
 
                 # Traiter les cartes Full avec le format original
@@ -1436,7 +1433,7 @@ class Cards(commands.Cog):
                             count_text = f' (x{c})' if c > 1 else ''
                             lines.append(f"- **{card_name}**{count_text}")
                         except Exception as e:
-                            logging.error(f"[GALLERY] Erreur lors du traitement de la carte Full {n}: {e}")
+                            logger.error(f"[GALLERY] Erreur lors du traitement de la carte Full {n}: {e}")
                             continue
 
                     if lines:
@@ -1492,7 +1489,7 @@ class Cards(commands.Cog):
                                     current_fields_full += 1
 
                                 except Exception as e:
-                                    logging.error(f"[GALLERY] Erreur lors de l'ajout du champ Full pour {cat}: {e}")
+                                    logger.error(f"[GALLERY] Erreur lors de l'ajout du champ Full pour {cat}: {e}")
                                     continue
                         else:
                             # Le field rentre dans la limite
@@ -1522,7 +1519,7 @@ class Cards(commands.Cog):
                                 current_fields_full += 1
 
                             except Exception as e:
-                                logging.error(f"[GALLERY] Erreur lors de l'ajout du champ Full pour {cat}: {e}")
+                                logger.error(f"[GALLERY] Erreur lors de l'ajout du champ Full pour {cat}: {e}")
                                 continue
 
             # Finaliser les embeds
@@ -1534,7 +1531,7 @@ class Cards(commands.Cog):
             return embeds if embeds else None
 
         except Exception as e:
-            logging.error(f"[GALLERY] Erreur dans generate_complete_gallery_embeds: {e}")
+            logger.error(f"[GALLERY] Erreur dans generate_complete_gallery_embeds: {e}")
             return None
 
     def generate_gallery_embeds(self, user: discord.abc.User) -> list[discord.Embed] | None:
@@ -1560,9 +1557,9 @@ class Cards(commands.Cog):
             role = interaction.guild.get_role(CARD_COLLECTOR_ROLE_ID)
             if role and role not in interaction.user.roles:
                 await interaction.user.add_roles(role)
-                logging.info(f"[ROLE] Rôle collectionneur assigné à {interaction.user.display_name}")
+                logger.info(f"[ROLE] Rôle collectionneur assigné à {interaction.user.display_name}")
         except Exception as e:
-            logging.error(f"[ROLE] Erreur lors de l'assignation du rôle: {e}")
+            logger.error(f"[ROLE] Erreur lors de l'assignation du rôle: {e}")
 
     async def update_character_ownership(self, user: discord.User):
         """Met à jour la propriété des personnages (placeholder)."""
@@ -1581,7 +1578,7 @@ class Cards(commands.Cog):
     @app_commands.command(name="cartes", description="Gérer vos cartes à collectionner")
     async def cartes(self, interaction: discord.Interaction):
         """Commande principale du système de cartes optimisée."""
-        logging.info("[DEBUG] Commande /cartes déclenchée")
+        logger.info("[DEBUG] Commande /cartes déclenchée")
 
         await interaction.response.defer(ephemeral=True)
 
@@ -1674,7 +1671,7 @@ class Cards(commands.Cog):
             return user_bonus
 
         except Exception as e:
-            logging.error(f"[BONUS] Erreur lors de la vérification des bonus: {e}")
+            logger.error(f"[BONUS] Erreur lors de la vérification des bonus: {e}")
             return 0
 
     async def consume_single_bonus(self, user_id: int, user_name: str) -> bool:
@@ -1741,11 +1738,11 @@ class Cards(commands.Cog):
             if updated_data:
                 self.storage.sheet_bonus.update('A1', updated_data)
 
-            logging.info(f"[BONUS] Un bonus consommé pour l'utilisateur {user_name} ({user_id})")
+            logger.info(f"[BONUS] Un bonus consommé pour l'utilisateur {user_name} ({user_id})")
             return True
 
         except Exception as e:
-            logging.error(f"[BONUS] Erreur lors de la consommation du bonus: {e}")
+            logger.error(f"[BONUS] Erreur lors de la consommation du bonus: {e}")
             return False
 
     @commands.command(name="initialiser_forum_cartes", help="Initialise la structure forum pour les cartes")
@@ -1766,7 +1763,7 @@ class Cards(commands.Cog):
 
         except Exception as e:
             await ctx.send(f"❌ Erreur lors de l'initialisation: {e}")
-            logging.error(f"[FORUM_INIT] Erreur: {e}")
+            logger.error(f"[FORUM_INIT] Erreur: {e}")
 
     @commands.command(name="reconstruire_mur", help="Reconstruit complètement le mur de cartes du forum")
     @commands.has_permissions(administrator=True)
@@ -1826,7 +1823,7 @@ class Cards(commands.Cog):
                 await ctx.send(f"• Erreurs: {error_count}")
 
         except Exception as e:
-            logging.error(f"[RECONSTRUIRE_MUR] Erreur: {e}")
+            logger.error(f"[RECONSTRUIRE_MUR] Erreur: {e}")
             await ctx.send(f"❌ Erreur lors de la reconstruction: {e}")
 
     @commands.command(name="galerie", help="Affiche la galerie de cartes d'un utilisateur")
@@ -1850,7 +1847,7 @@ class Cards(commands.Cog):
             await ctx.send(embeds=gallery_embeds, view=gallery_view)
 
         except Exception as e:
-            logging.error(f"[ADMIN_GALLERY] Erreur: {e}")
+            logger.error(f"[ADMIN_GALLERY] Erreur: {e}")
             await ctx.send("❌ Une erreur est survenue lors de l'affichage de la galerie.")
 
     @commands.command(name="give_bonus")
@@ -1901,7 +1898,7 @@ class Cards(commands.Cog):
                 await ctx.send("✅ Cache sacrificiel entièrement nettoyé")
 
         except Exception as e:
-            logging.error(f"[GIVE_BONUS] Erreur: {e}")
+            logger.error(f"[GIVE_BONUS] Erreur: {e}")
             await ctx.send(f"❌ Erreur lors de l'attribution du bonus: {e}")
 
     @commands.command(name="logs_cartes")
@@ -1963,7 +1960,7 @@ class Cards(commands.Cog):
             await ctx.send(embed=embed)
 
         except Exception as e:
-            logging.error(f"[LOGS] Erreur lors de l'affichage des logs: {e}")
+            logger.error(f"[LOGS] Erreur lors de l'affichage des logs: {e}")
             await ctx.send(f"❌ Erreur lors de l'affichage des logs: {e}")
 
     @commands.command(name="stats_logs")
@@ -2029,7 +2026,7 @@ class Cards(commands.Cog):
             await ctx.send(embed=embed)
 
         except Exception as e:
-            logging.error(f"[LOGS_STATS] Erreur lors de l'affichage des statistiques: {e}")
+            logger.error(f"[LOGS_STATS] Erreur lors de l'affichage des statistiques: {e}")
             await ctx.send(f"❌ Erreur lors de l'affichage des statistiques: {e}")
 
     @commands.command(name="verifier_full_automatique", help="Vérifie et effectue toutes les conversions Full automatiques")
@@ -2078,7 +2075,7 @@ class Cards(commands.Cog):
                 except Exception as e:
                     error_msg = f"Erreur pour l'utilisateur {user_id}: {e}"
                     errors.append(error_msg)
-                    logging.error(f"[ADMIN_FULL_CHECK] {error_msg}")
+                    logger.error(f"[ADMIN_FULL_CHECK] {error_msg}")
 
             # Traiter toutes les vérifications d'upgrade en attente
             if self._users_needing_upgrade_check:
@@ -2116,7 +2113,7 @@ class Cards(commands.Cog):
                     except Exception as e:
                         error_msg = f"Erreur lors du comptage pour l'utilisateur {user_id}: {e}"
                         errors.append(error_msg)
-                        logging.error(f"[ADMIN_FULL_CHECK] {error_msg}")
+                        logger.error(f"[ADMIN_FULL_CHECK] {error_msg}")
 
                 # Effectuer les conversions
                 await self.process_all_pending_upgrade_checks(fake_interaction, ctx.channel.id)
@@ -2164,7 +2161,7 @@ class Cards(commands.Cog):
             await ctx.send(embed=embed)
 
         except Exception as e:
-            logging.error(f"[ADMIN_FULL_CHECK] Erreur générale: {e}")
+            logger.error(f"[ADMIN_FULL_CHECK] Erreur générale: {e}")
             await ctx.send(f"❌ Erreur lors de la vérification: {e}")
 
     @commands.command(name="verifier_integrite", help="Vérifie l'intégrité des données des cartes")
@@ -2285,7 +2282,7 @@ class Cards(commands.Cog):
             await ctx.send(embed=embed)
 
         except Exception as e:
-            logging.error(f"[INTEGRITY] Erreur lors de la vérification: {e}")
+            logger.error(f"[INTEGRITY] Erreur lors de la vérification: {e}")
             await ctx.send(f"❌ Erreur lors de la vérification: {e}")
 
 
@@ -2295,4 +2292,4 @@ async def setup(bot):
     await bot.add_cog(cards)
     await bot.tree.sync()
     await cards.update_all_character_owners()
-    logging.info("[CARDS] Cog Cards chargé avec succès")
+    logger.info("[CARDS] Cog Cards chargé avec succès")
