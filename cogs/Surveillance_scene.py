@@ -1624,6 +1624,7 @@ class SurveillanceScene(commands.Cog):
                 import traceback
                 logging.error(f"Traceback: {traceback.format_exc()}")
 
+        await self.reorder_surveillance_messages()
         logging.info("Mise à jour de toutes les scènes terminée")
 
     async def update_surveillance_message(self, scene_data: dict):
@@ -1652,6 +1653,48 @@ class SurveillanceScene(commands.Cog):
 
         except Exception as e:
             logging.error(f"Erreur lors de la mise à jour du message de surveillance: {e}")
+
+    async def reorder_surveillance_messages(self):
+        """Réordonne les messages de surveillance par date d'activité."""
+        try:
+            surveillance_channel = self.bot.get_channel(SURVEILLANCE_CHANNEL_ID)
+            if not surveillance_channel:
+                return
+
+            scenes = [s for s in self.monitored_scenes.values() if s.get('message_id')]
+            if not scenes:
+                return
+
+            def activity_date(scene: dict) -> datetime:
+                date_str = scene.get('last_activity_date') or scene.get('start_date')
+                if not date_str:
+                    return datetime.fromtimestamp(0, tz=self.paris_tz)
+                try:
+                    dt = datetime.fromisoformat(date_str)
+                    if dt.tzinfo is None:
+                        dt = self.paris_tz.localize(dt)
+                    return dt
+                except Exception:
+                    return datetime.fromtimestamp(0, tz=self.paris_tz)
+
+            scenes.sort(key=activity_date)
+            message_ids = sorted(int(s['message_id']) for s in scenes)
+
+            for msg_id, scene in zip(message_ids, scenes):
+                try:
+                    message = await surveillance_channel.fetch_message(msg_id)
+                    embed = await self.create_surveillance_embed(scene)
+                    view = SceneSurveillanceView(self, scene)
+                    await message.edit(embed=embed, view=view)
+                    if int(scene['message_id']) != msg_id:
+                        scene['message_id'] = str(msg_id)
+                        await self.update_scene_message_id(scene['channel_id'], str(msg_id))
+                    await asyncio.sleep(1)
+                except Exception as e:
+                    logging.error(f"Erreur lors du réordonnancement des messages: {e}")
+
+        except Exception as e:
+            logging.error(f"Erreur dans reorder_surveillance_messages: {e}")
 
     async def notify_inactive_scene(self, scene_data: dict):
         """Notifie le MJ d'une scène inactive depuis 7 jours."""
@@ -1769,6 +1812,9 @@ class SurveillanceScene(commands.Cog):
 
             # Forcer la mise à jour du cache local pour être sûr
             self.monitored_scenes[channel_id] = scene_data
+
+            # Réordonner les messages de surveillance
+            await self.reorder_surveillance_messages()
 
             # Notifier le MJ avec système anti-spam (SAUF si c'est un message de Maître du Jeu)
             if not self.is_game_master_message(message):
