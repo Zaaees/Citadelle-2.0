@@ -33,13 +33,41 @@ load_dotenv()
 bot_start_time = datetime.now()
 last_heartbeat = datetime.now()
 request_count = 0
+state_lock = threading.Lock()
+
+
+def increment_request_count():
+    """Increment the HTTP request counter in a thread-safe manner."""
+    global request_count
+    with state_lock:
+        request_count += 1
+        return request_count
+
+
+def update_last_heartbeat():
+    """Update the last heartbeat timestamp in a thread-safe manner."""
+    global last_heartbeat
+    with state_lock:
+        last_heartbeat = datetime.now()
+        return last_heartbeat
+
+
+def get_request_count():
+    """Get the current request count with lock protection."""
+    with state_lock:
+        return request_count
+
+
+def get_last_heartbeat():
+    """Get the last heartbeat timestamp with lock protection."""
+    with state_lock:
+        return last_heartbeat
 
 # Serveur HTTP amélioré pour Render
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        global request_count, last_heartbeat
-        request_count += 1
-        last_heartbeat = datetime.now()
+        rc = increment_request_count()
+        lh = update_last_heartbeat()
 
         if self.path == '/':
             self.send_response(200)
@@ -61,8 +89,8 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 'status': 'healthy',
                 'uptime_seconds': int(uptime.total_seconds()),
                 'uptime_human': str(uptime),
-                'request_count': request_count,
-                'last_heartbeat': last_heartbeat.isoformat(),
+                'request_count': rc,
+                'last_heartbeat': lh.isoformat(),
                 'timestamp': datetime.now().isoformat()
             }
 
@@ -106,11 +134,10 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b'Not Found')
 
-        logger.info(f"GET {self.path} from {self.client_address[0]} - Request #{request_count}")
+        logger.info(f"GET {self.path} from {self.client_address[0]} - Request #{rc}")
 
     def do_HEAD(self):
-        global last_heartbeat
-        last_heartbeat = datetime.now()
+        update_last_heartbeat()
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
@@ -212,7 +239,7 @@ def check_bot_health(bot):
             resource_monitor.check_and_cleanup()
 
             # 6. Vérifier le heartbeat du serveur HTTP
-            time_since_heartbeat = current_time - last_heartbeat
+            time_since_heartbeat = current_time - get_last_heartbeat()
             if time_since_heartbeat > timedelta(minutes=10):
                 logger.warning(f"⚠️ Aucun heartbeat HTTP depuis {time_since_heartbeat}")
 
@@ -221,7 +248,9 @@ def check_bot_health(bot):
                 logger.info(f"✅ Santé du bot rétablie après {consecutive_failures} échecs")
             consecutive_failures = 0
 
-            logger.info(f"💚 Santé du bot: OK (latence: {bot.latency:.2f}s, requêtes HTTP: {request_count})")
+            logger.info(
+                f"💚 Santé du bot: OK (latence: {bot.latency:.2f}s, requêtes HTTP: {get_request_count()})"
+            )
 
         except Exception as e:
             consecutive_failures += 1
