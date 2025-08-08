@@ -639,5 +639,3 @@ class BoardTradeRequestView(discord.ui.View):
 
 
 
-
-
