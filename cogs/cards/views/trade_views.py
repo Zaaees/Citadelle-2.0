@@ -595,5 +595,47 @@ class ExchangeBoardView(discord.ui.View):
         await interaction.response.send_modal(modal)
 
 
+class BoardTradeRequestView(discord.ui.View):
+    """Vue envoyée au propriétaire pour confirmer ou refuser l'échange."""
+
+    def __init__(self, cog: "Cards", buyer_id: int, board_id: int,
+                 offered_cat: str, offered_name: str):
+        super().__init__(timeout=24 * 60 * 60)
+        self.cog = cog
+        self.buyer_id = buyer_id
+        self.board_id = board_id
+        self.offered_cat = offered_cat
+        self.offered_name = offered_name
+
+    async def notify_buyer(self, message: str) -> None:
+        try:
+            user = await self.cog.bot.fetch_user(self.buyer_id)
+            await user.send(message)
+        except Exception:
+            pass
+
+    @discord.ui.button(label="Accepter", style=discord.ButtonStyle.success)
+    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        success = self.cog.trading_manager.take_from_board(
+            self.buyer_id, self.board_id, self.offered_cat, self.offered_name
+        )
+        if success:
+            await interaction.followup.send("✅ Échange réalisé avec succès.", ephemeral=True)
+            await self.notify_buyer("✅ Votre offre a été acceptée !")
+        else:
+            await interaction.followup.send("❌ Échange impossible.", ephemeral=True)
+            await self.notify_buyer("❌ Votre offre a échoué.")
+        self.stop()
+
+    @discord.ui.button(label="Refuser", style=discord.ButtonStyle.danger)
+    async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("❌ Offre refusée.", ephemeral=True)
+        await self.notify_buyer("❌ Votre offre a été refusée.")
+        self.stop()
+
+    async def on_timeout(self) -> None:
+        await self.notify_buyer("⌛ L'offre a expiré sans réponse.")
+
 
 

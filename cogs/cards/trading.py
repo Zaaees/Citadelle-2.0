@@ -64,9 +64,43 @@ class TradingManager:
             logging.error(f"[BOARD] Erreur lors du dépôt: {e}")
             return False
 
+    def initiate_board_trade(self, user_id: int, board_id: int,
+                             offered_cat: str, offered_name: str) -> Optional[Tuple[int, str, str]]:
+        """Vérifie une proposition d'échange sans la réaliser.
+
+        Retourne les informations de l'offre si la proposition est valide,
+        sinon ``None``.
+        """
+        try:
+            if not validate_card_data(offered_cat, offered_name, user_id):
+                return None
+
+            with self.storage._cards_lock, self.storage._board_lock:
+                entry = self.storage.get_exchange_entry(board_id)
+                if not entry:
+                    return None
+
+                owner_id = int(entry["owner"])
+                board_cat = entry["cat"]
+                board_name = entry["name"]
+
+            if offered_cat != board_cat:
+                logging.error(f"[BOARD] Catégorie proposée {offered_cat} différente de {board_cat}")
+                return None
+
+            if not self._user_has_card(user_id, offered_cat, offered_name):
+                logging.error(f"[BOARD] Utilisateur {user_id} ne possède pas la carte proposée")
+                return None
+
+            return owner_id, board_cat, board_name
+
+        except Exception as e:
+            logging.error(f"[BOARD] Erreur lors de la validation de l'échange: {e}")
+            return None
+
     def take_from_board(self, user_id: int, board_id: int,
                         offered_cat: str, offered_name: str) -> bool:
-        """Réalise un échange en prenant une carte du tableau."""
+        """Finalise un échange après confirmation du propriétaire."""
         try:
             if not validate_card_data(offered_cat, offered_name, user_id):
                 return False

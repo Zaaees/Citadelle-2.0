@@ -407,19 +407,45 @@ class OfferCardModal(discord.ui.Modal, title="Offrir une carte"):
                 return
 
             category, name = card_match
-            success = self.cog.trading_manager.take_from_board(
+
+            info = self.cog.trading_manager.initiate_board_trade(
                 self.user.id, self.board_id, category, name
             )
 
-            if success:
-                display_name = name.removesuffix('.png')
-                await interaction.followup.send(
-                    f"✅ Échange réalisé avec **{display_name}**.",
-                    ephemeral=True,
-                )
-            else:
+            if not info:
                 await interaction.followup.send(
                     "❌ Échange impossible.",
+                    ephemeral=True,
+                )
+                return
+
+            owner_id, board_cat, board_name = info
+
+            owner = await interaction.client.fetch_user(owner_id)
+            from .trade_views import BoardTradeRequestView
+
+            view = BoardTradeRequestView(
+                self.cog,
+                buyer_id=self.user.id,
+                board_id=self.board_id,
+                offered_cat=category,
+                offered_name=name,
+            )
+
+            display_offered = name.removesuffix('.png')
+            display_board = board_name.removesuffix('.png')
+            try:
+                await owner.send(
+                    f"{interaction.user.display_name} propose **{display_offered}** contre **{display_board}**.",
+                    view=view,
+                )
+                await interaction.followup.send(
+                    "✅ Offre envoyée au propriétaire, en attente de confirmation.",
+                    ephemeral=True,
+                )
+            except Exception:
+                await interaction.followup.send(
+                    "❌ Impossible de contacter le propriétaire.",
                     ephemeral=True,
                 )
 
