@@ -541,6 +541,56 @@ class InitiatorFinalConfirmationView(discord.ui.View):
 
 
 
+class ExchangeBoardView(discord.ui.View):
+    """Vue pour afficher et interagir avec le tableau d'échanges."""
+
+    def __init__(self, cog: "Cards", user: discord.User):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.user = user
+
+        offers = self.cog.trading_manager.list_board_offers()
+        options = [
+            discord.SelectOption(
+                label=f"{o['name'].removesuffix('.png')} ({o['cat']})",
+                description=f"ID {o['id']} - Proposé par {o['owner']}",
+                value=str(o['id'])
+            )
+            for o in offers
+        ]
+
+        self.offer_select = discord.ui.Select(
+            placeholder="Offres disponibles",
+            options=options if options else [discord.SelectOption(label="Aucune offre", value="0")],
+        )
+        self.add_item(self.offer_select)
+
+    @discord.ui.button(label="Déposer une carte", style=discord.ButtonStyle.primary, row=1)
+    async def deposit_card(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
+            return
+
+        from .modal_views import BoardDepositModal
+        modal = BoardDepositModal(self.cog, self.user)
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="Échanger", style=discord.ButtonStyle.success, row=1)
+    async def exchange_card(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
+            return
+
+        if not self.offer_select.values or self.offer_select.values[0] == "0":
+            await interaction.response.send_message("Sélectionnez d'abord une offre.", ephemeral=True)
+            return
+
+        board_id = int(self.offer_select.values[0])
+        from .modal_views import OfferCardModal
+        modal = OfferCardModal(self.cog, self.user, board_id)
+        await interaction.response.send_modal(modal)
+
+
 
 
 
