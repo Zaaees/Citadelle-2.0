@@ -20,6 +20,10 @@ from typing import Optional, Dict, List, Union
 SURVEILLANCE_CHANNEL_ID = 1380704586016362626
 PARIS_TZ = pytz.timezone('Europe/Paris')
 
+# Regroupement des mises à jour
+UPDATE_BATCH_SIZE = 10  # Nombre de messages avant un rafraîchissement
+UPDATE_INTERVAL_MINUTES = 5  # Intervalle de rafraîchissement en minutes
+
 class SceneSurveillanceView(discord.ui.View):
     """Vue avec boutons pour la surveillance de scène."""
     
@@ -118,9 +122,14 @@ class SurveillanceScene(commands.Cog):
         # Cache pour tracker les scènes inactives notifiées (pour éviter spam et détecter retour d'activité)
         self.notified_inactive_scenes: set = set()
 
+        # Caches pour les mises à jour différées
+        self.pending_updates: Dict[str, dict] = {}
+        self.pending_update_counts: Dict[str, int] = {}
+
         # Démarrer les tâches
         self.update_surveillance.start()
         self.check_inactive_scenes.start()
+        self.process_pending_updates.start()
         
     def setup_google_sheets(self):
         """Configure la connexion Google Sheets."""
@@ -155,6 +164,7 @@ class SurveillanceScene(commands.Cog):
         """Nettoie les tâches lors du déchargement du cog."""
         self.update_surveillance.cancel()
         self.check_inactive_scenes.cancel()
+        self.process_pending_updates.cancel()
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -1753,6 +1763,38 @@ class SurveillanceScene(commands.Cog):
         except Exception as e:
             logging.error(f"Erreur lors de la notification d'inactivité: {e}")
 
+    async def flush_channel_update(self, channel_id: str):
+        """Applique les mises à jour différées pour un canal."""
+        scene_data = self.pending_updates.get(channel_id)
+        if not scene_data:
+            return
+        try:
+            start_date = datetime.fromisoformat(scene_data['start_date'])
+            channel = self.bot.get_channel(int(channel_id))
+            participants = await self.get_channel_participants(channel, start_date)
+            scene_data['participants'] = json.dumps(participants)
+            await self.update_scene_data(channel_id, scene_data)
+            await self.update_surveillance_message(scene_data)
+            self.monitored_scenes[channel_id] = scene_data
+        except Exception as e:
+            logging.error(f"Erreur lors du rafraîchissement différé: {e}")
+        finally:
+            self.pending_update_counts[channel_id] = 0
+            self.pending_updates.pop(channel_id, None)
+
+    @tasks.loop(minutes=UPDATE_INTERVAL_MINUTES)
+    async def process_pending_updates(self):
+        """Traite périodiquement les mises à jour en attente."""
+        if not self.pending_updates:
+            return
+        for channel_id in list(self.pending_updates.keys()):
+            await self.flush_channel_update(channel_id)
+        await self.reorder_surveillance_messages()
+
+    @process_pending_updates.before_loop
+    async def before_process_pending_updates(self):
+        await self.bot.wait_until_ready()
+
     def should_notify_gm(self, channel_id: str, user_id: int) -> bool:
         """Détermine si le MJ doit être notifié en fonction de l'anti-spam."""
         import time
@@ -1804,22 +1846,14 @@ class SurveillanceScene(commands.Cog):
             scene_data['last_activity_user'] = user_name
             scene_data['last_activity_date'] = message.created_at.astimezone(self.paris_tz).isoformat()
 
-            # Mettre à jour les participants (en filtrant Maître du Jeu)
-            start_date = datetime.fromisoformat(scene_data['start_date'])
-            participants = await self.get_channel_participants(message.channel, start_date)
-            scene_data['participants'] = json.dumps(participants)
+            # Ajouter aux mises à jour en attente
+            self.pending_updates[channel_id] = scene_data
+            self.pending_update_counts[channel_id] = self.pending_update_counts.get(channel_id, 0) + 1
 
-            # Mettre à jour Google Sheets
-            await self.update_scene_data(channel_id, scene_data)
-
-            # Mettre à jour le message de surveillance
-            await self.update_surveillance_message(scene_data)
-
-            # Forcer la mise à jour du cache local pour être sûr
-            self.monitored_scenes[channel_id] = scene_data
-
-            # Réordonner les messages de surveillance
-            await self.reorder_surveillance_messages()
+            # Rafraîchir immédiatement si le seuil est atteint
+            if self.pending_update_counts[channel_id] >= UPDATE_BATCH_SIZE:
+                await self.flush_channel_update(channel_id)
+                await self.reorder_surveillance_messages()
 
             # Notifier le MJ avec système anti-spam (SAUF si c'est un message de Maître du Jeu)
             if not self.is_game_master_message(message):
