@@ -326,6 +326,111 @@ class TradeOfferCardModal(discord.ui.Modal, title="Proposer un échange"):
             )
 
 
+class BoardDepositModal(discord.ui.Modal, title="Déposer sur le tableau"):
+    """Modal pour déposer une carte sur le tableau d'échanges."""
+
+    card_name = discord.ui.TextInput(
+        label="Carte à déposer (nom ou identifiant)",
+        placeholder="Ex : Alex (Variante) ou C42",
+        required=True,
+        max_length=100,
+    )
+
+    def __init__(self, cog: "Cards", user: discord.User):
+        super().__init__()
+        self.cog = cog
+        self.user = user
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            input_text = self.card_name.value.strip()
+            card_match = self.cog.find_user_card_by_input(self.user.id, input_text)
+            if not card_match:
+                await interaction.followup.send(
+                    f"❌ Carte non trouvée : **{input_text}**",
+                    ephemeral=True,
+                )
+                return
+
+            category, name = card_match
+            success = self.cog.trading_manager.deposit_to_board(self.user.id, category, name)
+
+            if success:
+                display_name = name.removesuffix('.png')
+                await interaction.followup.send(
+                    f"✅ Carte **{display_name}** déposée sur le tableau.",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    "❌ Impossible de déposer la carte.",
+                    ephemeral=True,
+                )
+
+        except Exception as e:
+            logging.error(f"[BOARD] Erreur lors du dépôt: {e}")
+            await interaction.followup.send(
+                "❌ Une erreur est survenue lors du dépôt.",
+                ephemeral=True,
+            )
+
+
+class OfferCardModal(discord.ui.Modal, title="Offrir une carte"):
+    """Modal pour proposer une carte en échange depuis le tableau."""
+
+    card_name = discord.ui.TextInput(
+        label="Carte offerte (nom ou identifiant)",
+        placeholder="Ex : Alex (Variante) ou C42",
+        required=True,
+        max_length=100,
+    )
+
+    def __init__(self, cog: "Cards", user: discord.User, board_id: int):
+        super().__init__()
+        self.cog = cog
+        self.user = user
+        self.board_id = board_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            input_text = self.card_name.value.strip()
+            card_match = self.cog.find_user_card_by_input(self.user.id, input_text)
+            if not card_match:
+                await interaction.followup.send(
+                    f"❌ Carte non trouvée : **{input_text}**",
+                    ephemeral=True,
+                )
+                return
+
+            category, name = card_match
+            success = self.cog.trading_manager.take_from_board(
+                self.user.id, self.board_id, category, name
+            )
+
+            if success:
+                display_name = name.removesuffix('.png')
+                await interaction.followup.send(
+                    f"✅ Échange réalisé avec **{display_name}**.",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    "❌ Échange impossible.",
+                    ephemeral=True,
+                )
+
+        except Exception as e:
+            logging.error(f"[BOARD] Erreur lors de l'échange: {e}")
+            await interaction.followup.send(
+                "❌ Une erreur est survenue lors de l'échange.",
+                ephemeral=True,
+            )
+
+
 class TradeResponseModal(discord.ui.Modal, title="Réponse à l'échange"):
     """Modal pour répondre à un échange de carte individuelle."""
     

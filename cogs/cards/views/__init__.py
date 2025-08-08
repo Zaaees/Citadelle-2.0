@@ -7,10 +7,11 @@ Contient toutes les interfaces utilisateur (Views, Modals, Buttons).
 from .menu_views import CardsMenuView, SacrificialDrawConfirmationView
 from .trade_views import (
     TradeMenuView, TradeConfirmationView, InitiatorFinalConfirmationView,
-    WithdrawVaultConfirmationView
+    WithdrawVaultConfirmationView, ExchangeBoardView
 )
 from .gallery_views import GalleryView, AdminGalleryView
 from .modal_views import (
     DepositCardModal, InitiateTradeModal,
-    TradeOfferCardModal, TradeResponseModal
+    TradeOfferCardModal, TradeResponseModal,
+    BoardDepositModal, OfferCardModal
 )
