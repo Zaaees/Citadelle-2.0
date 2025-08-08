@@ -597,4 +597,3 @@ class ExchangeBoardView(discord.ui.View):
 
 
 
-
