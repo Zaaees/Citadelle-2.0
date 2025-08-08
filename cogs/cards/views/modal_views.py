@@ -326,6 +326,137 @@ class TradeOfferCardModal(discord.ui.Modal, title="Proposer un échange"):
             )
 
 
+class BoardDepositModal(discord.ui.Modal, title="Déposer sur le tableau"):
+    """Modal pour déposer une carte sur le tableau d'échanges."""
+
+    card_name = discord.ui.TextInput(
+        label="Carte à déposer (nom ou identifiant)",
+        placeholder="Ex : Alex (Variante) ou C42",
+        required=True,
+        max_length=100,
+    )
+
+    def __init__(self, cog: "Cards", user: discord.User):
+        super().__init__()
+        self.cog = cog
+        self.user = user
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            input_text = self.card_name.value.strip()
+            card_match = self.cog.find_user_card_by_input(self.user.id, input_text)
+            if not card_match:
+                await interaction.followup.send(
+                    f"❌ Carte non trouvée : **{input_text}**",
+                    ephemeral=True,
+                )
+                return
+
+            category, name = card_match
+            success = self.cog.trading_manager.deposit_to_board(self.user.id, category, name)
+
+            if success:
+                display_name = name.removesuffix('.png')
+                await interaction.followup.send(
+                    f"✅ Carte **{display_name}** déposée sur le tableau.",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    "❌ Impossible de déposer la carte.",
+                    ephemeral=True,
+                )
+
+        except Exception as e:
+            logging.error(f"[BOARD] Erreur lors du dépôt: {e}")
+            await interaction.followup.send(
+                "❌ Une erreur est survenue lors du dépôt.",
+                ephemeral=True,
+            )
+
+
+class OfferCardModal(discord.ui.Modal, title="Offrir une carte"):
+    """Modal pour proposer une carte en échange depuis le tableau."""
+
+    card_name = discord.ui.TextInput(
+        label="Carte offerte (nom ou identifiant)",
+        placeholder="Ex : Alex (Variante) ou C42",
+        required=True,
+        max_length=100,
+    )
+
+    def __init__(self, cog: "Cards", user: discord.User, board_id: int):
+        super().__init__()
+        self.cog = cog
+        self.user = user
+        self.board_id = board_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            input_text = self.card_name.value.strip()
+            card_match = self.cog.find_user_card_by_input(self.user.id, input_text)
+            if not card_match:
+                await interaction.followup.send(
+                    f"❌ Carte non trouvée : **{input_text}**",
+                    ephemeral=True,
+                )
+                return
+
+            category, name = card_match
+
+            info = self.cog.trading_manager.initiate_board_trade(
+                self.user.id, self.board_id, category, name
+            )
+
+            if not info:
+                await interaction.followup.send(
+                    "❌ Échange impossible.",
+                    ephemeral=True,
+                )
+                return
+
+            owner_id, board_cat, board_name = info
+
+            owner = await interaction.client.fetch_user(owner_id)
+            from .trade_views import BoardTradeRequestView
+
+            view = BoardTradeRequestView(
+                self.cog,
+                buyer_id=self.user.id,
+                board_id=self.board_id,
+                offered_cat=category,
+                offered_name=name,
+            )
+
+            display_offered = name.removesuffix('.png')
+            display_board = board_name.removesuffix('.png')
+            try:
+                await owner.send(
+                    f"{interaction.user.display_name} propose **{display_offered}** contre **{display_board}**.",
+                    view=view,
+                )
+                await interaction.followup.send(
+                    "✅ Offre envoyée au propriétaire, en attente de confirmation.",
+                    ephemeral=True,
+                )
+            except Exception:
+                await interaction.followup.send(
+                    "❌ Impossible de contacter le propriétaire.",
+                    ephemeral=True,
+                )
+
+        except Exception as e:
+            logging.error(f"[BOARD] Erreur lors de l'échange: {e}")
+            await interaction.followup.send(
+                "❌ Une erreur est survenue lors de l'échange.",
+                ephemeral=True,
+            )
+
+
 class TradeResponseModal(discord.ui.Modal, title="Réponse à l'échange"):
     """Modal pour répondre à un échange de carte individuelle."""
     
