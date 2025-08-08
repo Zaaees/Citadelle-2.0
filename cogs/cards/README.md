@@ -101,6 +101,7 @@ Toutes les fonctionnalités originales sont préservées :
 - ✅ Gestion des cartes Full
 - ✅ Système de cache optimisé
 - ✅ Sécurité et validation des données
+- ✅ Tableau d'échanges avec commandes `!board` (list, deposit, take, withdraw) et confirmation des offres par message privé (24h)
 
 ## 🧪 Tests
 

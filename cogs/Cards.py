@@ -1850,6 +1850,44 @@ class Cards(commands.Cog):
             logger.error(f"[ADMIN_GALLERY] Erreur: {e}")
             await ctx.send("❌ Une erreur est survenue lors de l'affichage de la galerie.")
 
+    @commands.group(name="board", invoke_without_command=True)
+    async def board_group(self, ctx: commands.Context):
+        """Commandes du tableau d'échanges."""
+        await ctx.send("Utilisation: !board list|deposit|take|withdraw")
+
+    @board_group.command(name="list")
+    async def board_list(self, ctx: commands.Context):
+        offers = self.trading_manager.list_board_offers()
+        if not offers:
+            await ctx.send("Le tableau est vide.")
+            return
+        lines = [
+            f"{o['id']}: {o['name'].removesuffix('.png')} ({o['cat']}) - {o['owner']}"
+            for o in offers
+        ]
+        await ctx.send("\n".join(lines))
+
+    @board_group.command(name="deposit")
+    async def board_deposit(self, ctx: commands.Context, cat: str, *, name: str):
+        if self.trading_manager.deposit_to_board(ctx.author.id, cat, name):
+            await ctx.send("Carte déposée sur le tableau.")
+        else:
+            await ctx.send("Impossible de déposer la carte.")
+
+    @board_group.command(name="take")
+    async def board_take(self, ctx: commands.Context, board_id: int, cat: str, *, name: str):
+        if self.trading_manager.take_from_board(ctx.author.id, board_id, cat, name):
+            await ctx.send("Échange réalisé avec succès.")
+        else:
+            await ctx.send("Échange impossible.")
+
+    @board_group.command(name="withdraw")
+    async def board_withdraw(self, ctx: commands.Context, board_id: int):
+        if self.trading_manager.withdraw_from_board(ctx.author.id, board_id):
+            await ctx.send("Offre retirée du tableau.")
+        else:
+            await ctx.send("Impossible de retirer cette offre.")
+
     @commands.command(name="give_bonus")
     @commands.has_permissions(administrator=True)
     async def give_bonus(self, ctx: commands.Context, member: discord.Member, count: int = 1, *, source: str):

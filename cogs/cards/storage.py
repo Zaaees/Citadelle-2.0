@@ -48,12 +48,14 @@ class CardsStorage:
         self.vault_cache_time = 0
         self.discoveries_cache = None
         self.discoveries_cache_time = 0
-        
+
         # Verrous pour thread safety
         self._cards_lock = threading.RLock()
         self._vault_lock = threading.RLock()
         self._cache_lock = threading.RLock()
         self._discoveries_lock = threading.RLock()
+        # Verrou spécifique pour le tableau d'échanges
+        self._board_lock = threading.RLock()
     
     def _init_worksheets(self):
         """Initialise les feuilles de calcul nécessaires."""
@@ -123,6 +125,9 @@ class CardsStorage:
             )
             # Initialiser l'en-tête
             self.sheet_bonus.append_row(["user_id", "count", "source"])
+
+        # Feuille du tableau d'échanges
+        self._init_exchange_sheet()
 
         # Feuille des logs de surveillance
         logging.info("[STORAGE] 🔄 Initialisation de la feuille 'Logs'...")
@@ -229,6 +234,87 @@ class CardsStorage:
             if not self.discoveries_cache or now - self.discoveries_cache_time > CACHE_VALIDITY_DURATION:
                 self.refresh_discoveries_cache()
             return self.discoveries_cache
+
+    # ------------------------------------------------------------------
+    # Gestion du tableau d'échanges
+    # ------------------------------------------------------------------
+
+    def _init_exchange_sheet(self):
+        """Initialise la feuille du tableau d'échanges."""
+        try:
+            self.sheet_exchange = self.spreadsheet.worksheet("Tableau Echanges")
+        except gspread.exceptions.WorksheetNotFound:
+            self.sheet_exchange = self.spreadsheet.add_worksheet(
+                title="Tableau Echanges", rows="1000", cols="5"
+            )
+            self.sheet_exchange.append_row([
+                "id", "owner", "cat", "name", "timestamp"
+            ])
+
+    def create_exchange_entry(self, owner: int, cat: str, name: str,
+                              timestamp: str) -> Optional[int]:
+        """Crée une entrée sur le tableau d'échanges."""
+        try:
+            with self._board_lock:
+                all_values = self.sheet_exchange.get_all_values()
+                next_id = 1
+                if len(all_values) > 1:
+                    ids = [int(r[0]) for r in all_values[1:] if r and r[0].isdigit()]
+                    if ids:
+                        next_id = max(ids) + 1
+                self.sheet_exchange.append_row([
+                    str(next_id), str(owner), cat, name, timestamp
+                ])
+                return next_id
+        except Exception as e:
+            logging.error(f"[STORAGE] Erreur lors de la création d'une entrée d'échange: {e}")
+            return None
+
+    def get_exchange_entries(self) -> List[Dict[str, Any]]:
+        """Retourne toutes les entrées du tableau d'échanges."""
+        try:
+            with self._board_lock:
+                return self.sheet_exchange.get_all_records()
+        except Exception as e:
+            logging.error(f"[STORAGE] Erreur lors de la lecture du tableau d'échanges: {e}")
+            return []
+
+    def get_exchange_entry(self, entry_id: int) -> Optional[Dict[str, Any]]:
+        """Récupère une entrée spécifique par son ID."""
+        entries = self.get_exchange_entries()
+        for entry in entries:
+            if str(entry.get("id")) == str(entry_id):
+                return entry
+        return None
+
+    def update_exchange_entry(self, entry_id: int, **fields) -> bool:
+        """Met à jour une entrée existante."""
+        col_map = {"id": 1, "owner": 2, "cat": 3, "name": 4, "timestamp": 5}
+        try:
+            with self._board_lock:
+                cell = self.sheet_exchange.find(str(entry_id))
+                if not cell:
+                    return False
+                for key, value in fields.items():
+                    if key in col_map:
+                        self.sheet_exchange.update_cell(cell.row, col_map[key], str(value))
+                return True
+        except Exception as e:
+            logging.error(f"[STORAGE] Erreur lors de la mise à jour d'une entrée d'échange: {e}")
+            return False
+
+    def delete_exchange_entry(self, entry_id: int) -> bool:
+        """Supprime une entrée du tableau d'échanges."""
+        try:
+            with self._board_lock:
+                cell = self.sheet_exchange.find(str(entry_id))
+                if not cell:
+                    return False
+                self.sheet_exchange.delete_rows(cell.row)
+                return True
+        except Exception as e:
+            logging.error(f"[STORAGE] Erreur lors de la suppression d'une entrée d'échange: {e}")
+            return False
 
     def _init_logging(self):
         """Initialise le gestionnaire de logging."""
