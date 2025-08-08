@@ -609,7 +609,6 @@ class ExchangeBoardView(discord.ui.View):
         from .modal_views import BoardDepositModal
         modal = BoardDepositModal(self.cog, self.user)
         await interaction.response.send_modal(modal)
-
     @discord.ui.button(label="Retirer une carte", style=discord.ButtonStyle.danger, row=1)
     async def withdraw_card(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user.id:
@@ -716,8 +715,6 @@ class BoardTradeRequestView(discord.ui.View):
 
     async def on_timeout(self) -> None:
         await self.notify_buyer("⌛ L'offre a expiré sans réponse.")
-
-
 
 
 
