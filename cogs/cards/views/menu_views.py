@@ -416,7 +416,7 @@ class CardsMenuView(discord.ui.View):
         try:
             from .trade_views import ExchangeBoardView
 
-            board_view = ExchangeBoardView(self.cog, self.user)
+            board_view = ExchangeBoardView(self.cog, self.user, interaction.guild)
 
             embed = discord.Embed(
                 title="🔄 Tableau d'échanges",
