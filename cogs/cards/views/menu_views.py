@@ -412,22 +412,20 @@ class CardsMenuView(discord.ui.View):
             return
         
         await interaction.response.defer(ephemeral=True)
-        
+
         try:
-            # Importer ici pour éviter les imports circulaires
-            from .trade_views import TradeMenuView
-            
-            # Créer la vue de trading
-            trade_view = TradeMenuView(self.cog, self.user)
-            
+            from .trade_views import ExchangeBoardView
+
+            board_view = ExchangeBoardView(self.cog, self.user)
+
             embed = discord.Embed(
-                title="🔄 Menu des échanges",
-                description="Choisissez une action d'échange :",
+                title="🔄 Tableau d'échanges",
+                description="Déposez une carte ou échangez-en une avec un autre joueur.",
                 color=0x3498db
             )
-            
-            await interaction.followup.send(embed=embed, view=trade_view, ephemeral=True)
-            
+
+            await interaction.followup.send(embed=embed, view=board_view, ephemeral=True)
+
         except Exception as e:
             logging.error(f"[MENU] Erreur lors de l'affichage du menu d'échange: {e}")
             await interaction.followup.send(
