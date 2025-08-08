@@ -9,6 +9,7 @@ import os
 import json
 import logging
 import asyncio
+import time
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta
@@ -23,6 +24,9 @@ PARIS_TZ = pytz.timezone('Europe/Paris')
 # Regroupement des mises à jour
 UPDATE_BATCH_SIZE = 10  # Nombre de messages avant un rafraîchissement
 UPDATE_INTERVAL_MINUTES = 5  # Intervalle de rafraîchissement en minutes
+
+# Durée de rétention des entrées du cache anti-spam (24 heures)
+NOTIFICATION_RETENTION_SECONDS = 24 * 60 * 60
 
 class SceneSurveillanceView(discord.ui.View):
     """Vue avec boutons pour la surveillance de scène."""
@@ -130,6 +134,7 @@ class SurveillanceScene(commands.Cog):
         self.update_surveillance.start()
         self.check_inactive_scenes.start()
         self.process_pending_updates.start()
+        self.cleanup_notifications.start()
         
     def setup_google_sheets(self):
         """Configure la connexion Google Sheets."""
@@ -165,6 +170,7 @@ class SurveillanceScene(commands.Cog):
         self.update_surveillance.cancel()
         self.check_inactive_scenes.cancel()
         self.process_pending_updates.cancel()
+        self.cleanup_notifications.cancel()
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -1795,34 +1801,52 @@ class SurveillanceScene(commands.Cog):
     async def before_process_pending_updates(self):
         await self.bot.wait_until_ready()
 
+    def cleanup_old_notifications(self, current_time: Optional[float] = None) -> None:
+        """Supprime les entrées périmées du cache anti-spam."""
+        if current_time is None:
+            current_time = time.time()
+        for channel_id in list(self.last_notifications.keys()):
+            cache = self.last_notifications[channel_id]
+            self.last_notifications[channel_id] = {
+                uid: ts for uid, ts in cache.items()
+                if current_time - ts <= NOTIFICATION_RETENTION_SECONDS
+            }
+            if not self.last_notifications[channel_id]:
+                del self.last_notifications[channel_id]
+
+    @tasks.loop(hours=1)
+    async def cleanup_notifications(self):
+        """Nettoie périodiquement le cache anti-spam."""
+        self.cleanup_old_notifications()
+
+    @cleanup_notifications.before_loop
+    async def before_cleanup_notifications(self):
+        await self.bot.wait_until_ready()
+
     def should_notify_gm(self, channel_id: str, user_id: int) -> bool:
         """Détermine si le MJ doit être notifié en fonction de l'anti-spam."""
-        import time
-
         current_time = time.time()
 
+        # Nettoyer les notifications expirées
+        self.cleanup_old_notifications(current_time)
+
         # Initialiser le cache pour ce canal si nécessaire
-        if channel_id not in self.last_notifications:
-            self.last_notifications[channel_id] = {}
+        channel_cache = self.last_notifications.setdefault(channel_id, {})
 
         # Vérifier la dernière notification pour cet utilisateur
-        last_notification = self.last_notifications[channel_id].get(user_id, 0)
+        last_notification = channel_cache.get(user_id, 0)
 
-        # Si c'est un utilisateur différent du dernier, notifier immédiatement
-        last_user_notified = None
-        for uid, timestamp in self.last_notifications[channel_id].items():
-            if timestamp == max(self.last_notifications[channel_id].values()):
-                last_user_notified = uid
-                break
+        # Déterminer le dernier utilisateur notifié
+        last_user_notified = max(channel_cache, key=channel_cache.get, default=None)
 
         if last_user_notified != user_id:
             # Utilisateur différent, notifier immédiatement
-            self.last_notifications[channel_id][user_id] = current_time
+            channel_cache[user_id] = current_time
             return True
 
         # Même utilisateur, vérifier l'intervalle de 10 minutes (600 secondes)
         if current_time - last_notification >= 600:
-            self.last_notifications[channel_id][user_id] = current_time
+            channel_cache[user_id] = current_time
             return True
 
         return False
