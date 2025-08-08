@@ -155,7 +155,10 @@ def test_board_view_pagination(monkeypatch):
         def list_board_offers(self):
             return offers
 
-    dummy_cog = SimpleNamespace(trading_manager=DummyTM())
+    dummy_cog = SimpleNamespace(
+        trading_manager=DummyTM(),
+        bot=SimpleNamespace(get_user=lambda uid: None),
+    )
     user = discord.Object(id=1)
 
     loop = asyncio.new_event_loop()
@@ -170,3 +173,44 @@ def test_board_view_pagination(monkeypatch):
 
     assert len(view.pages) == 2
     assert len(view.offer_select.options) == 25
+
+
+def test_board_view_shows_member_name(monkeypatch):
+    import asyncio
+    import discord
+    from types import SimpleNamespace
+    from cogs.cards.views.trade_views import ExchangeBoardView
+
+    offers = [
+        {"id": 1, "owner": 42, "cat": "Cat", "name": "Card.png"}
+    ]
+
+    class DummyTM:
+        def list_board_offers(self):
+            return offers
+
+    class DummyMember:
+        display_name = "Tester"
+
+    class DummyGuild:
+        def get_member(self, uid):
+            return DummyMember() if uid == 42 else None
+
+    dummy_cog = SimpleNamespace(
+        trading_manager=DummyTM(),
+        bot=SimpleNamespace(get_user=lambda uid: None),
+    )
+    user = discord.Object(id=1)
+    guild = DummyGuild()
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        async def create():
+            return ExchangeBoardView(dummy_cog, user, guild)
+        view = loop.run_until_complete(create())
+    finally:
+        loop.close()
+        asyncio.set_event_loop(None)
+
+    assert "Tester" in view.offer_select.options[0].description

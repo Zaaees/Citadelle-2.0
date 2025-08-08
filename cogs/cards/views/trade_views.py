@@ -555,8 +555,13 @@ class ExchangeBoardView(discord.ui.View):
         for i in range(0, len(offers), 25):
             page: List[discord.SelectOption] = []
             for o in offers[i:i + 25]:
-                member = self.guild.get_member(o["owner"]) if self.guild else None
-                owner_name = member.display_name if member else str(o["owner"])
+                owner_id = int(o["owner"])
+                member = self.guild.get_member(owner_id) if self.guild else None
+                if member:
+                    owner_name = member.display_name
+                else:
+                    user_obj = self.cog.bot.get_user(owner_id) if hasattr(self.cog, "bot") else None
+                    owner_name = user_obj.display_name if user_obj else str(owner_id)
                 page.append(
                     discord.SelectOption(
                         label=f"{o['name'].removesuffix('.png')} ({o['cat']})",
@@ -609,6 +614,7 @@ class ExchangeBoardView(discord.ui.View):
         from .modal_views import BoardDepositModal
         modal = BoardDepositModal(self.cog, self.user)
         await interaction.response.send_modal(modal)
+
     @discord.ui.button(label="Retirer une carte", style=discord.ButtonStyle.danger, row=1)
     async def withdraw_card(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user.id:
@@ -715,6 +721,7 @@ class BoardTradeRequestView(discord.ui.View):
 
     async def on_timeout(self) -> None:
         await self.notify_buyer("⌛ L'offre a expiré sans réponse.")
+
 
 
 
