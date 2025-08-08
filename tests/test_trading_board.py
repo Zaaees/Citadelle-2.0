@@ -128,3 +128,45 @@ def test_concurrent_take(trading_manager):
 
     assert sum(1 for r in results if r) == 1
     assert storage.get_exchange_entries() == []
+
+
+def test_withdraw_from_board(trading_manager):
+    tm, inv, storage = trading_manager
+    inv[1] = {("Cat", "Card"): 1}
+    tm.deposit_to_board(1, "Cat", "Card")
+    assert not tm._user_has_card(1, "Cat", "Card")
+    assert tm.withdraw_from_board(1, 1)
+    assert tm._user_has_card(1, "Cat", "Card")
+    assert storage.get_exchange_entries() == []
+
+
+def test_board_view_pagination(monkeypatch):
+    import asyncio
+    import discord
+    from types import SimpleNamespace
+    from cogs.cards.views.trade_views import ExchangeBoardView
+
+    offers = [
+        {"id": i + 1, "owner": 1, "cat": "Cat", "name": f"Card{i}.png"}
+        for i in range(30)
+    ]
+
+    class DummyTM:
+        def list_board_offers(self):
+            return offers
+
+    dummy_cog = SimpleNamespace(trading_manager=DummyTM())
+    user = discord.Object(id=1)
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        async def create():
+            return ExchangeBoardView(dummy_cog, user, guild=None)
+        view = loop.run_until_complete(create())
+    finally:
+        loop.close()
+        asyncio.set_event_loop(None)
+
+    assert len(view.pages) == 2
+    assert len(view.offer_select.options) == 25

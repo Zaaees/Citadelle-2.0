@@ -1853,7 +1853,7 @@ class Cards(commands.Cog):
     @commands.group(name="board", invoke_without_command=True)
     async def board_group(self, ctx: commands.Context):
         """Commandes du tableau d'échanges."""
-        await ctx.send("Utilisation: !board list|deposit|take")
+        await ctx.send("Utilisation: !board list|deposit|take|withdraw")
 
     @board_group.command(name="list")
     async def board_list(self, ctx: commands.Context):
@@ -1880,6 +1880,13 @@ class Cards(commands.Cog):
             await ctx.send("Échange réalisé avec succès.")
         else:
             await ctx.send("Échange impossible.")
+
+    @board_group.command(name="withdraw")
+    async def board_withdraw(self, ctx: commands.Context, board_id: int):
+        if self.trading_manager.withdraw_from_board(ctx.author.id, board_id):
+            await ctx.send("Offre retirée du tableau.")
+        else:
+            await ctx.send("Impossible de retirer cette offre.")
 
     @commands.command(name="give_bonus")
     @commands.has_permissions(administrator=True)

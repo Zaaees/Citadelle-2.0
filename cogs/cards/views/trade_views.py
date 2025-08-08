@@ -551,21 +551,28 @@ class ExchangeBoardView(discord.ui.View):
         self.guild = guild
 
         offers = self.cog.trading_manager.list_board_offers()
-        options = []
-        for o in offers:
-            member = self.guild.get_member(o["owner"]) if self.guild else None
-            owner_name = member.display_name if member else str(o["owner"])
-            options.append(
-                discord.SelectOption(
-                    label=f"{o['name'].removesuffix('.png')} ({o['cat']})",
-                    description=f"ID {o['id']} - Proposé par {owner_name}",
-                    value=str(o['id'])
+        self.pages: List[List[discord.SelectOption]] = []
+        for i in range(0, len(offers), 25):
+            page: List[discord.SelectOption] = []
+            for o in offers[i:i + 25]:
+                member = self.guild.get_member(o["owner"]) if self.guild else None
+                owner_name = member.display_name if member else str(o["owner"])
+                page.append(
+                    discord.SelectOption(
+                        label=f"{o['name'].removesuffix('.png')} ({o['cat']})",
+                        description=f"ID {o['id']} - Proposé par {owner_name}",
+                        value=str(o['id'])
+                    )
                 )
-            )
+            self.pages.append(page)
 
+        if not self.pages:
+            self.pages = [[discord.SelectOption(label="Aucune offre", value="0")]]
+
+        self.current_page = 0
         self.offer_select = discord.ui.Select(
-            placeholder="Offres disponibles",
-            options=options if options else [discord.SelectOption(label="Aucune offre", value="0")],
+            placeholder=f"Offres disponibles (1/{len(self.pages)})" if self.pages else "Offres disponibles",
+            options=self.pages[self.current_page],
         )
 
         async def offer_callback(interaction: discord.Interaction):
@@ -584,6 +591,15 @@ class ExchangeBoardView(discord.ui.View):
         self.offer_select.callback = offer_callback
         self.add_item(self.offer_select)
 
+        if len(self.pages) > 1:
+            self.prev_button = discord.ui.Button(label="◀️", style=discord.ButtonStyle.secondary, row=2)
+            self.next_button = discord.ui.Button(label="▶️", style=discord.ButtonStyle.secondary, row=2)
+            self.prev_button.callback = self._prev_page
+            self.next_button.callback = self._next_page
+            self.prev_button.disabled = True
+            self.add_item(self.prev_button)
+            self.add_item(self.next_button)
+
     @discord.ui.button(label="Déposer une carte", style=discord.ButtonStyle.primary, row=1)
     async def deposit_card(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user.id:
@@ -593,7 +609,70 @@ class ExchangeBoardView(discord.ui.View):
         from .modal_views import BoardDepositModal
         modal = BoardDepositModal(self.cog, self.user)
         await interaction.response.send_modal(modal)
+    @discord.ui.button(label="Retirer une carte", style=discord.ButtonStyle.danger, row=1)
+    async def withdraw_card(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
+            return
 
+        offers = [o for o in self.cog.trading_manager.list_board_offers() if int(o["owner"]) == self.user.id]
+        if not offers:
+            await interaction.response.send_message("Vous n'avez aucune carte sur le tableau.", ephemeral=True)
+            return
+
+        options = [
+            discord.SelectOption(
+                label=f"{o['name'].removesuffix('.png')} ({o['cat']})",
+                description=f"ID {o['id']}",
+                value=str(o['id'])
+            )
+            for o in offers[:25]
+        ]
+
+        select = discord.ui.Select(placeholder="Sélectionnez l'offre à retirer", options=options)
+        view = discord.ui.View()
+        view.add_item(select)
+
+        async def cb(inter: discord.Interaction):
+            if inter.user.id != self.user.id:
+                await inter.response.send_message("Vous ne pouvez pas utiliser ce menu.", ephemeral=True)
+                return
+            board_id = int(select.values[0])
+            success = self.cog.trading_manager.withdraw_from_board(self.user.id, board_id)
+            if success:
+                await inter.response.send_message("Carte retirée du tableau.", ephemeral=True)
+            else:
+                await inter.response.send_message("Impossible de retirer la carte.", ephemeral=True)
+            view.stop()
+
+        select.callback = cb
+        await interaction.response.send_message("Choisissez la carte à retirer :", view=view, ephemeral=True)
+
+    async def _prev_page(self, interaction: discord.Interaction):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
+            return
+        if self.current_page > 0:
+            self.current_page -= 1
+        self.offer_select.options = self.pages[self.current_page]
+        self.offer_select.placeholder = f"Offres disponibles ({self.current_page + 1}/{len(self.pages)})"
+        if hasattr(self, 'prev_button'):
+            self.prev_button.disabled = self.current_page == 0
+            self.next_button.disabled = self.current_page == len(self.pages) - 1
+        await interaction.response.edit_message(view=self)
+
+    async def _next_page(self, interaction: discord.Interaction):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
+            return
+        if self.current_page < len(self.pages) - 1:
+            self.current_page += 1
+        self.offer_select.options = self.pages[self.current_page]
+        self.offer_select.placeholder = f"Offres disponibles ({self.current_page + 1}/{len(self.pages)})"
+        if hasattr(self, 'prev_button'):
+            self.prev_button.disabled = self.current_page == 0
+            self.next_button.disabled = self.current_page == len(self.pages) - 1
+        await interaction.response.edit_message(view=self)
 
 class BoardTradeRequestView(discord.ui.View):
     """Vue envoyée au propriétaire pour confirmer ou refuser l'échange."""

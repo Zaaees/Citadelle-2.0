@@ -167,6 +167,42 @@ class TradingManager:
             logging.error(f"[BOARD] Erreur lors de l'échange: {e}")
             return False
 
+    def withdraw_from_board(self, user_id: int, board_id: int) -> bool:
+        """Retire une offre du tableau et rend la carte au propriétaire."""
+        try:
+            with self.storage._cards_lock, self.storage._board_lock:
+                entry = self.storage.get_exchange_entry(board_id)
+                if not entry or int(entry["owner"]) != user_id:
+                    return False
+
+                cat = entry["cat"]
+                name = entry["name"]
+                timestamp = entry["timestamp"]
+
+                if not self.storage.delete_exchange_entry(board_id):
+                    return False
+
+                if not self._add_card_to_user(user_id, cat, name):
+                    # Rollback si impossible de rendre la carte
+                    self.storage.create_exchange_entry(user_id, cat, name, timestamp)
+                    return False
+
+            if self.storage.logging_manager:
+                self.storage.logging_manager.log_card_add(
+                    user_id=user_id,
+                    user_name=f"User_{user_id}",
+                    category=cat,
+                    name=name,
+                    details="Retrait du tableau d'échanges",
+                    source="board_withdraw",
+                )
+
+            return True
+
+        except Exception as e:
+            logging.error(f"[BOARD] Erreur lors du retrait: {e}")
+            return False
+
     def cleanup_board(self, max_age_hours: int = 24) -> None:
         """Retire les offres expirées et restitue les cartes."""
         try:
