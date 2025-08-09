@@ -28,6 +28,9 @@ UPDATE_INTERVAL_MINUTES = 5  # Intervalle de rafraîchissement en minutes
 # Durée de rétention des entrées du cache anti-spam (24 heures)
 NOTIFICATION_RETENTION_SECONDS = 24 * 60 * 60
 
+# Intervalle minimal entre deux notifications dans un même salon (minutes)
+CHANNEL_NOTIFICATION_INTERVAL_MINUTES = 5
+
 class SceneSurveillanceView(discord.ui.View):
     """Vue avec boutons pour la surveillance de scène."""
     
@@ -122,6 +125,9 @@ class SurveillanceScene(commands.Cog):
 
         # Cache pour éviter le spam de notifications (channel_id -> {user_id: timestamp})
         self.last_notifications: Dict[str, Dict[str, float]] = {}
+
+        # Dernière notification envoyée par salon (channel_id -> timestamp)
+        self.last_channel_notifications: Dict[str, float] = {}
 
         # Cache pour tracker les scènes inactives notifiées (pour éviter spam et détecter retour d'activité)
         self.notified_inactive_scenes: set = set()
@@ -1814,6 +1820,10 @@ class SurveillanceScene(commands.Cog):
             if not self.last_notifications[channel_id]:
                 del self.last_notifications[channel_id]
 
+        for channel_id in list(self.last_channel_notifications.keys()):
+            if current_time - self.last_channel_notifications[channel_id] > NOTIFICATION_RETENTION_SECONDS:
+                del self.last_channel_notifications[channel_id]
+
     @tasks.loop(hours=1)
     async def cleanup_notifications(self):
         """Nettoie périodiquement le cache anti-spam."""
@@ -1832,21 +1842,30 @@ class SurveillanceScene(commands.Cog):
 
         # Initialiser le cache pour ce canal si nécessaire
         channel_cache = self.last_notifications.setdefault(channel_id, {})
-
         # Vérifier la dernière notification pour cet utilisateur
         last_notification = channel_cache.get(user_id, 0)
 
         # Déterminer le dernier utilisateur notifié
         last_user_notified = max(channel_cache, key=channel_cache.get, default=None)
 
+        # Vérifier l'intervalle global par salon
+        last_channel_notif = self.last_channel_notifications.get(channel_id, 0)
+        if (
+            current_time - last_channel_notif
+            < CHANNEL_NOTIFICATION_INTERVAL_MINUTES * 60
+        ):
+            return False
+
         if last_user_notified != user_id:
             # Utilisateur différent, notifier immédiatement
             channel_cache[user_id] = current_time
+            self.last_channel_notifications[channel_id] = current_time
             return True
 
         # Même utilisateur, vérifier l'intervalle de 10 minutes (600 secondes)
         if current_time - last_notification >= 600:
             channel_cache[user_id] = current_time
+            self.last_channel_notifications[channel_id] = current_time
             return True
 
         return False
@@ -1860,6 +1879,14 @@ class SurveillanceScene(commands.Cog):
         channel_id = str(message.channel.id)
         if channel_id not in self.monitored_scenes:
             return
+
+        # Vérifier que le message n'a pas été remplacé par un webhook (ex: Tupperbox)
+        if message.webhook_id is None:
+            await asyncio.sleep(1)
+            try:
+                await message.channel.fetch_message(message.id)
+            except discord.NotFound:
+                return
 
         try:
             scene_data = self.monitored_scenes[channel_id]
