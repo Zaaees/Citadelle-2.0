@@ -708,6 +708,10 @@ class BoardTradeRequestView(discord.ui.View):
         if success:
             await interaction.followup.send("✅ Échange réalisé avec succès.", ephemeral=True)
             await self.notify_buyer("✅ Votre offre a été acceptée !")
+            try:
+                await self.cog.process_all_pending_upgrade_checks(interaction, 1361993326215172218)
+            except Exception as e:
+                logging.error(f"[BOARD_TRADE] Erreur lors de la vérification des conversions: {e}")
         else:
             await interaction.followup.send("❌ Échange impossible.", ephemeral=True)
             await self.notify_buyer("❌ Votre offre a échoué.")

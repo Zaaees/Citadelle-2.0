@@ -1878,6 +1878,16 @@ class Cards(commands.Cog):
     async def board_take(self, ctx: commands.Context, board_id: int, cat: str, *, name: str):
         if self.trading_manager.take_from_board(ctx.author.id, board_id, cat, name):
             await ctx.send("Échange réalisé avec succès.")
+            class FakeInteraction:
+                def __init__(self, ctx):
+                    self.channel = ctx.channel
+                    self.guild = ctx.guild
+                    self.user = ctx.author
+                    self.channel_id = ctx.channel.id
+            try:
+                await self.process_all_pending_upgrade_checks(FakeInteraction(ctx), 1361993326215172218)
+            except Exception as e:
+                logger.error(f"[BOARD] Erreur lors de la vérification des conversions après échange: {e}")
         else:
             await ctx.send("Échange impossible.")
 
