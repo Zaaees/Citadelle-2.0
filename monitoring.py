@@ -64,7 +64,8 @@ def check_bot_health(bot):
                     logger.critical(
                         "❌ on_ready n'a jamais été appelé après plusieurs vérifications. Redémarrage du bot..."
                     )
-                    os._exit(1)
+                    bot.loop.call_soon_threadsafe(bot.close)
+                    raise RuntimeError("on_ready n'a jamais été appelé")
                 continue
 
             # 2. Vérifier la latence
@@ -75,7 +76,8 @@ def check_bot_health(bot):
                 )
                 if consecutive_failures >= max_consecutive_failures:
                     logger.critical("❌ Latence critique détectée. Redémarrage du bot...")
-                    os._exit(1)
+                    bot.loop.call_soon_threadsafe(bot.close)
+                    raise RuntimeError("Latence critique détectée")
                 continue
 
             # 3. Vérifier si le bot est connecté
@@ -88,7 +90,8 @@ def check_bot_health(bot):
                     logger.critical(
                         "❌ Bot non prêt après plusieurs vérifications. Redémarrage..."
                     )
-                    os._exit(1)
+                    bot.loop.call_soon_threadsafe(bot.close)
+                    raise RuntimeError("Bot non prêt")
                 continue
 
             # 4. Vérifier les tâches des cogs toutes les 15 minutes
@@ -124,7 +127,8 @@ def check_bot_health(bot):
                 logger.critical(
                     "❌ Trop d'erreurs lors des vérifications de santé. Redémarrage..."
                 )
-                os._exit(1)
+                bot.loop.call_soon_threadsafe(bot.close)
+                raise RuntimeError("Trop d'erreurs lors des vérifications de santé")
 
 
 def self_ping():
