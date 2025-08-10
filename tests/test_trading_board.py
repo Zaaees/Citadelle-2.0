@@ -120,6 +120,20 @@ def test_take_from_board_multiple_cards(trading_manager):
     assert storage.get_exchange_entries() == []
 
 
+def test_take_from_board_cross_category_multiple_cards(trading_manager):
+    tm, inv, storage = trading_manager
+    inv[1] = {("Cat", "Card"): 1}
+    tm.deposit_to_board(1, "Cat", "Card")
+    inv[2] = {("Dog", "Offer1"): 1, ("Bird", "Offer2"): 1}
+    info = tm.initiate_board_trade(2, 1, [("Dog", "Offer1"), ("Bird", "Offer2")])
+    assert info is not None
+    assert tm.take_from_board(2, 1, [("Dog", "Offer1"), ("Bird", "Offer2")])
+    assert tm._user_has_card(2, "Cat", "Card")
+    assert tm._user_has_card(1, "Dog", "Offer1")
+    assert tm._user_has_card(1, "Bird", "Offer2")
+    assert storage.get_exchange_entries() == []
+
+
 def test_concurrent_take(trading_manager):
     tm, inv, storage = trading_manager
     inv[1] = {("Cat", "Card"): 1}

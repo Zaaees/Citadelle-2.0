@@ -87,9 +87,6 @@ class TradingManager:
             for cat, name in offered_cards:
                 if not validate_card_data(cat, name, user_id):
                     return None
-                if cat != board_cat:
-                    logging.error(f"[BOARD] Catégorie proposée {cat} différente de {board_cat}")
-                    return None
                 if not self._user_has_card(user_id, cat, name):
                     logging.error(f"[BOARD] Utilisateur {user_id} ne possède pas la carte proposée {name}")
                     return None
@@ -115,9 +112,6 @@ class TradingManager:
 
                 for cat, name in offered_cards:
                     if not validate_card_data(cat, name, user_id):
-                        return False
-                    if cat != board_cat:
-                        logging.error(f"[BOARD] Catégorie proposée {cat} différente de {board_cat}")
                         return False
                     if not self._user_has_card(user_id, cat, name):
                         logging.error(f"[BOARD] Utilisateur {user_id} ne possède pas la carte proposée {name}")
