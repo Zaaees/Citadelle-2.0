@@ -140,11 +140,11 @@ def main():
         member_cache_flags=discord.MemberCacheFlags.from_intents(intents)  # Cache adapté aux intents
     )
     bot.start_http_server_thread()
-    bot.start_health_check_thread()
     bot.start_self_ping_thread()
 
     async def on_ready():
         bot.ready_called = True
+        bot.start_health_check_thread()
         logger.info(f'🤖 Connecté en tant que {bot.user.name}')
         logger.info(f'🆔 ID du bot : {bot.user.id}')
         logger.info(f'🏓 Latence actuelle : {bot.latency:.2f}s')
