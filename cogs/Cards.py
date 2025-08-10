@@ -1861,10 +1861,26 @@ class Cards(commands.Cog):
         if not offers:
             await ctx.send("Le tableau est vide.")
             return
-        lines = [
-            f"{o['id']}: {o['name'].removesuffix('.png')} ({o['cat']}) - {o['owner']}"
-            for o in offers
-        ]
+
+        lines = []
+        for o in offers:
+            owner_id = int(o["owner"])
+            member = ctx.guild.get_member(owner_id) if ctx.guild else None
+            if member:
+                owner_name = member.display_name
+            else:
+                user_obj = self.bot.get_user(owner_id)
+                if not user_obj:
+                    try:
+                        user_obj = await self.bot.fetch_user(owner_id)
+                    except Exception:
+                        user_obj = None
+                owner_name = user_obj.display_name if user_obj else str(owner_id)
+
+            lines.append(
+                f"{o['id']}: {o['name'].removesuffix('.png')} ({o['cat']}) - {owner_name}"
+            )
+
         await ctx.send("\n".join(lines))
 
     @board_group.command(name="deposit")
