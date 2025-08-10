@@ -117,9 +117,19 @@ class TradingManager:
                         logging.error(f"[BOARD] Utilisateur {user_id} ne possède pas la carte proposée {name}")
                         return False
 
+                timestamp = entry["timestamp"]
+
+                if not self.storage.delete_exchange_entry(board_id):
+                    return False
+
                 removed = []
                 added_owner = []
+                board_added = False
                 try:
+                    if not self._add_card_to_user(user_id, board_cat, board_name):
+                        raise RuntimeError("add board")
+                    board_added = True
+
                     for cat, name in offered_cards:
                         if not self._remove_card_from_user(user_id, cat, name):
                             raise RuntimeError("remove buyer")
@@ -130,19 +140,14 @@ class TradingManager:
                             raise RuntimeError("add owner")
                         added_owner.append((cat, name))
 
-                    if not self._add_card_to_user(user_id, board_cat, board_name):
-                        raise RuntimeError("add board")
-
-                    if not self.storage.delete_exchange_entry(board_id):
-                        raise RuntimeError("delete entry")
-
                 except Exception:
-                    if self._user_has_card(user_id, board_cat, board_name):
+                    if board_added:
                         self._remove_card_from_user(user_id, board_cat, board_name)
                     for cat, name in added_owner:
                         self._remove_card_from_user(owner_id, cat, name)
                     for cat, name in removed:
                         self._add_card_to_user(user_id, cat, name)
+                    self.storage.create_exchange_entry(owner_id, board_cat, board_name, timestamp)
                     return False
 
             if self.storage.logging_manager:

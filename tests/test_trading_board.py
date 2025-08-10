@@ -106,6 +106,21 @@ def test_take_from_board(trading_manager):
     assert storage.get_exchange_entries() == []
 
 
+def test_take_from_board_owner_duplicate(trading_manager):
+    tm, inv, storage = trading_manager
+    inv[1] = {("Cat", "Card"): 2}
+    tm.deposit_to_board(1, "Cat", "Card")
+    # Le propriétaire possède toujours un doublon après le dépôt
+    assert tm._user_has_card(1, "Cat", "Card")
+    inv[2] = {("Cat", "Offer"): 1}
+    assert tm.take_from_board(2, 1, [("Cat", "Offer")])
+    assert tm._user_has_card(2, "Cat", "Card")
+    # L'autre exemplaire du propriétaire est intact
+    assert tm._user_has_card(1, "Cat", "Card")
+    assert tm._user_has_card(1, "Cat", "Offer")
+    assert storage.get_exchange_entries() == []
+
+
 def test_take_from_board_multiple_cards(trading_manager):
     tm, inv, storage = trading_manager
     inv[1] = {("Cat", "Card"): 1}
