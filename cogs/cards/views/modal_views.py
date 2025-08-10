@@ -336,6 +336,13 @@ class BoardDepositModal(discord.ui.Modal, title="Déposer sur le tableau"):
         max_length=100,
     )
 
+    comment = discord.ui.TextInput(
+        label="Commentaire (optionnel)",
+        placeholder="Ajoutez un commentaire",
+        required=False,
+        max_length=200,
+    )
+
     def __init__(self, cog: "Cards", user: discord.User):
         super().__init__()
         self.cog = cog
@@ -355,7 +362,10 @@ class BoardDepositModal(discord.ui.Modal, title="Déposer sur le tableau"):
                 return
 
             category, name = card_match
-            success = self.cog.trading_manager.deposit_to_board(self.user.id, category, name)
+            comment = self.comment.value.strip() if self.comment.value else None
+            success = self.cog.trading_manager.deposit_to_board(
+                self.user.id, category, name, comment=comment
+            )
 
             if success:
                 display_name = name.removesuffix('.png')
