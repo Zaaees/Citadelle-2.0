@@ -544,35 +544,14 @@ class InitiatorFinalConfirmationView(discord.ui.View):
 class ExchangeBoardView(discord.ui.View):
     """Vue pour afficher et interagir avec le tableau d'échanges."""
 
-    def __init__(self, cog: "Cards", user: discord.User, guild: Optional[discord.Guild]):
+    def __init__(self, cog: "Cards", user: discord.User, guild: Optional[discord.Guild],
+                 pages: List[List[discord.SelectOption]]):
         super().__init__(timeout=120)
         self.cog = cog
         self.user = user
         self.guild = guild
 
-        offers = self.cog.trading_manager.list_board_offers()
-        self.pages: List[List[discord.SelectOption]] = []
-        for i in range(0, len(offers), 25):
-            page: List[discord.SelectOption] = []
-            for o in offers[i:i + 25]:
-                owner_id = int(o["owner"])
-                member = self.guild.get_member(owner_id) if self.guild else None
-                if member:
-                    owner_name = member.display_name
-                else:
-                    user_obj = self.cog.bot.get_user(owner_id) if hasattr(self.cog, "bot") else None
-                    owner_name = user_obj.display_name if user_obj else str(owner_id)
-                page.append(
-                    discord.SelectOption(
-                        label=f"{o['name'].removesuffix('.png')} ({o['cat']})",
-                        description=f"ID {o['id']} - Proposé par {owner_name}",
-                        value=str(o['id'])
-                    )
-                )
-            self.pages.append(page)
-
-        if not self.pages:
-            self.pages = [[discord.SelectOption(label="Aucune offre", value="0")]]
+        self.pages = pages or [[discord.SelectOption(label="Aucune offre", value="0")]]
 
         self.current_page = 0
         self.offer_select = discord.ui.Select(
@@ -604,6 +583,36 @@ class ExchangeBoardView(discord.ui.View):
             self.prev_button.disabled = True
             self.add_item(self.prev_button)
             self.add_item(self.next_button)
+
+    @classmethod
+    async def create(cls, cog: "Cards", user: discord.User, guild: Optional[discord.Guild]):
+        offers = cog.trading_manager.list_board_offers()
+        pages: List[List[discord.SelectOption]] = []
+        for i in range(0, len(offers), 25):
+            page: List[discord.SelectOption] = []
+            for o in offers[i:i + 25]:
+                owner_id = int(o["owner"])
+                member = guild.get_member(owner_id) if guild else None
+                if member:
+                    owner_name = member.display_name
+                else:
+                    user_obj = cog.bot.get_user(owner_id) if hasattr(cog, "bot") else None
+                    if not user_obj and hasattr(cog.bot, "fetch_user"):
+                        try:
+                            user_obj = await cog.bot.fetch_user(owner_id)
+                        except Exception:
+                            user_obj = None
+                    owner_name = user_obj.display_name if user_obj else str(owner_id)
+                page.append(
+                    discord.SelectOption(
+                        label=f"{o['name'].removesuffix('.png')} ({o['cat']})",
+                        description=f"ID {o['id']} - Proposé par {owner_name}",
+                        value=str(o['id'])
+                    )
+                )
+            pages.append(page)
+
+        return cls(cog, user, guild, pages)
 
     @discord.ui.button(label="Déposer une carte", style=discord.ButtonStyle.primary, row=1)
     async def deposit_card(self, interaction: discord.Interaction, button: discord.ui.Button):
