@@ -65,16 +65,16 @@ class TradingManager:
             return False
 
     def initiate_board_trade(self, user_id: int, board_id: int,
-                             offered_cat: str, offered_name: str) -> Optional[Tuple[int, str, str]]:
+                             offered_cards: List[Tuple[str, str]]) -> Optional[Tuple[int, str, str]]:
         """Vérifie une proposition d'échange sans la réaliser.
 
-        Retourne les informations de l'offre si la proposition est valide,
-        sinon ``None``.
+        Args:
+            offered_cards: liste de cartes proposées par l'utilisateur.
+
+        Returns:
+            Informations de l'offre du tableau si la proposition est valide.
         """
         try:
-            if not validate_card_data(offered_cat, offered_name, user_id):
-                return None
-
             with self.storage._cards_lock, self.storage._board_lock:
                 entry = self.storage.get_exchange_entry(board_id)
                 if not entry:
@@ -84,13 +84,15 @@ class TradingManager:
                 board_cat = entry["cat"]
                 board_name = entry["name"]
 
-            if offered_cat != board_cat:
-                logging.error(f"[BOARD] Catégorie proposée {offered_cat} différente de {board_cat}")
-                return None
-
-            if not self._user_has_card(user_id, offered_cat, offered_name):
-                logging.error(f"[BOARD] Utilisateur {user_id} ne possède pas la carte proposée")
-                return None
+            for cat, name in offered_cards:
+                if not validate_card_data(cat, name, user_id):
+                    return None
+                if cat != board_cat:
+                    logging.error(f"[BOARD] Catégorie proposée {cat} différente de {board_cat}")
+                    return None
+                if not self._user_has_card(user_id, cat, name):
+                    logging.error(f"[BOARD] Utilisateur {user_id} ne possède pas la carte proposée {name}")
+                    return None
 
             return owner_id, board_cat, board_name
 
@@ -99,12 +101,9 @@ class TradingManager:
             return None
 
     def take_from_board(self, user_id: int, board_id: int,
-                        offered_cat: str, offered_name: str) -> bool:
+                        offered_cards: List[Tuple[str, str]]) -> bool:
         """Finalise un échange après confirmation du propriétaire."""
         try:
-            if not validate_card_data(offered_cat, offered_name, user_id):
-                return False
-
             with self.storage._cards_lock, self.storage._board_lock:
                 entry = self.storage.get_exchange_entry(board_id)
                 if not entry:
@@ -114,36 +113,42 @@ class TradingManager:
                 board_cat = entry["cat"]
                 board_name = entry["name"]
 
-                # Valider la carte proposée
-                if offered_cat != board_cat:
-                    logging.error(f"[BOARD] Catégorie proposée {offered_cat} différente de {board_cat}")
-                    return False
+                for cat, name in offered_cards:
+                    if not validate_card_data(cat, name, user_id):
+                        return False
+                    if cat != board_cat:
+                        logging.error(f"[BOARD] Catégorie proposée {cat} différente de {board_cat}")
+                        return False
+                    if not self._user_has_card(user_id, cat, name):
+                        logging.error(f"[BOARD] Utilisateur {user_id} ne possède pas la carte proposée {name}")
+                        return False
 
-                if not self._user_has_card(user_id, offered_cat, offered_name):
-                    logging.error(f"[BOARD] Utilisateur {user_id} ne possède pas la carte proposée")
-                    return False
+                removed = []
+                added_owner = []
+                try:
+                    for cat, name in offered_cards:
+                        if not self._remove_card_from_user(user_id, cat, name):
+                            raise RuntimeError("remove buyer")
+                        removed.append((cat, name))
 
-                # Retirer la carte offerte du preneur
-                if not self._remove_card_from_user(user_id, offered_cat, offered_name):
-                    return False
+                    for cat, name in offered_cards:
+                        if not self._add_card_to_user(owner_id, cat, name):
+                            raise RuntimeError("add owner")
+                        added_owner.append((cat, name))
 
-                # Ajouter la carte offerte au propriétaire
-                if not self._add_card_to_user(owner_id, offered_cat, offered_name):
-                    self._add_card_to_user(user_id, offered_cat, offered_name)
-                    return False
+                    if not self._add_card_to_user(user_id, board_cat, board_name):
+                        raise RuntimeError("add board")
 
-                # Donner la carte du tableau au preneur
-                if not self._add_card_to_user(user_id, board_cat, board_name):
-                    self._remove_card_from_user(owner_id, offered_cat, offered_name)
-                    self._add_card_to_user(user_id, offered_cat, offered_name)
-                    return False
+                    if not self.storage.delete_exchange_entry(board_id):
+                        raise RuntimeError("delete entry")
 
-                # Supprimer l'entrée du tableau
-                if not self.storage.delete_exchange_entry(board_id):
-                    # Rollback complet
-                    self._remove_card_from_user(user_id, board_cat, board_name)
-                    self._remove_card_from_user(owner_id, offered_cat, offered_name)
-                    self._add_card_to_user(user_id, offered_cat, offered_name)
+                except Exception:
+                    if self._user_has_card(user_id, board_cat, board_name):
+                        self._remove_card_from_user(user_id, board_cat, board_name)
+                    for cat, name in added_owner:
+                        self._remove_card_from_user(owner_id, cat, name)
+                    for cat, name in removed:
+                        self._add_card_to_user(user_id, cat, name)
                     return False
 
             if self.storage.logging_manager:
@@ -152,9 +157,9 @@ class TradingManager:
                     offerer_name=f"User_{user_id}",
                     target_id=owner_id,
                     target_name=f"User_{owner_id}",
-                    offer_card=(offered_cat, offered_name),
-                    return_card=(board_cat, board_name),
-                    source="board_exchange"
+                    offer_cards=offered_cards,
+                    return_cards=[(board_cat, board_name)],
+                    source="board_exchange",
                 )
 
             if hasattr(self.storage, '_cog_ref'):
@@ -237,91 +242,78 @@ class TradingManager:
         except Exception as e:
             logging.error(f"[BOARD] Erreur lors du nettoyage du tableau: {e}")
     
-    def safe_exchange(self, offerer_id: int, target_id: int, 
-                     offer_cat: str, offer_name: str, 
-                     return_cat: str, return_name: str) -> bool:
-        """
-        Effectue un échange sécurisé entre deux utilisateurs.
-        
-        Args:
-            offerer_id: ID de l'utilisateur qui propose
-            target_id: ID de l'utilisateur cible
-            offer_cat: Catégorie de la carte proposée
-            offer_name: Nom de la carte proposée
-            return_cat: Catégorie de la carte demandée
-            return_name: Nom de la carte demandée
-        
-        Returns:
-            bool: True si l'échange a réussi
-        """
+    def safe_exchange(self, offerer_id: int, target_id: int,
+                     offer_cards: List[Tuple[str, str]],
+                     return_cards: List[Tuple[str, str]]) -> bool:
+        """Effectue un échange sécurisé entre deux utilisateurs."""
         try:
-            # Validation des paramètres
-            if not all([validate_card_data(offer_cat, offer_name, offerer_id),
-                       validate_card_data(return_cat, return_name, target_id)]):
-                return False
-            
-            # Vérifier que les deux utilisateurs possèdent leurs cartes respectives
-            if not self._user_has_card(offerer_id, offer_cat, offer_name):
-                logging.error(f"[TRADING] L'utilisateur {offerer_id} ne possède pas la carte ({offer_cat}, {offer_name})")
-                return False
-            
-            if not self._user_has_card(target_id, return_cat, return_name):
-                logging.error(f"[TRADING] L'utilisateur {target_id} ne possède pas la carte ({return_cat}, {return_name})")
-                return False
-            
-            # Effectuer l'échange atomique
-            with self.storage._cards_lock:
-                # Retirer les cartes des inventaires respectifs
-                if not self._remove_card_from_user(offerer_id, offer_cat, offer_name):
+            for cat, name in offer_cards:
+                if not validate_card_data(cat, name, offerer_id) or not self._user_has_card(offerer_id, cat, name):
+                    logging.error(f"[TRADING] L'utilisateur {offerer_id} ne possède pas la carte ({cat}, {name})")
                     return False
-                
-                if not self._remove_card_from_user(target_id, return_cat, return_name):
-                    # Rollback: remettre la carte du proposeur
-                    self._add_card_to_user(offerer_id, offer_cat, offer_name)
+            for cat, name in return_cards:
+                if not validate_card_data(cat, name, target_id) or not self._user_has_card(target_id, cat, name):
+                    logging.error(f"[TRADING] L'utilisateur {target_id} ne possède pas la carte ({cat}, {name})")
                     return False
-                
-                # Ajouter les cartes aux nouveaux propriétaires
-                if not self._add_card_to_user(target_id, offer_cat, offer_name):
-                    # Rollback complet
-                    self._add_card_to_user(offerer_id, offer_cat, offer_name)
-                    self._add_card_to_user(target_id, return_cat, return_name)
-                    return False
-                
-                if not self._add_card_to_user(offerer_id, return_cat, return_name):
-                    # Rollback complet
-                    self._remove_card_from_user(target_id, offer_cat, offer_name)
-                    self._add_card_to_user(offerer_id, offer_cat, offer_name)
-                    self._add_card_to_user(target_id, return_cat, return_name)
-                    return False
-            
-            logging.info(f"[TRADING] Échange réussi: {offerer_id} <-> {target_id}, cartes: ({offer_cat}, {offer_name}) <-> ({return_cat}, {return_name})")
 
-            # Logger l'échange direct
+            with self.storage._cards_lock:
+                removed_offer=[]
+                removed_return=[]
+                added_to_target=[]
+                added_to_offer=[]
+                try:
+                    for cat, name in offer_cards:
+                        if not self._remove_card_from_user(offerer_id, cat, name):
+                            raise RuntimeError("remove offer")
+                        removed_offer.append((cat, name))
+                    for cat, name in return_cards:
+                        if not self._remove_card_from_user(target_id, cat, name):
+                            raise RuntimeError("remove return")
+                        removed_return.append((cat, name))
+                    for cat, name in offer_cards:
+                        if not self._add_card_to_user(target_id, cat, name):
+                            raise RuntimeError("add target")
+                        added_to_target.append((cat, name))
+                    for cat, name in return_cards:
+                        if not self._add_card_to_user(offerer_id, cat, name):
+                            raise RuntimeError("add offer")
+                        added_to_offer.append((cat, name))
+                except Exception:
+                    for cat, name in added_to_offer:
+                        self._remove_card_from_user(offerer_id, cat, name)
+                    for cat, name in added_to_target:
+                        self._remove_card_from_user(target_id, cat, name)
+                    for cat, name in removed_return:
+                        self._add_card_to_user(target_id, cat, name)
+                    for cat, name in removed_offer:
+                        self._add_card_to_user(offerer_id, cat, name)
+                    return False
+
+            logging.info(f"[TRADING] Échange réussi: {offerer_id} <-> {target_id}")
+
             if self.storage.logging_manager:
-                # Récupérer les noms des utilisateurs (approximatif)
                 offerer_name = f"User_{offerer_id}"
                 target_name = f"User_{target_id}"
-
                 self.storage.logging_manager.log_trade_direct(
                     offerer_id=offerer_id,
                     offerer_name=offerer_name,
                     target_id=target_id,
                     target_name=target_name,
-                    offer_card=(offer_cat, offer_name),
-                    return_card=(return_cat, return_name),
-                    source="echange_direct"
+                    offer_cards=offer_cards,
+                    return_cards=return_cards,
+                    source="echange_direct",
                 )
 
-            # Marquer que les vérifications d'upgrade sont nécessaires via le cog principal
             if hasattr(self.storage, '_cog_ref'):
                 self.storage._cog_ref._mark_user_for_upgrade_check(offerer_id)
                 self.storage._cog_ref._mark_user_for_upgrade_check(target_id)
 
             return True
-            
+
         except Exception as e:
             logging.error(f"[TRADING] Erreur lors de l'échange: {e}")
             return False
+            
     
     def execute_full_vault_trade(self, user1_id: int, user2_id: int) -> bool:
         """

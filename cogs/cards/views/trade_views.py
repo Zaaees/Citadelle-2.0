@@ -684,13 +684,12 @@ class BoardTradeRequestView(discord.ui.View):
     """Vue envoyée au propriétaire pour confirmer ou refuser l'échange."""
 
     def __init__(self, cog: "Cards", buyer_id: int, board_id: int,
-                 offered_cat: str, offered_name: str):
+                 offered_cards: List[Tuple[str, str]]):
         super().__init__(timeout=24 * 60 * 60)
         self.cog = cog
         self.buyer_id = buyer_id
         self.board_id = board_id
-        self.offered_cat = offered_cat
-        self.offered_name = offered_name
+        self.offered_cards = offered_cards
 
     async def notify_buyer(self, message: str) -> None:
         try:
@@ -703,7 +702,7 @@ class BoardTradeRequestView(discord.ui.View):
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
         success = self.cog.trading_manager.take_from_board(
-            self.buyer_id, self.board_id, self.offered_cat, self.offered_name
+            self.buyer_id, self.board_id, self.offered_cards
         )
         if success:
             await interaction.followup.send("✅ Échange réalisé avec succès.", ephemeral=True)
@@ -729,3 +728,45 @@ class BoardTradeRequestView(discord.ui.View):
 
 
 
+class TradeFinalConfirmView(discord.ui.View):
+    """Vue finale pour confirmer ou refuser un échange de cartes."""
+
+    def __init__(self, cog: "Cards", offerer: discord.User, target: discord.User,
+                 offer_cards: List[Tuple[str, str]], return_cards: List[Tuple[str, str]]):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.offerer = offerer
+        self.target = target
+        self.offer_cards = offer_cards
+        self.return_cards = return_cards
+
+    async def _notify(self, user_id: int, message: str) -> None:
+        try:
+            user = await self.cog.bot.fetch_user(user_id)
+            await user.send(message)
+        except Exception:
+            pass
+
+    @discord.ui.button(label="Accepter", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        if interaction.user.id not in {self.offerer.id, self.target.id}:
+            await interaction.followup.send("Vous ne pouvez pas confirmer cet échange.", ephemeral=True)
+            return
+        success = self.cog.trading_manager.safe_exchange(
+            self.offerer.id, self.target.id, self.offer_cards, self.return_cards
+        )
+        if success:
+            await interaction.followup.send("✅ Échange réalisé avec succès.", ephemeral=True)
+            await self._notify(self.offerer.id, "✅ Échange complété.")
+            await self._notify(self.target.id, "✅ Échange complété.")
+        else:
+            await interaction.followup.send("❌ Échange impossible.", ephemeral=True)
+        self.stop()
+
+    @discord.ui.button(label="Refuser", style=discord.ButtonStyle.danger)
+    async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("❌ Échange annulé.", ephemeral=True)
+        await self._notify(self.offerer.id, "❌ Échange refusé.")
+        await self._notify(self.target.id, "❌ Échange refusé.")
+        self.stop()

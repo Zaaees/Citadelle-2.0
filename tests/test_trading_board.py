@@ -93,15 +93,29 @@ def test_take_from_board(trading_manager):
     inv[1] = {("Cat", "Card"): 1}
     tm.deposit_to_board(1, "Cat", "Card")
     inv[2] = {("Cat", "Offer"): 1}
-    info = tm.initiate_board_trade(2, 1, "Cat", "Offer")
+    info = tm.initiate_board_trade(2, 1, [("Cat", "Offer")])
     assert info is not None
     # Rien n'a changé avant confirmation
     assert tm._user_has_card(2, "Cat", "Offer")
     assert storage.get_exchange_entries() != []
 
-    assert tm.take_from_board(2, 1, "Cat", "Offer")
+    assert tm.take_from_board(2, 1, [("Cat", "Offer")])
     assert tm._user_has_card(2, "Cat", "Card")
     assert tm._user_has_card(1, "Cat", "Offer")
+    assert storage.get_exchange_entries() == []
+
+
+def test_take_from_board_multiple_cards(trading_manager):
+    tm, inv, storage = trading_manager
+    inv[1] = {("Cat", "Card"): 1}
+    tm.deposit_to_board(1, "Cat", "Card")
+    inv[2] = {("Cat", "Offer1"): 1, ("Cat", "Offer2"): 1}
+    info = tm.initiate_board_trade(2, 1, [("Cat", "Offer1"), ("Cat", "Offer2")])
+    assert info is not None
+    assert tm.take_from_board(2, 1, [("Cat", "Offer1"), ("Cat", "Offer2")])
+    assert tm._user_has_card(2, "Cat", "Card")
+    assert tm._user_has_card(1, "Cat", "Offer1")
+    assert tm._user_has_card(1, "Cat", "Offer2")
     assert storage.get_exchange_entries() == []
 
 
@@ -115,11 +129,11 @@ def test_concurrent_take(trading_manager):
     results = []
 
     # Pré-validation (simule l'envoi des demandes)
-    assert tm.initiate_board_trade(2, 1, "Cat", "OfferA")
-    assert tm.initiate_board_trade(3, 1, "Cat", "OfferB")
+    assert tm.initiate_board_trade(2, 1, [("Cat", "OfferA")])
+    assert tm.initiate_board_trade(3, 1, [("Cat", "OfferB")])
 
     def attempt(uid, name):
-        res = tm.take_from_board(uid, 1, "Cat", name)
+        res = tm.take_from_board(uid, 1, [("Cat", name)])
         results.append(res)
 
     t1 = threading.Thread(target=attempt, args=(2, "OfferA"))
