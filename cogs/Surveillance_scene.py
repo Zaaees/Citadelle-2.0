@@ -31,6 +31,9 @@ NOTIFICATION_RETENTION_SECONDS = 24 * 60 * 60
 # Intervalle minimal entre deux notifications dans un même salon (minutes)
 CHANNEL_NOTIFICATION_INTERVAL_MINUTES = 5
 
+# Délai entre les mises à jour des scènes (secondes)
+UPDATE_SLEEP_SECONDS = 1
+
 class SceneSurveillanceView(discord.ui.View):
     """Vue avec boutons pour la surveillance de scène."""
     
@@ -1640,6 +1643,7 @@ class SurveillanceScene(commands.Cog):
 
                 # Mettre à jour le message de surveillance
                 await self.update_surveillance_message(scene_data)
+                await asyncio.sleep(UPDATE_SLEEP_SECONDS)
 
             except Exception as e:
                 logging.error(f"Erreur lors de la mise à jour de la scène {channel_id}: {e}")
