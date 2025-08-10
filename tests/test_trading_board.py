@@ -230,7 +230,6 @@ def test_board_view_shows_member_name(monkeypatch):
 
     assert "Tester" in view.offer_select.options[0].description
 
-
 def test_board_view_fetches_user_name(monkeypatch):
     import asyncio
     import discord
