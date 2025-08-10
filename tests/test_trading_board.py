@@ -1,5 +1,6 @@
 import threading
 import pytest
+from unittest.mock import AsyncMock
 
 from cogs.cards.trading import TradingManager
 
@@ -179,7 +180,7 @@ def test_board_view_pagination(monkeypatch):
     asyncio.set_event_loop(loop)
     try:
         async def create():
-            return ExchangeBoardView(dummy_cog, user, guild=None)
+            return await ExchangeBoardView.create(dummy_cog, user, guild=None)
         view = loop.run_until_complete(create())
     finally:
         loop.close()
@@ -221,10 +222,88 @@ def test_board_view_shows_member_name(monkeypatch):
     asyncio.set_event_loop(loop)
     try:
         async def create():
-            return ExchangeBoardView(dummy_cog, user, guild)
+            return await ExchangeBoardView.create(dummy_cog, user, guild)
         view = loop.run_until_complete(create())
     finally:
         loop.close()
         asyncio.set_event_loop(None)
 
     assert "Tester" in view.offer_select.options[0].description
+
+
+def test_board_view_fetches_user_name(monkeypatch):
+    import asyncio
+    import discord
+    from types import SimpleNamespace
+    from cogs.cards.views.trade_views import ExchangeBoardView
+
+    offers = [
+        {"id": 1, "owner": 42, "cat": "Cat", "name": "Card.png"},
+    ]
+
+    class DummyTM:
+        def list_board_offers(self):
+            return offers
+
+    dummy_cog = SimpleNamespace(
+        trading_manager=DummyTM(),
+        bot=SimpleNamespace(
+            get_user=lambda uid: None,
+            fetch_user=AsyncMock(return_value=SimpleNamespace(display_name="Fetched")),
+        ),
+    )
+    user = discord.Object(id=1)
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        async def create():
+            return await ExchangeBoardView.create(dummy_cog, user, guild=None)
+        view = loop.run_until_complete(create())
+    finally:
+        loop.close()
+        asyncio.set_event_loop(None)
+
+    assert "Fetched" in view.offer_select.options[0].description
+
+
+@pytest.mark.asyncio
+async def test_board_list_shows_pseudonym(monkeypatch):
+    from types import SimpleNamespace
+    from cogs.Cards import Cards
+
+    offers = [
+        {"id": 1, "owner": 42, "cat": "Cat", "name": "Card.png"}
+    ]
+
+    class DummyTM:
+        def list_board_offers(self):
+            return offers
+
+    class DummyMember:
+        display_name = "Tester"
+
+    class DummyGuild:
+        def get_member(self, uid):
+            return DummyMember() if uid == 42 else None
+
+    class DummyCtx:
+        def __init__(self):
+            self.guild = DummyGuild()
+            self.sent = None
+
+        async def send(self, msg):
+            self.sent = msg
+
+    dummy_bot = SimpleNamespace(
+        get_user=lambda uid: None,
+        fetch_user=AsyncMock(return_value=SimpleNamespace(display_name="Fetched")),
+    )
+
+    cog = Cards.__new__(Cards)
+    cog.trading_manager = DummyTM()
+    cog.bot = dummy_bot
+
+    ctx = DummyCtx()
+    await Cards.board_list(cog, ctx)
+    assert "Tester" in ctx.sent
