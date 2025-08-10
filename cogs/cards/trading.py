@@ -28,7 +28,8 @@ class TradingManager:
         """Retourne toutes les offres présentes sur le tableau d'échanges."""
         return self.storage.get_exchange_entries()
 
-    def deposit_to_board(self, user_id: int, cat: str, name: str) -> bool:
+    def deposit_to_board(self, user_id: int, cat: str, name: str,
+                         comment: Optional[str] = None) -> bool:
         """Dépose une carte sur le tableau d'échanges."""
         try:
             if not validate_card_data(cat, name, user_id):
@@ -43,7 +44,9 @@ class TradingManager:
             with self.storage._cards_lock, self.storage._board_lock:
                 if not self._remove_card_from_user(user_id, cat, name):
                     return False
-                entry_id = self.storage.create_exchange_entry(user_id, cat, name, timestamp)
+                entry_id = self.storage.create_exchange_entry(
+                    user_id, cat, name, timestamp, comment
+                )
                 if entry_id is None:
                     self._add_card_to_user(user_id, cat, name)
                     return False
@@ -147,7 +150,7 @@ class TradingManager:
                         self._remove_card_from_user(owner_id, cat, name)
                     for cat, name in removed:
                         self._add_card_to_user(user_id, cat, name)
-                    self.storage.create_exchange_entry(owner_id, board_cat, board_name, timestamp)
+                    self.storage.create_exchange_entry(owner_id, board_cat, board_name, timestamp, entry.get("comment") if 'comment' in entry else None)
                     return False
 
             if self.storage.logging_manager:
@@ -188,7 +191,7 @@ class TradingManager:
 
                 if not self._add_card_to_user(user_id, cat, name):
                     # Rollback si impossible de rendre la carte
-                    self.storage.create_exchange_entry(user_id, cat, name, timestamp)
+                    self.storage.create_exchange_entry(user_id, cat, name, timestamp, entry.get("comment") if 'comment' in entry else None)
                     return False
 
             if self.storage.logging_manager:

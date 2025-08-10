@@ -603,10 +603,13 @@ class ExchangeBoardView(discord.ui.View):
                         except Exception:
                             user_obj = None
                     owner_name = user_obj.display_name if user_obj else str(owner_id)
+                description = f"ID {o['id']} - Proposé par {owner_name}"
+                if o.get("comment"):
+                    description += f" | {o['comment']}"
                 page.append(
                     discord.SelectOption(
                         label=f"{o['name'].removesuffix('.png')} ({o['cat']})",
-                        description=f"ID {o['id']} - Proposé par {owner_name}",
+                        description=description,
                         value=str(o['id'])
                     )
                 )

@@ -24,7 +24,7 @@ class FakeStorage:
         self.logging_manager = FakeLoggingManager()
 
     # CRUD minimal
-    def create_exchange_entry(self, owner, cat, name, ts):
+    def create_exchange_entry(self, owner, cat, name, ts, comment=None):
         entry_id = len(self.entries) + 1
         self.entries.append({
             "id": entry_id,
@@ -32,6 +32,7 @@ class FakeStorage:
             "cat": cat,
             "name": name,
             "timestamp": ts,
+            "comment": comment,
         })
         return entry_id
 
@@ -87,6 +88,13 @@ def test_deposit_to_board(trading_manager):
     assert tm.deposit_to_board(1, "Cat", "Card")
     assert storage.entries[0]["owner"] == 1
     assert not tm._user_has_card(1, "Cat", "Card")
+
+
+def test_deposit_with_comment(trading_manager):
+    tm, inv, storage = trading_manager
+    inv[1] = {("Cat", "Card"): 1}
+    assert tm.deposit_to_board(1, "Cat", "Card", comment="Salut")
+    assert storage.entries[0]["comment"] == "Salut"
 
 
 def test_take_from_board(trading_manager):
@@ -293,6 +301,39 @@ def test_board_view_fetches_user_name(monkeypatch):
         asyncio.set_event_loop(None)
 
     assert "Fetched" in view.offer_select.options[0].description
+
+
+def test_board_view_shows_comment(monkeypatch):
+    import asyncio
+    import discord
+    from types import SimpleNamespace
+    from cogs.cards.views.trade_views import ExchangeBoardView
+
+    offers = [
+        {"id": 1, "owner": 1, "cat": "Cat", "name": "Card.png", "comment": "Hello"},
+    ]
+
+    class DummyTM:
+        def list_board_offers(self):
+            return offers
+
+    dummy_cog = SimpleNamespace(
+        trading_manager=DummyTM(),
+        bot=SimpleNamespace(get_user=lambda uid: None),
+    )
+    user = discord.Object(id=1)
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        async def create():
+            return await ExchangeBoardView.create(dummy_cog, user, guild=None)
+        view = loop.run_until_complete(create())
+    finally:
+        loop.close()
+        asyncio.set_event_loop(None)
+
+    assert "Hello" in view.offer_select.options[0].description
 
 
 @pytest.mark.asyncio

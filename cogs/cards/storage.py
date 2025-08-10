@@ -245,14 +245,27 @@ class CardsStorage:
             self.sheet_exchange = self.spreadsheet.worksheet("Tableau Echanges")
         except gspread.exceptions.WorksheetNotFound:
             self.sheet_exchange = self.spreadsheet.add_worksheet(
-                title="Tableau Echanges", rows="1000", cols="5"
+                title="Tableau Echanges", rows="1000", cols="6"
             )
             self.sheet_exchange.append_row([
-                "id", "owner", "cat", "name", "timestamp"
+                "id", "owner", "cat", "name", "timestamp", "comment"
             ])
+            return
+
+        # Gérer les anciennes feuilles sans la colonne comment
+        try:
+            all_values = self.sheet_exchange.get_all_values()
+            header = all_values[0] if all_values else []
+            if "comment" not in header:
+                current_cols = len(header)
+                if current_cols < 6:
+                    self.sheet_exchange.add_cols(6 - current_cols)
+                self.sheet_exchange.update_cell(1, current_cols + 1, "comment")
+        except Exception as e:
+            logging.error(f"[STORAGE] Erreur lors de la mise à niveau de la feuille d'échanges: {e}")
 
     def create_exchange_entry(self, owner: int, cat: str, name: str,
-                              timestamp: str) -> Optional[int]:
+                              timestamp: str, comment: Optional[str] = None) -> Optional[int]:
         """Crée une entrée sur le tableau d'échanges."""
         try:
             with self._board_lock:
@@ -263,7 +276,7 @@ class CardsStorage:
                     if ids:
                         next_id = max(ids) + 1
                 self.sheet_exchange.append_row([
-                    str(next_id), str(owner), cat, name, timestamp
+                    str(next_id), str(owner), cat, name, timestamp, comment or ""
                 ])
                 return next_id
         except Exception as e:
@@ -274,7 +287,13 @@ class CardsStorage:
         """Retourne toutes les entrées du tableau d'échanges."""
         try:
             with self._board_lock:
-                return self.sheet_exchange.get_all_records()
+                records = self.sheet_exchange.get_all_records()
+                for r in records:
+                    if "comment" not in r:
+                        r["comment"] = None
+                    elif r["comment"] == "":
+                        r["comment"] = None
+                return records
         except Exception as e:
             logging.error(f"[STORAGE] Erreur lors de la lecture du tableau d'échanges: {e}")
             return []
@@ -289,7 +308,7 @@ class CardsStorage:
 
     def update_exchange_entry(self, entry_id: int, **fields) -> bool:
         """Met à jour une entrée existante."""
-        col_map = {"id": 1, "owner": 2, "cat": 3, "name": 4, "timestamp": 5}
+        col_map = {"id": 1, "owner": 2, "cat": 3, "name": 4, "timestamp": 5, "comment": 6}
         try:
             with self._board_lock:
                 cell = self.sheet_exchange.find(str(entry_id))
