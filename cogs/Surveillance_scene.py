@@ -219,9 +219,27 @@ class SurveillanceScene(commands.Cog):
     async def update_surveillance(self):
         """Met à jour la surveillance toutes les heures."""
         if self.sheet is None:
-            self.setup_google_sheets()
+            max_attempts = 3
+            for attempt in range(1, max_attempts + 1):
+                logging.warning(
+                    f"Feuille Google Sheets indisponible, tentative de reconnexion {attempt}/{max_attempts}"
+                )
+                self.setup_google_sheets()
+                if self.sheet is not None:
+                    logging.info(
+                        f"Reconnexion réussie à Google Sheets lors de la tentative {attempt}"
+                    )
+                    break
+                delay = 5 * attempt
+                logging.error(
+                    f"Tentative {attempt} échouée, nouvel essai dans {delay} secondes"
+                )
+                await asyncio.sleep(delay)
+
             if self.sheet is None:
-                logging.error("Impossible de se reconnecter à Google Sheets dans update_surveillance")
+                logging.error(
+                    "Échec de la reconnexion à Google Sheets dans update_surveillance après plusieurs tentatives"
+                )
                 return
             
         try:
