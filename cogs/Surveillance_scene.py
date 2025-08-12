@@ -150,30 +150,52 @@ class SurveillanceScene(commands.Cog):
         try:
             credentials = Credentials.from_service_account_info(
                 json.loads(os.getenv('SERVICE_ACCOUNT_JSON')),
-                scopes=['https://www.googleapis.com/auth/spreadsheets']
+                scopes=['https://www.googleapis.com/auth/spreadsheets'],
             )
-            self.gc = gspread.authorize(credentials)
-            self.spreadsheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_VALIDATION'))
-            
-            # Créer ou récupérer la feuille "Scene surveillance"
+        except Exception as e:
+            logging.error(f"Erreur lors du chargement des credentials Google Sheets: {e}")
+            self.sheet = None
+            return
+
+        self.gc = None
+        self.spreadsheet = None
+        for attempt in range(1, 4):
             try:
-                self.sheet = self.spreadsheet.worksheet("Scene surveillance")
-            except gspread.exceptions.WorksheetNotFound:
-                self.sheet = self.spreadsheet.add_worksheet(
-                    title="Scene surveillance", rows="1000", cols="10"
+                logging.info(f"Tentative {attempt} de connexion à Google Sheets")
+                self.gc = gspread.authorize(credentials)
+                self.spreadsheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_VALIDATION'))
+                break
+            except Exception as e:
+                logging.warning(
+                    f"Échec de la tentative {attempt} de connexion à Google Sheets: {e}"
                 )
-                # Initialiser l'en-tête
-                self.sheet.append_row([
-                    "channel_id", "scene_name", "gm_id", "start_date",
-                    "participants", "last_activity_user", "last_activity_date",
-                    "message_id", "channel_type", "guild_id"
-                ])
-                logging.info("En-tête créé pour la feuille Scene surveillance")
-                
+                if attempt < 3:
+                    delay = 2 ** attempt
+                    logging.info(f"Nouvelle tentative dans {delay} secondes")
+                    time.sleep(delay)
+
+        if not self.spreadsheet:
+            logging.error("Impossible de se connecter à Google Sheets après 3 tentatives")
+            self.sheet = None
+            return
+
+        try:
+            self.sheet = self.spreadsheet.worksheet("Scene surveillance")
+        except gspread.exceptions.WorksheetNotFound:
+            self.sheet = self.spreadsheet.add_worksheet(
+                title="Scene surveillance", rows="1000", cols="10"
+            )
+            # Initialiser l'en-tête
+            self.sheet.append_row([
+                "channel_id", "scene_name", "gm_id", "start_date",
+                "participants", "last_activity_user", "last_activity_date",
+                "message_id", "channel_type", "guild_id"
+            ])
+            logging.info("En-tête créé pour la feuille Scene surveillance")
         except Exception as e:
             logging.error(f"Erreur lors de la configuration Google Sheets: {e}")
             self.sheet = None
-    
+
     def cog_unload(self):
         """Nettoie les tâches lors du déchargement du cog."""
         self.update_surveillance.cancel()
