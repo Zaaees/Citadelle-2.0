@@ -218,8 +218,11 @@ class SurveillanceScene(commands.Cog):
     @tasks.loop(hours=1)
     async def update_surveillance(self):
         """Met à jour la surveillance toutes les heures."""
-        if not self.sheet:
-            return
+        if self.sheet is None:
+            self.setup_google_sheets()
+            if self.sheet is None:
+                logging.error("Impossible de se reconnecter à Google Sheets dans update_surveillance")
+                return
             
         try:
             await self.refresh_monitored_scenes()
