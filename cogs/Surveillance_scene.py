@@ -409,10 +409,27 @@ class SurveillanceScene(commands.Cog):
     async def get_channel_from_link(self, channel_link: str) -> Optional[Union[discord.TextChannel, discord.Thread, discord.ForumChannel]]:
         """Récupère un canal à partir d'un lien Discord."""
         try:
+            # Vérifier si le lien est une mention de canal <#id>
+            mention_match = re.match(r'<#(\d+)>', channel_link)
+            if mention_match:
+                channel_id = int(mention_match.group(1))
+                channel = self.bot.get_channel(channel_id)
+                if not channel:
+                    for guild in self.bot.guilds:
+                        channel = guild.get_channel(channel_id)
+                        if channel:
+                            break
+                if channel:
+                    logging.info(f"Canal mention trouvé: {channel.name} (ID: {channel.id})")
+                    return channel
+                else:
+                    logging.error(f"Canal {channel_id} non trouvé pour la mention {channel_link}")
+                    return None
+
             # Extraire l'ID du canal depuis le lien (support discord.com et discordapp.com)
             match = re.search(r'(?:discord(?:app)?\.com)/channels/(\d+)/(\d+)(?:/(\d+))?', channel_link)
             if not match:
-                logging.error(f"Format de lien non reconnu: {channel_link}")
+                logging.error(f"Format de lien ou mention non reconnu: {channel_link}")
                 return None
 
             logging.info(f"Lien analysé - Guild: {match.group(1)}, Channel: {match.group(2)}, Thread/Post: {match.group(3) or 'None'}")
