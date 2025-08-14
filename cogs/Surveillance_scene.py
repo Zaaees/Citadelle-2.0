@@ -132,8 +132,6 @@ class SurveillanceScene(commands.Cog):
         # Dernière notification envoyée par salon (channel_id -> timestamp)
         self.last_channel_notifications: Dict[str, float] = {}
 
-        # Cache pour tracker les scènes inactives notifiées (pour éviter spam et détecter retour d'activité)
-        self.notified_inactive_scenes: set = set()
 
         # Caches pour les mises à jour différées
         self.pending_updates: Dict[str, dict] = {}
@@ -274,18 +272,8 @@ class SurveillanceScene(commands.Cog):
                     logging.info(f"Scène {scene_data.get('scene_name', 'Inconnue')}: dernière activité il y a {time_since_activity.days} jours")
 
                     if time_since_activity >= timedelta(days=7):
-                        scene_id = scene_data.get('channel_id')
-                        # Ne notifier que si on ne l'a pas déjà fait
-                        if scene_id not in self.notified_inactive_scenes:
-                            logging.info(f"Scène inactive détectée: {scene_data.get('scene_name', 'Inconnue')}")
-                            await self.notify_inactive_scene(scene_data)
-                            self.notified_inactive_scenes.add(scene_id)
-                    else:
-                        # Scène active, retirer du cache des scènes inactives notifiées
-                        scene_id = scene_data.get('channel_id')
-                        if scene_id in self.notified_inactive_scenes:
-                            self.notified_inactive_scenes.remove(scene_id)
-                            logging.info(f"Scène redevenue active: {scene_data.get('scene_name', 'Inconnue')}")
+                        logging.info(f"Scène inactive détectée: {scene_data.get('scene_name', 'Inconnue')}")
+                        await self.notify_inactive_scene(scene_data)
 
                 except Exception as scene_error:
                     logging.error(f"Erreur lors de la vérification de la scène {scene_data.get('scene_name', 'Inconnue')}: {scene_error}")
