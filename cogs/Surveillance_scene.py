@@ -726,10 +726,11 @@ class SurveillanceScene(commands.Cog):
     async def create_surveillance_embed(self, scene_data: dict) -> discord.Embed:
         """Crée l'embed de surveillance d'une scène."""
         try:
+            now = datetime.now(self.paris_tz)
             embed = discord.Embed(
                 title="🎭 Surveillance de Scène",
                 color=0x3498db,
-                timestamp=datetime.now(self.paris_tz)
+                timestamp=now
             )
 
             # Lien vers la scène (remplace le nom par un lien cliquable)
@@ -827,7 +828,9 @@ class SurveillanceScene(commands.Cog):
                 inline=False
             )
 
-            embed.set_footer(text="Mise à jour automatique toutes les heures")
+            embed.set_footer(
+                text=f"Mise à jour automatique le {now.strftime('%d/%m/%Y à %H:%M')}"
+            )
 
             return embed
 
@@ -951,6 +954,9 @@ class SurveillanceScene(commands.Cog):
                 # Mettre à jour l'ID du message dans Google Sheets
                 scene_data['message_id'] = str(message.id)
                 await self.update_scene_message_id(str(channel.id), str(message.id))
+
+                # Réordonner les messages de surveillance après création
+                await self.reorder_surveillance_messages()
 
             await ctx.send(f"✅ Surveillance initiée pour **{channel.name}**.")
 
@@ -1727,17 +1733,18 @@ class SurveillanceScene(commands.Cog):
             if not scenes:
                 return
 
-            # Filtrer les doublons de noms ou d'IDs
-            seen_names = set()
+            # Filtrer les doublons de channel_id ou d'IDs de message
+            seen_channels = set()
             seen_ids = set()
             unique_scenes = []
             for scene in scenes:
-                name = scene.get('scene_name')
+                channel_id = scene.get('channel_id')
                 msg_id = scene.get('message_id')
-                if name in seen_names or (msg_id and msg_id in seen_ids):
-                    logging.warning(f"Scène dupliquée ignorée: {name} ({msg_id})")
+                if channel_id in seen_channels or (msg_id and msg_id in seen_ids):
+                    logging.warning(f"Scène dupliquée ignorée: {channel_id} ({msg_id})")
                     continue
-                seen_names.add(name)
+                if channel_id:
+                    seen_channels.add(channel_id)
                 if msg_id:
                     seen_ids.add(msg_id)
                 unique_scenes.append(scene)
