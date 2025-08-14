@@ -726,10 +726,11 @@ class SurveillanceScene(commands.Cog):
     async def create_surveillance_embed(self, scene_data: dict) -> discord.Embed:
         """Crée l'embed de surveillance d'une scène."""
         try:
+            now = datetime.now(self.paris_tz)
             embed = discord.Embed(
                 title="🎭 Surveillance de Scène",
                 color=0x3498db,
-                timestamp=datetime.now(self.paris_tz)
+                timestamp=now
             )
 
             # Lien vers la scène (remplace le nom par un lien cliquable)
@@ -827,7 +828,9 @@ class SurveillanceScene(commands.Cog):
                 inline=False
             )
 
-            embed.set_footer(text="Mise à jour automatique toutes les heures")
+            embed.set_footer(
+                text=f"Mise à jour automatique le {now.strftime('%d/%m/%Y à %H:%M')}"
+            )
 
             return embed
 
@@ -951,6 +954,9 @@ class SurveillanceScene(commands.Cog):
                 # Mettre à jour l'ID du message dans Google Sheets
                 scene_data['message_id'] = str(message.id)
                 await self.update_scene_message_id(str(channel.id), str(message.id))
+
+                # Réordonner les messages de surveillance après création
+                await self.reorder_surveillance_messages()
 
             await ctx.send(f"✅ Surveillance initiée pour **{channel.name}**.")
 
