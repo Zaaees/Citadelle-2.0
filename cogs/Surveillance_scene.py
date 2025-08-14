@@ -1522,7 +1522,14 @@ class SurveillanceScene(commands.Cog):
                 record_channel_id = str(record.get('channel_id')).lstrip("'")
                 clean_channel_id = str(channel_id).lstrip("'")
                 if record_channel_id == clean_channel_id:
-                    self.sheet.update(f'H{i}', self.format_id_for_sheets(message_id))  # Colonne H = message_id
+                    cell = f'H{i}'
+                    formatted_id = self.format_id_for_sheets(message_id)
+                    self.sheet.update(cell, formatted_id)  # Colonne H = message_id
+                    written = str(self.sheet.cell(i, 8).value).lstrip("'")
+                    if written != str(message_id):
+                        logging.error(
+                            f"Incohérence de message_id pour {channel_id}: écrit {written}, attendu {message_id}"
+                        )
                     break
         except Exception as e:
             logging.error(f"Erreur lors de la mise à jour de l'ID du message: {e}")
@@ -1724,11 +1731,7 @@ class SurveillanceScene(commands.Cog):
             logging.error(f"Erreur lors de la mise à jour du message de surveillance: {e}")
 
     async def reorder_surveillance_messages(self):
-        """Réordonne les messages de surveillance par date d'activité.
-
-        Les scènes les moins actives sont affichées dans les messages les plus
-        récents du salon de surveillance.
-        """
+        """Réordonne les messages de surveillance par date d'activité."""
         try:
             surveillance_channel = self.bot.get_channel(SURVEILLANCE_CHANNEL_ID)
             if not surveillance_channel:
@@ -1737,6 +1740,21 @@ class SurveillanceScene(commands.Cog):
             scenes = [s for s in self.monitored_scenes.values() if s.get('message_id')]
             if not scenes:
                 return
+
+            # Filtrer les doublons de noms ou d'IDs
+            seen_names = set()
+            seen_ids = set()
+            unique_scenes = []
+            for scene in scenes:
+                name = scene.get('scene_name')
+                msg_id = scene.get('message_id')
+                if name in seen_names or msg_id in seen_ids:
+                    logging.warning(f"Scène dupliquée ignorée: {name} ({msg_id})")
+                    continue
+                seen_names.add(name)
+                seen_ids.add(msg_id)
+                unique_scenes.append(scene)
+            scenes = unique_scenes
 
             def activity_date(scene: dict) -> datetime:
                 date_str = scene.get('last_activity_date') or scene.get('start_date')
@@ -1750,22 +1768,39 @@ class SurveillanceScene(commands.Cog):
                 except Exception:
                     return datetime.fromtimestamp(0, tz=self.paris_tz)
 
-            # Place the least active scenes in the most recent messages
             scenes.sort(key=activity_date, reverse=True)
-            message_ids = sorted(int(s['message_id']) for s in scenes)
 
-            for msg_id, scene in zip(message_ids, scenes):
+            # Supprimer les anciens messages
+            for scene in scenes:
+                msg_id = scene.get('message_id')
+                if not msg_id:
+                    continue
                 try:
-                    message = await surveillance_channel.fetch_message(msg_id)
+                    old_msg = await surveillance_channel.fetch_message(int(msg_id))
+                    await old_msg.delete()
+                except Exception:
+                    pass
+
+            new_message_ids = set()
+            for scene in scenes:
+                try:
                     embed = await self.create_surveillance_embed(scene)
                     view = SceneSurveillanceView(self, scene)
-                    await message.edit(embed=embed, view=view)
-                    if int(scene['message_id']) != msg_id:
-                        scene['message_id'] = str(msg_id)
-                        await self.update_scene_message_id(scene['channel_id'], str(msg_id))
+                    new_message = await surveillance_channel.send(embed=embed, view=view)
+                    scene['message_id'] = str(new_message.id)
+                    new_message_ids.add(new_message.id)
+                    await self.update_scene_message_id(scene['channel_id'], scene['message_id'])
                     await asyncio.sleep(1)
                 except Exception as e:
-                    logging.error(f"Erreur lors du réordonnancement des messages: {e}")
+                    logging.error(f"Erreur lors de la création du message: {e}")
+
+            # Nettoyage des messages orphelins
+            async for message in surveillance_channel.history(limit=None):
+                if message.id not in new_message_ids and not message.pinned:
+                    try:
+                        await message.delete()
+                    except Exception:
+                        pass
 
         except Exception as e:
             logging.error(f"Erreur dans reorder_surveillance_messages: {e}")
