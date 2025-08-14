@@ -1738,6 +1738,18 @@ class SurveillanceScene(commands.Cog):
             if not scenes:
                 return
 
+            # Remove duplicate message IDs to avoid overwriting the same message
+            unique_scenes = {}
+            duplicate_scenes = []
+            for scene in scenes:
+                msg_id = scene.get("message_id")
+                if msg_id in unique_scenes:
+                    duplicate_scenes.append(scene)
+                else:
+                    unique_scenes[msg_id] = scene
+
+            scenes = list(unique_scenes.values())
+
             def activity_date(scene: dict) -> datetime:
                 date_str = scene.get('last_activity_date') or scene.get('start_date')
                 if not date_str:
@@ -1766,6 +1778,18 @@ class SurveillanceScene(commands.Cog):
                     await asyncio.sleep(1)
                 except Exception as e:
                     logging.error(f"Erreur lors du réordonnancement des messages: {e}")
+
+            # Handle scenes that shared the same message ID by assigning new messages
+            for scene in duplicate_scenes:
+                try:
+                    embed = await self.create_surveillance_embed(scene)
+                    view = SceneSurveillanceView(self, scene)
+                    new_message = await surveillance_channel.send(embed=embed, view=view)
+                    scene["message_id"] = str(new_message.id)
+                    await self.update_scene_message_id(scene["channel_id"], str(new_message.id))
+                    await asyncio.sleep(1)
+                except Exception as e:
+                    logging.error(f"Erreur lors de l'ajout des messages dupliqués: {e}")
 
         except Exception as e:
             logging.error(f"Erreur dans reorder_surveillance_messages: {e}")
