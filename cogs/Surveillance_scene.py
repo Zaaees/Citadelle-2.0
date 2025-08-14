@@ -1721,17 +1721,18 @@ class SurveillanceScene(commands.Cog):
             if not scenes:
                 return
 
-            # Filtrer les doublons de noms ou d'IDs
-            seen_names = set()
+            # Filtrer les doublons de channel_id ou d'IDs de message
+            seen_channels = set()
             seen_ids = set()
             unique_scenes = []
             for scene in scenes:
-                name = scene.get('scene_name')
+                channel_id = scene.get('channel_id')
                 msg_id = scene.get('message_id')
-                if name in seen_names or (msg_id and msg_id in seen_ids):
-                    logging.warning(f"Scène dupliquée ignorée: {name} ({msg_id})")
+                if channel_id in seen_channels or (msg_id and msg_id in seen_ids):
+                    logging.warning(f"Scène dupliquée ignorée: {channel_id} ({msg_id})")
                     continue
-                seen_names.add(name)
+                if channel_id:
+                    seen_channels.add(channel_id)
                 if msg_id:
                     seen_ids.add(msg_id)
                 unique_scenes.append(scene)
