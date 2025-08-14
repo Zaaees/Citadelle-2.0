@@ -170,7 +170,7 @@ def main():
             time.sleep(60)
         else:
             logger.info("Le bot s'est arrêté normalement.")
-            break
+            continue
 
 if __name__ == '__main__':
     main()
