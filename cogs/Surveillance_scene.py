@@ -219,28 +219,14 @@ class SurveillanceScene(commands.Cog):
     async def update_surveillance(self):
         """Met à jour la surveillance toutes les heures."""
         if self.sheet is None:
-            max_attempts = 3
-            for attempt in range(1, max_attempts + 1):
-                logging.warning(
-                    f"Feuille Google Sheets indisponible, tentative de reconnexion {attempt}/{max_attempts}"
-                )
-                self.setup_google_sheets()
-                if self.sheet is not None:
-                    logging.info(
-                        f"Reconnexion réussie à Google Sheets lors de la tentative {attempt}"
-                    )
-                    break
-                delay = 5 * attempt
-                logging.error(
-                    f"Tentative {attempt} échouée, nouvel essai dans {delay} secondes"
-                )
-                await asyncio.sleep(delay)
-
+            logging.warning("Feuille Google Sheets indisponible, tentative de reconnexion")
+            self.setup_google_sheets()
             if self.sheet is None:
                 logging.error(
-                    "Échec de la reconnexion à Google Sheets dans update_surveillance après plusieurs tentatives"
+                    "Impossible de se reconnecter à Google Sheets dans update_surveillance"
                 )
                 return
+            logging.info("Reconnexion réussie à Google Sheets")
             
         try:
             await self.refresh_monitored_scenes()
@@ -1737,7 +1723,7 @@ class SurveillanceScene(commands.Cog):
             if not surveillance_channel:
                 return
 
-            scenes = [s for s in self.monitored_scenes.values() if s.get('message_id')]
+            scenes = list(self.monitored_scenes.values())
             if not scenes:
                 return
 
@@ -1748,11 +1734,12 @@ class SurveillanceScene(commands.Cog):
             for scene in scenes:
                 name = scene.get('scene_name')
                 msg_id = scene.get('message_id')
-                if name in seen_names or msg_id in seen_ids:
+                if name in seen_names or (msg_id and msg_id in seen_ids):
                     logging.warning(f"Scène dupliquée ignorée: {name} ({msg_id})")
                     continue
                 seen_names.add(name)
-                seen_ids.add(msg_id)
+                if msg_id:
+                    seen_ids.add(msg_id)
                 unique_scenes.append(scene)
             scenes = unique_scenes
 
@@ -1770,33 +1757,47 @@ class SurveillanceScene(commands.Cog):
 
             scenes.sort(key=activity_date, reverse=True)
 
-            # Supprimer les anciens messages
-            for scene in scenes:
-                msg_id = scene.get('message_id')
-                if not msg_id:
-                    continue
-                try:
-                    old_msg = await surveillance_channel.fetch_message(int(msg_id))
-                    await old_msg.delete()
-                except Exception:
-                    pass
+            existing_messages = [
+                m async for m in surveillance_channel.history(limit=None, oldest_first=True)
+                if not m.pinned
+            ]
 
-            new_message_ids = set()
-            for scene in scenes:
+            used_message_ids = set()
+
+            for scene, message in zip(scenes, existing_messages):
                 try:
                     embed = await self.create_surveillance_embed(scene)
                     view = SceneSurveillanceView(self, scene)
-                    new_message = await surveillance_channel.send(embed=embed, view=view)
-                    scene['message_id'] = str(new_message.id)
-                    new_message_ids.add(new_message.id)
-                    await self.update_scene_message_id(scene['channel_id'], scene['message_id'])
-                    await asyncio.sleep(1)
+                    await message.edit(embed=embed, view=view)
+                    used_message_ids.add(message.id)
+                    if scene.get('message_id') != str(message.id):
+                        scene['message_id'] = str(message.id)
                 except Exception as e:
-                    logging.error(f"Erreur lors de la création du message: {e}")
+                    logging.error(f"Erreur lors de la modification du message: {e}")
+
+            if len(scenes) > len(existing_messages):
+                for scene in scenes[len(existing_messages):]:
+                    try:
+                        embed = await self.create_surveillance_embed(scene)
+                        view = SceneSurveillanceView(self, scene)
+                        new_message = await surveillance_channel.send(embed=embed, view=view)
+                        scene['message_id'] = str(new_message.id)
+                        used_message_ids.add(new_message.id)
+                        await self.update_scene_message_id(scene['channel_id'], scene['message_id'])
+                        await asyncio.sleep(1)
+                    except Exception as e:
+                        logging.error(f"Erreur lors de la création du message: {e}")
+
+            elif len(existing_messages) > len(scenes):
+                for message in existing_messages[len(scenes):]:
+                    try:
+                        await message.delete()
+                    except Exception:
+                        pass
 
             # Nettoyage des messages orphelins
             async for message in surveillance_channel.history(limit=None):
-                if message.id not in new_message_ids and not message.pinned:
+                if message.id not in used_message_ids and not message.pinned:
                     try:
                         await message.delete()
                     except Exception:
