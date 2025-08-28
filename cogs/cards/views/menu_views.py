@@ -159,7 +159,7 @@ class CardsMenuView(discord.ui.View):
                 None,
             )
             if file_id:
-                file_bytes = self.cog.download_drive_file(file_id)
+                file_bytes = await self.cog.download_drive_file(file_id)
                 if file_bytes:
                     embed, image_file = self.cog.build_card_embed(cat, name, file_bytes, self.user)
                     embed_msgs.append((embed, image_file))
@@ -229,7 +229,7 @@ class CardsMenuView(discord.ui.View):
                     None,
                 )
                 if file_id:
-                    file_bytes = self.cog.download_drive_file(file_id)
+                    file_bytes = await self.cog.download_drive_file(file_id)
                     if file_bytes:
                         embed, image_file = self.cog.build_card_embed(cat, name, file_bytes, self.user)
                         embed_msgs.append((embed, image_file))
@@ -548,7 +548,7 @@ class SacrificialDrawConfirmationView(discord.ui.View):
                         None,
                     )
                     if file_id:
-                        file_bytes = self.cog.download_drive_file(file_id)
+                        file_bytes = await self.cog.download_drive_file(file_id)
                         if file_bytes:
                             embed, image_file = self.cog.build_card_embed(cat, name, file_bytes, self.user)
                             embed_msgs.append((embed, image_file))
