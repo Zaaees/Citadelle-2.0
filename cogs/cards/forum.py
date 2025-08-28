@@ -460,7 +460,7 @@ class ForumManager:
                 try:
                     if drive_service:
                         # Télécharger l'image depuis Google Drive
-                        file_bytes = self._download_drive_file(drive_service, file_id)
+                        file_bytes = await self._download_drive_file(drive_service, file_id)
                         if not file_bytes:
                             logging.error(f"[FORUM] Impossible de télécharger {name} ({cat})")
                             error_count += 1
@@ -506,9 +506,9 @@ class ForumManager:
             logging.error(f"[FORUM] Erreur lors de la population du forum: {e}")
             return 0, 0
 
-    def _download_drive_file(self, drive_service, file_id: str) -> bytes:
+    async def _download_drive_file(self, drive_service, file_id: str) -> bytes | None:
         """
-        Télécharge un fichier depuis Google Drive.
+        Télécharge un fichier depuis Google Drive de manière asynchrone.
 
         Args:
             drive_service: Service Google Drive
@@ -519,7 +519,7 @@ class ForumManager:
         """
         try:
             request = drive_service.files().get_media(fileId=file_id)
-            file_bytes = request.execute()
+            file_bytes = await asyncio.to_thread(request.execute)
             return file_bytes
         except Exception as e:
             logging.error(f"[FORUM] Erreur lors du téléchargement du fichier {file_id}: {e}")
@@ -627,7 +627,7 @@ class ForumManager:
                 try:
                     if drive_service:
                         logging.info(f"[FORUM] Téléchargement de {name} (ID: {file_id})")
-                        file_bytes = self._download_drive_file(drive_service, file_id)
+                        file_bytes = await self._download_drive_file(drive_service, file_id)
                         if not file_bytes:
                             logging.error(f"[FORUM] Impossible de télécharger {name} ({cat}) - fichier vide")
                             error_count += 1

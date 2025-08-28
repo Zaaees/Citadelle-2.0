@@ -688,7 +688,7 @@ class Cards(commands.Cog):
                 discovery_index = self.discovery_manager.log_discovery(cat, name, interaction.user.id, interaction.user.display_name)
 
                 # Télécharger l'image
-                file_bytes = self.download_drive_file(file_id)
+                file_bytes = await self.download_drive_file(file_id)
                 if not file_bytes:
                     logger.error(f"[FORUM] Impossible de télécharger l'image pour {name} ({cat})")
                     continue
@@ -732,12 +732,12 @@ class Cards(commands.Cog):
         except Exception as e:
             logger.error(f"[PROGRESS] Erreur lors de la mise à jour du message de progression: {e}")
 
-    def download_drive_file(self, file_id: str) -> bytes | None:
-        """Télécharge un fichier depuis Google Drive."""
+    async def download_drive_file(self, file_id: str) -> bytes | None:
+        """Télécharge un fichier depuis Google Drive de manière asynchrone."""
         try:
             logger.debug(f"[DRIVE] Téléchargement du fichier {file_id}")
             request = self.drive_service.files().get_media(fileId=file_id)
-            file_bytes = request.execute()
+            file_bytes = await asyncio.to_thread(request.execute)
             logger.debug(f"[DRIVE] Fichier téléchargé avec succès: {len(file_bytes)} bytes")
             return file_bytes
         except Exception as e:
@@ -896,7 +896,7 @@ class Cards(commands.Cog):
                             break
                     else:
                         # Toutes les cartes ont été retirées avec succès, procéder à l'ajout de la carte Full
-                        file_bytes = self.download_drive_file(file_id)
+                        file_bytes = await self.download_drive_file(file_id)
                         if not file_bytes:
                             logger.error(f"[UPGRADE] Impossible de télécharger l'image pour {full_name}")
                             # Rollback: remettre les cartes retirées
