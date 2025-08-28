@@ -44,7 +44,8 @@ def check_cog_tasks_health(bot):
 
 def check_bot_health(bot):
     consecutive_failures = 0
-    max_consecutive_failures = 3
+    max_consecutive_failures = int(os.environ.get('HEALTHCHECK_MAX_FAILURES', '10'))
+    force_restart = os.environ.get('HEALTHCHECK_FORCE_RESTART', 'false').lower() in ('1', 'true', 'yes')
     last_task_check = datetime.now()
 
     while True:
@@ -64,8 +65,9 @@ def check_bot_health(bot):
                     logger.critical(
                         "❌ on_ready n'a jamais été appelé après plusieurs vérifications. Redémarrage du bot..."
                     )
-                    bot.loop.call_soon_threadsafe(bot.close)
-                    raise RuntimeError("on_ready n'a jamais été appelé")
+                    if force_restart:
+                        bot.loop.call_soon_threadsafe(bot.close)
+                    logger.error("on_ready jamais appelé - redémarrage non forcé (configurable)")
                 continue
 
             # 2. Vérifier la latence
@@ -76,8 +78,9 @@ def check_bot_health(bot):
                 )
                 if consecutive_failures >= max_consecutive_failures:
                     logger.critical("❌ Latence critique détectée. Redémarrage du bot...")
-                    bot.loop.call_soon_threadsafe(bot.close)
-                    raise RuntimeError("Latence critique détectée")
+                    if force_restart:
+                        bot.loop.call_soon_threadsafe(bot.close)
+                    logger.error("Latence critique détectée - redémarrage non forcé (configurable)")
                 continue
 
             # 3. Vérifier si le bot est connecté
@@ -90,8 +93,9 @@ def check_bot_health(bot):
                     logger.critical(
                         "❌ Bot non prêt après plusieurs vérifications. Redémarrage..."
                     )
-                    bot.loop.call_soon_threadsafe(bot.close)
-                    raise RuntimeError("Bot non prêt")
+                    if force_restart:
+                        bot.loop.call_soon_threadsafe(bot.close)
+                    logger.error("Bot non prêt - redémarrage non forcé (configurable)")
                 continue
 
             # 4. Vérifier les tâches des cogs toutes les 15 minutes
@@ -127,8 +131,9 @@ def check_bot_health(bot):
                 logger.critical(
                     "❌ Trop d'erreurs lors des vérifications de santé. Redémarrage..."
                 )
-                bot.loop.call_soon_threadsafe(bot.close)
-                raise RuntimeError("Trop d'erreurs lors des vérifications de santé")
+                if force_restart:
+                    bot.loop.call_soon_threadsafe(bot.close)
+                logger.error("Trop d'erreurs lors des vérifications de santé - redémarrage non forcé (configurable)")
 
 
 def self_ping():

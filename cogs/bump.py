@@ -9,6 +9,7 @@ from googleapiclient.errors import HttpError
 import json
 import logging
 import time
+from functools import partial
 
 class Bump(commands.Cog):
     def __init__(self, bot):
@@ -20,12 +21,36 @@ class Bump(commands.Cog):
         self.setup_logging()
         self.SERVICE_ACCOUNT_JSON = json.loads(os.getenv('SERVICE_ACCOUNT_JSON'))
         self.GOOGLE_SHEET_ID = os.getenv('GOOGLE_SHEET_ID_BUMP')
-        self.sheet = self.setup_google_sheets()
-        
-        # Chargement des données initiales
-        self.last_bump = self.load_last_bump()
-        self.last_reminder = self.load_last_reminder()
-        self.check_bump.start()
+        self.sheet = None
+
+        # Chargement différé
+        self.last_bump = datetime.min
+        self.last_reminder = datetime.min
+
+    async def _async_setup(self):
+        try:
+            # Créer le service Google Sheets en thread
+            def _build_service():
+                credentials = service_account.Credentials.from_service_account_info(
+                    self.SERVICE_ACCOUNT_JSON,
+                    scopes=['https://www.googleapis.com/auth/spreadsheets']
+                )
+                service = build('sheets', 'v4', credentials=credentials)
+                return service.spreadsheets()
+            self.sheet = await asyncio.to_thread(_build_service)
+
+            # Charger les données initiales en thread
+            self.last_bump = await asyncio.to_thread(self.load_last_bump)
+            self.last_reminder = await asyncio.to_thread(self.load_last_reminder)
+        except Exception as e:
+            self.logger.error(f"Erreur d'initialisation bump: {e}")
+
+        # Démarrer la tâche une fois prêt
+        try:
+            if not self.check_bump.is_running():
+                self.check_bump.start()
+        except Exception as e:
+            self.logger.error(f"Erreur lors du démarrage de check_bump: {e}")
 
     def setup_google_sheets(self):
         credentials = service_account.Credentials.from_service_account_info(
@@ -59,13 +84,18 @@ class Bump(commands.Cog):
                     raise
         raise RuntimeError("Failed to load last bump after 3 attempts")
 
-    def save_last_bump(self):
-        self.sheet.values().update(
-            spreadsheetId=self.GOOGLE_SHEET_ID,
-            range='A2',
-            valueInputOption='RAW',
-            body={'values': [[self.last_bump.isoformat()]]}
-        ).execute()
+    async def save_last_bump(self):
+        if not self.sheet:
+            self.logger.warning("Sheet non initialisé; report de save_last_bump")
+            return
+        def _do_update():
+            self.sheet.values().update(
+                spreadsheetId=self.GOOGLE_SHEET_ID,
+                range='A2',
+                valueInputOption='RAW',
+                body={'values': [[self.last_bump.isoformat()]]}
+            ).execute()
+        await asyncio.to_thread(_do_update)
 
     def load_last_reminder(self):
         for attempt in range(3):  # Retry up to 3 times
@@ -85,13 +115,18 @@ class Bump(commands.Cog):
                     raise
         raise RuntimeError("Failed to load last reminder after 3 attempts")
 
-    def save_last_reminder(self):
-        self.sheet.values().update(
-            spreadsheetId=self.GOOGLE_SHEET_ID,
-            range='B2',
-            valueInputOption='RAW',
-            body={'values': [[self.last_reminder.isoformat()]]}
-        ).execute()
+    async def save_last_reminder(self):
+        if not self.sheet:
+            self.logger.warning("Sheet non initialisé; report de save_last_reminder")
+            return
+        def _do_update():
+            self.sheet.values().update(
+                spreadsheetId=self.GOOGLE_SHEET_ID,
+                range='B2',
+                valueInputOption='RAW',
+                body={'values': [[self.last_reminder.isoformat()]]}
+            ).execute()
+        await asyncio.to_thread(_do_update)
 
     def setup_logging(self):
         self.logger = logging.getLogger('bump_cog')
@@ -105,7 +140,7 @@ class Bump(commands.Cog):
     async def on_message(self, message):
         if message.channel.id == self.channel_id and message.author.id == self.disboard_bot_id:
             self.last_bump = datetime.now()
-            self.save_last_bump()
+            await self.save_last_bump()
             self.check_bump.restart()
 
     @tasks.loop(minutes=1)
@@ -124,7 +159,7 @@ class Bump(commands.Cog):
                     if channel:
                         await channel.send("⚠️ Ça fait 24h ! Bump le serveur enculé")
                         self.last_reminder = now
-                        self.save_last_reminder()
+                        await self.save_last_reminder()
                         self.logger.info("24-hour reminder sent successfully")
                         return
             # Vérification normale pour 2 heures
@@ -134,7 +169,7 @@ class Bump(commands.Cog):
                     if channel:
                         await channel.send("Bump le serveur")
                         self.last_reminder = now
-                        self.save_last_reminder()
+                        await self.save_last_reminder()
                         self.logger.info("Reminder sent successfully")
                     else:
                         self.logger.error(f"Channel not found: {self.channel_id}")
@@ -203,5 +238,7 @@ class Bump(commands.Cog):
         self.check_bump.cancel()
 
 async def setup(bot):
-    await bot.add_cog(Bump(bot))
+    cog = Bump(bot)
+    await bot.add_cog(cog)
+    bot.loop.create_task(cog._async_setup())
     print("Cog bump chargé avec succès")

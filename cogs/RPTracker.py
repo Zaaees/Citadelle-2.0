@@ -6,6 +6,8 @@ import os
 import asyncio
 import gspread
 from google.oauth2 import service_account
+import asyncio
+import json
 
 class RPTracker(commands.Cog):
     def __init__(self, bot):
@@ -14,16 +16,32 @@ class RPTracker(commands.Cog):
         self.channel_id = 1214092904595980299
         self.message_id = 1266749233155936348
         self.categories = ["[RP] La Citadelle Extérieure", "[RP] L'Académie", "[RP] Chronologie Temporelle"]
-        
-        # Configuration Google Sheets
-        self.credentials = service_account.Credentials.from_service_account_info(
-            eval(os.getenv('SERVICE_ACCOUNT_JSON')),
-            scopes=['https://www.googleapis.com/auth/spreadsheets']
-        )
-        self.gc = gspread.authorize(self.credentials)
-        self.sheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_ACTIVITE')).sheet1
-        
-        self.update_loop.start()
+
+        # Initialisation Google Sheets différée
+        self.credentials = None
+        self.gc = None
+        self.sheet = None
+
+    async def _async_setup(self):
+        try:
+            creds_info = json.loads(os.getenv('SERVICE_ACCOUNT_JSON'))
+            self.credentials = await asyncio.to_thread(
+                service_account.Credentials.from_service_account_info,
+                creds_info,
+                scopes=['https://www.googleapis.com/auth/spreadsheets']
+            )
+            self.gc = await asyncio.to_thread(gspread.authorize, self.credentials)
+            spreadsheet = await asyncio.to_thread(self.gc.open_by_key, os.getenv('GOOGLE_SHEET_ID_ACTIVITE'))
+            # sheet1 access might also be blocking
+            self.sheet = await asyncio.to_thread(lambda: spreadsheet.sheet1)
+        except Exception as e:
+            print(f"Erreur d'initialisation RPTracker Google Sheets: {e}")
+        # Démarrer la task seulement après init
+        try:
+            if not self.update_loop.is_running():
+                self.update_loop.start()
+        except Exception as e:
+            print(f"Erreur lors du démarrage d'update_loop: {e}")
 
     @tasks.loop(hours=1)
     async def update_loop(self):
@@ -103,7 +121,7 @@ class RPTracker(commands.Cog):
         try:
             now = datetime.now(self.paris_tz)
             print(f"Tentative de mise à jour du sheet avec timestamp: {now.isoformat()}")
-            self.sheet.update('A1', [['last_update', now.isoformat()]])
+            await asyncio.to_thread(self.sheet.update, 'A1', [['last_update', now.isoformat()]])
             print("Mise à jour du sheet réussie")
         except Exception as e:
             print(f"Erreur lors de la mise à jour du sheet: {e}")
@@ -220,5 +238,7 @@ class RPTracker(commands.Cog):
             return f"il y a {diff.days} jours"
 
 async def setup(bot):
-    await bot.add_cog(RPTracker(bot))
+    cog = RPTracker(bot)
+    await bot.add_cog(cog)
+    bot.loop.create_task(cog._async_setup())
     print("Cog RPTracker chargé avec succès")

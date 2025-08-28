@@ -120,8 +120,10 @@ class SurveillanceScene(commands.Cog):
         self.bot = bot
         self.paris_tz = PARIS_TZ
         
-        # Configuration Google Sheets
-        self.setup_google_sheets()
+        # Configuration Google Sheets (initialisée plus tard de manière asynchrone)
+        self.gc = None
+        self.spreadsheet = None
+        self.sheet = None
         
         # Cache des scènes surveillées
         self.monitored_scenes: Dict[str, dict] = {}
@@ -137,18 +139,61 @@ class SurveillanceScene(commands.Cog):
         self.pending_updates: Dict[str, dict] = {}
         self.pending_update_counts: Dict[str, int] = {}
 
-        # Démarrer les tâches
-        self.update_surveillance.start()
-        self.check_inactive_scenes.start()
-        self.process_pending_updates.start()
-        self.cleanup_notifications.start()
-        
-    def setup_google_sheets(self):
-        """Configure la connexion Google Sheets."""
+        # Les tâches seront démarrées après l'initialisation asynchrone
+
+    async def _async_setup(self):
+        """Initialisation asynchrone: connexion Google Sheets et démarrage des tâches."""
         try:
-            credentials = Credentials.from_service_account_info(
-                json.loads(os.getenv('SERVICE_ACCOUNT_JSON')),
-                scopes=['https://www.googleapis.com/auth/spreadsheets'],
+            await self.setup_google_sheets()
+        except Exception as e:
+            logging.error(f"Erreur d'initialisation Google Sheets: {e}")
+        # Démarrer les tâches après la configuration
+        try:
+            if not self.update_surveillance.is_running():
+                self.update_surveillance.start()
+            if not self.check_inactive_scenes.is_running():
+                self.check_inactive_scenes.start()
+            if not self.process_pending_updates.is_running():
+                self.process_pending_updates.start()
+            if not self.cleanup_notifications.is_running():
+                self.cleanup_notifications.start()
+        except Exception as e:
+            logging.error(f"Erreur lors du démarrage des tâches: {e}")
+
+    # --- Async wrappers around blocking Google Sheets calls ---
+    async def _ws_get_all_records(self):
+        if not self.sheet:
+            return []
+        return await asyncio.to_thread(self.sheet.get_all_records)
+
+    async def _ws_update(self, range_a1: str, values):
+        if not self.sheet:
+            return None
+        return await asyncio.to_thread(self.sheet.update, range_a1, values)
+
+    async def _ws_append_row(self, values):
+        if not self.sheet:
+            return None
+        return await asyncio.to_thread(self.sheet.append_row, values)
+
+    async def _ws_delete_rows(self, index: int):
+        if not self.sheet:
+            return None
+        return await asyncio.to_thread(self.sheet.delete_rows, index)
+
+    async def _ws_cell(self, row: int, col: int):
+        if not self.sheet:
+            return None
+        return await asyncio.to_thread(self.sheet.cell, row, col)
+        
+    async def setup_google_sheets(self):
+        """Configure la connexion Google Sheets (non bloquant)."""
+        try:
+            creds_info = json.loads(os.getenv('SERVICE_ACCOUNT_JSON'))
+            credentials = await asyncio.to_thread(
+                Credentials.from_service_account_info,
+                creds_info,
+                ['https://www.googleapis.com/auth/spreadsheets']
             )
         except Exception as e:
             logging.error(f"Erreur lors du chargement des credentials Google Sheets: {e}")
@@ -160,8 +205,8 @@ class SurveillanceScene(commands.Cog):
         for attempt in range(1, 4):
             try:
                 logging.info(f"Tentative {attempt} de connexion à Google Sheets")
-                self.gc = gspread.authorize(credentials)
-                self.spreadsheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_VALIDATION'))
+                self.gc = await asyncio.to_thread(gspread.authorize, credentials)
+                self.spreadsheet = await asyncio.to_thread(self.gc.open_by_key, os.getenv('GOOGLE_SHEET_ID_VALIDATION'))
                 break
             except Exception as e:
                 logging.warning(
@@ -170,7 +215,7 @@ class SurveillanceScene(commands.Cog):
                 if attempt < 3:
                     delay = 2 ** attempt
                     logging.info(f"Nouvelle tentative dans {delay} secondes")
-                    time.sleep(delay)
+                    await asyncio.sleep(delay)
 
         if not self.spreadsheet:
             logging.error("Impossible de se connecter à Google Sheets après 3 tentatives")
@@ -178,18 +223,22 @@ class SurveillanceScene(commands.Cog):
             return
 
         try:
-            self.sheet = self.spreadsheet.worksheet("Scene surveillance")
-        except gspread.exceptions.WorksheetNotFound:
-            self.sheet = self.spreadsheet.add_worksheet(
-                title="Scene surveillance", rows="1000", cols="10"
-            )
-            # Initialiser l'en-tête
-            self.sheet.append_row([
-                "channel_id", "scene_name", "gm_id", "start_date",
-                "participants", "last_activity_user", "last_activity_date",
-                "message_id", "channel_type", "guild_id"
-            ])
-            logging.info("En-tête créé pour la feuille Scene surveillance")
+            try:
+                self.sheet = await asyncio.to_thread(self.spreadsheet.worksheet, "Scene surveillance")
+            except gspread.exceptions.WorksheetNotFound:
+                self.sheet = await asyncio.to_thread(
+                    self.spreadsheet.add_worksheet, title="Scene surveillance", rows="1000", cols="10"
+                )
+                # Initialiser l'en-tête
+                await asyncio.to_thread(
+                    self.sheet.append_row,
+                    [
+                        "channel_id", "scene_name", "gm_id", "start_date",
+                        "participants", "last_activity_user", "last_activity_date",
+                        "message_id", "channel_type", "guild_id"
+                    ]
+                )
+                logging.info("En-tête créé pour la feuille Scene surveillance")
         except Exception as e:
             logging.error(f"Erreur lors de la configuration Google Sheets: {e}")
             self.sheet = None
@@ -218,7 +267,7 @@ class SurveillanceScene(commands.Cog):
         """Met à jour la surveillance toutes les heures."""
         if self.sheet is None:
             logging.warning("Feuille Google Sheets indisponible, tentative de reconnexion")
-            self.setup_google_sheets()
+            await self.setup_google_sheets()
             if self.sheet is None:
                 logging.error(
                     "Impossible de se reconnecter à Google Sheets dans update_surveillance"
@@ -339,7 +388,7 @@ class SurveillanceScene(commands.Cog):
             return
 
         try:
-            records = self.sheet.get_all_records()
+            records = await self._ws_get_all_records()
             logging.info(f"Récupération de {len(records)} enregistrements depuis Google Sheets")
 
             # Sauvegarder l'ancien cache pour comparaison
@@ -1497,15 +1546,16 @@ class SurveillanceScene(commands.Cog):
     async def update_scene_message_id(self, channel_id: str, message_id: str):
         """Met à jour l'ID du message de surveillance dans Google Sheets."""
         try:
-            records = self.sheet.get_all_records()
+            records = await self._ws_get_all_records()
             for i, record in enumerate(records, start=2):  # Start=2 car ligne 1 = en-tête
                 record_channel_id = str(record.get('channel_id')).lstrip("'")
                 clean_channel_id = str(channel_id).lstrip("'")
                 if record_channel_id == clean_channel_id:
                     cell = f'H{i}'
                     formatted_id = self.format_id_for_sheets(message_id)
-                    self.sheet.update(cell, formatted_id)  # Colonne H = message_id
-                    written = str(self.sheet.cell(i, 8).value).lstrip("'")
+                    await self._ws_update(cell, formatted_id)  # Colonne H = message_id
+                    cell_value = await self._ws_cell(i, 8)
+                    written = str(cell_value.value).lstrip("'") if cell_value else ''
                     if written != str(message_id):
                         logging.error(
                             f"Incohérence de message_id pour {channel_id}: écrit {written}, attendu {message_id}"
@@ -1517,12 +1567,12 @@ class SurveillanceScene(commands.Cog):
     async def update_scene_gm(self, channel_id: str, new_gm_id: str):
         """Met à jour le MJ d'une scène dans Google Sheets."""
         try:
-            records = self.sheet.get_all_records()
+            records = await self._ws_get_all_records()
             for i, record in enumerate(records, start=2):
                 record_channel_id = str(record.get('channel_id')).lstrip("'")
                 clean_channel_id = str(channel_id).lstrip("'")
                 if record_channel_id == clean_channel_id:
-                    self.sheet.update(f'C{i}', self.format_id_for_sheets(new_gm_id))  # Colonne C = gm_id
+                    await self._ws_update(f'C{i}', self.format_id_for_sheets(new_gm_id))  # Colonne C = gm_id
                     break
         except Exception as e:
             logging.error(f"Erreur lors de la mise à jour du MJ: {e}")
@@ -1530,10 +1580,10 @@ class SurveillanceScene(commands.Cog):
     async def remove_scene_from_sheets(self, channel_id: str):
         """Supprime une scène de Google Sheets seulement (pour nettoyage)."""
         try:
-            records = self.sheet.get_all_records()
+            records = await self._ws_get_all_records()
             for i, record in enumerate(records, start=2):
                 if str(record.get('channel_id')) == str(channel_id):
-                    self.sheet.delete_rows(i)
+                    await self._ws_delete_rows(i)
                     logging.info(f"Scène {channel_id} supprimée de Google Sheets")
                     break
         except Exception as e:
@@ -1542,12 +1592,12 @@ class SurveillanceScene(commands.Cog):
     async def remove_scene_surveillance(self, channel_id: str):
         """Supprime une scène de la surveillance."""
         try:
-            records = self.sheet.get_all_records()
+            records = await self._ws_get_all_records()
             for i, record in enumerate(records, start=2):
                 record_channel_id = str(record.get('channel_id')).lstrip("'")
                 clean_channel_id = str(channel_id).lstrip("'")
                 if record_channel_id == clean_channel_id:
-                    self.sheet.delete_rows(i)
+                    await self._ws_delete_rows(i)
                     break
 
             # Supprimer du cache local
@@ -1562,9 +1612,7 @@ class SurveillanceScene(commands.Cog):
         try:
             logging.info(f"Mise à jour des données pour le canal {channel_id}")
 
-
-
-            records = self.sheet.get_all_records()
+            records = await self._ws_get_all_records()
 
             found = False
             for i, record in enumerate(records, start=2):
@@ -1576,7 +1624,7 @@ class SurveillanceScene(commands.Cog):
 
                 if clean_record_id == clean_channel_id:
                     # Mettre à jour toute la ligne (avec apostrophe pour forcer le format texte sur les IDs)
-                    self.sheet.update(f'A{i}:J{i}', [[
+                    await self._ws_update(f'A{i}:J{i}', [[
                         self.format_id_for_sheets(scene_data['channel_id']),
                         scene_data['scene_name'],
                         self.format_id_for_sheets(scene_data['gm_id']),
@@ -1596,7 +1644,7 @@ class SurveillanceScene(commands.Cog):
                 # Canal non trouvé dans Google Sheets - l'ajouter automatiquement
                 logging.warning(f"Canal {channel_id} non trouvé dans Google Sheets - ajout automatique")
                 try:
-                    self.sheet.append_row([
+                    await self._ws_append_row([
                         self.format_id_for_sheets(scene_data['channel_id']),
                         scene_data['scene_name'],
                         self.format_id_for_sheets(scene_data['gm_id']),
@@ -2009,4 +2057,7 @@ class SurveillanceScene(commands.Cog):
             logging.error(f"Erreur lors du traitement du message: {e}")
 
 async def setup(bot):
-    await bot.add_cog(SurveillanceScene(bot))
+    cog = SurveillanceScene(bot)
+    await bot.add_cog(cog)
+    # Démarrage asynchrone de l'initialisation lourde
+    bot.loop.create_task(cog._async_setup())
