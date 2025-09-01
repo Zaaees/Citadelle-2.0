@@ -35,7 +35,21 @@ class CustomBot(commands.Bot):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.ready_called = False
-        self.health_monitor = get_health_monitor(self)
+        # Initialisation différée du health monitor
+        self.health_monitor = None
+        self._init_health_monitor()
+        
+    def _init_health_monitor(self):
+        """Initialise le health monitor de manière sécurisée."""
+        try:
+            if HEALTH_MONITOR_AVAILABLE:
+                self.health_monitor = get_health_monitor(self)
+                logger.info("✅ Health monitor initialisé")
+            else:
+                logger.info("⚠️ Health monitor non disponible")
+        except Exception as e:
+            logger.warning(f"Impossible d'initialiser le health monitor: {e}")
+            self.health_monitor = None
         self.connection_attempts = 0
         self.max_connection_attempts = 5
 
@@ -58,9 +72,14 @@ class CustomBot(commands.Bot):
             try:
                 await self.load_extension(ext)
                 logger.info(f"Extension {ext} chargée")
+            except RuntimeError as e:
+                logger.error(f"RuntimeError lors du chargement de {ext} : {e}")
+                # Ne pas arrêter le bot pour une erreur de cog
+                continue
             except Exception as e:
                 logger.error(f"Erreur lors du chargement de {ext} : {e}")
                 traceback.print_exc()
+                # Continuer avec les autres cogs
 
         try:
             await self.tree.sync()
@@ -113,7 +132,7 @@ class BotManager:
         self.health_check_thread = None
         self.self_ping_thread = None
         self.should_restart = True
-        self.max_restart_attempts = 10
+        self.max_restart_attempts = 5  # Limiter les tentatives
         self.restart_delay = 30  # secondes
         
     def create_bot(self):
@@ -176,41 +195,82 @@ class BotManager:
     def _health_check_wrapper(self):
         """Wrapper pour le health check qui gère les restarts."""
         while self.should_restart:
-            if self.bot and self.bot.is_closed():
-                logger.warning("🔄 Bot fermé détecté, tentative de redémarrage...")
-                self._restart_bot_async()
-                time.sleep(self.restart_delay)
-                continue
+            try:
+                # Thread-safe check du bot
+                current_bot = self.bot
+                if current_bot and current_bot.is_closed():
+                    logger.warning("🔄 Bot fermé détecté, tentative de redémarrage...")
+                    self._restart_bot_async()
+                    time.sleep(self.restart_delay)
+                    continue
+                    
+                if current_bot:
+                    try:
+                        check_bot_health(current_bot)
+                    except Exception as e:
+                        logger.error(f"❌ Erreur dans health check: {e}")
+                        # Si erreur critique, marquer pour redémarrage
+                        if "critical" in str(e).lower():
+                            logger.error("Erreur critique détectée, redémarrage programmé")
+                            self._restart_bot_async()
+                            time.sleep(self.restart_delay)
+                            continue
                 
-            if self.bot:
-                try:
-                    check_bot_health(self.bot)
-                except Exception as e:
-                    logger.error(f"❌ Erreur dans health check: {e}")
-            
+            except Exception as e:
+                logger.error(f"❌ Erreur dans health check wrapper: {e}")
+                
             time.sleep(60)  # Vérification plus fréquente
     
     def _restart_bot_async(self):
-        """Redémarrer le bot de manière asynchrone."""
+        """Redémarrer le bot de manière asynchrone avec protection contre les boucles infinies."""
         current_state = get_bot_state()
-        update_bot_state('initializing', restart_count=current_state['restart_count'] + 1)
+        restart_count = current_state['restart_count']
         
-        # Créer un nouveau bot
+        # Protection contre les redémarrages excessifs
+        if restart_count >= 5:
+            logger.critical(f"❌ Trop de redémarrages ({restart_count}). Arrêt pour éviter les boucles infinies.")
+            self.should_restart = False
+            update_bot_state('error', error_count=current_state['error_count'] + 1)
+            return
+            
+        logger.info(f"🔄 Redémarrage #{restart_count + 1} en cours...")
+        update_bot_state('initializing', restart_count=restart_count + 1)
+        
+        # Fermer proprement l'ancien bot avec timeout
         old_bot = self.bot
         if old_bot and not old_bot.is_closed():
             try:
-                asyncio.run_coroutine_threadsafe(old_bot.close(), old_bot.loop)
+                # Essayer de fermer avec timeout
+                if hasattr(old_bot, 'loop') and old_bot.loop and not old_bot.loop.is_closed():
+                    future = asyncio.run_coroutine_threadsafe(old_bot.close(), old_bot.loop)
+                    future.result(timeout=10.0)  # Timeout de 10 secondes
+                    logger.info("✅ Ancien bot fermé proprement")
+                else:
+                    logger.warning("⚠️ Loop de l'ancien bot fermée, nettoyage forcé")
+                    
+            except asyncio.TimeoutError:
+                logger.error("❌ Timeout lors de la fermeture de l'ancien bot")
             except Exception as e:
-                logger.error(f"Erreur lors de la fermeture du bot: {e}")
+                logger.error(f"❌ Erreur lors de la fermeture du bot: {e}")
+                
+        # Pause avant redémarrage pour éviter la surcharge
+        time.sleep(2)
         
         # Réinitialiser l'état pour le nouveau bot
         reset_bot_state()
-        self.bot = self.create_bot()
         
-        # Démarrer le nouveau bot dans un thread séparé
-        bot_thread = threading.Thread(target=self._run_bot, daemon=True)
-        bot_thread.start()
-        logger.info("🔄 Nouveau bot créé et démarré")
+        try:
+            self.bot = self.create_bot()
+            
+            # Démarrer le nouveau bot dans un thread séparé
+            bot_thread = threading.Thread(target=self._run_bot, daemon=True)
+            bot_thread.start()
+            logger.info("🚀 Nouveau bot créé et démarré")
+            
+        except Exception as e:
+            logger.critical(f"❌ Impossible de créer le nouveau bot: {e}")
+            update_bot_state('error')
+            self.should_restart = False
     
     def _run_bot(self):
         """Exécuter le bot avec gestion d'erreurs."""

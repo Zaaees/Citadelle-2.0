@@ -15,18 +15,44 @@ class Bump(commands.Cog):
         self.channel_id = 1031999400383348757
         self.disboard_bot_id = 302050872383242240
         
-        # Configuration Google Sheets
+        # Configuration Google Sheets avec gestion d'erreurs
         self.setup_logging()
-        self.SERVICE_ACCOUNT_JSON = json.loads(os.getenv('SERVICE_ACCOUNT_JSON'))
-        self.GOOGLE_SHEET_ID = os.getenv('GOOGLE_SHEET_ID_BUMP')
         self.sheet = None
-
-        # Chargement différé
+        self.initialization_complete = False
+        
+        # Chargement différé avec valeurs par défaut sécurisées
         self.last_bump = datetime.min
         self.last_reminder = datetime.min
+        
+        # Initialisation sécurisée des credentials
+        try:
+            service_account_json = os.getenv('SERVICE_ACCOUNT_JSON')
+            if not service_account_json:
+                raise ValueError("SERVICE_ACCOUNT_JSON non défini")
+            self.SERVICE_ACCOUNT_JSON = json.loads(service_account_json)
+            
+            self.GOOGLE_SHEET_ID = os.getenv('GOOGLE_SHEET_ID_BUMP')
+            if not self.GOOGLE_SHEET_ID:
+                raise ValueError("GOOGLE_SHEET_ID_BUMP non défini")
+                
+        except (json.JSONDecodeError, ValueError) as e:
+            self.logger.error(f"Erreur de configuration Google Sheets: {e}")
+            self.SERVICE_ACCOUNT_JSON = None
+            self.GOOGLE_SHEET_ID = None
 
     async def _async_setup(self):
+        """Initialisation asynchrone sécurisée avec protection contre les race conditions."""
+        if self.initialization_complete:
+            self.logger.info("Initialisation déjà terminée")
+            return
+            
         try:
+            # Vérifier les prérequis
+            if not self.SERVICE_ACCOUNT_JSON or not self.GOOGLE_SHEET_ID:
+                self.logger.error("Configuration Google Sheets manquante, fonctionnement en mode dégradé")
+                self.initialization_complete = True
+                return
+                
             # Créer le service Google Sheets en thread
             def _build_service():
                 credentials = service_account.Credentials.from_service_account_info(
@@ -35,18 +61,30 @@ class Bump(commands.Cog):
                 )
                 service = build('sheets', 'v4', credentials=credentials)
                 return service.spreadsheets()
+                
             self.sheet = await asyncio.to_thread(_build_service)
+            self.logger.info("✅ Service Google Sheets initialisé")
 
-            # Charger les données initiales
-            self.last_bump = await self.load_last_bump()
-            self.last_reminder = await self.load_last_reminder()
+            # Charger les données initiales avec retry
+            try:
+                self.last_bump = await self.load_last_bump()
+                self.last_reminder = await self.load_last_reminder()
+                self.logger.info(f"✅ Données chargées: bump={self.last_bump}, reminder={self.last_reminder}")
+            except Exception as e:
+                self.logger.error(f"Erreur lors du chargement des données: {e}")
+                # Continuer avec les valeurs par défaut
+                
+            self.initialization_complete = True
+            
         except Exception as e:
             self.logger.error(f"Erreur d'initialisation bump: {e}")
+            self.initialization_complete = True  # Marquer comme terminé même en cas d'erreur
 
-        # Démarrer la tâche une fois prêt
+        # Démarrer la tâche seulement si l'initialisation est complète
         try:
-            if not self.check_bump.is_running():
+            if self.initialization_complete and not self.check_bump.is_running():
                 self.check_bump.start()
+                self.logger.info("✅ Tâche check_bump démarrée")
         except Exception as e:
             self.logger.error(f"Erreur lors du démarrage de check_bump: {e}")
 
@@ -59,6 +97,11 @@ class Bump(commands.Cog):
         return service.spreadsheets()
 
     async def load_last_bump(self):
+        """Charger la dernière date de bump avec gestion d'erreurs robuste."""
+        if not self.sheet:
+            self.logger.warning("Sheet non initialisé, utilisation de la valeur par défaut")
+            return datetime.min
+            
         for attempt in range(3):  # Retry up to 3 times
             try:
                 request = self.sheet.values().get(
@@ -67,21 +110,26 @@ class Bump(commands.Cog):
                 )
                 result = await asyncio.to_thread(request.execute)
                 values = result.get('values', [[datetime.min.isoformat()]])
-                return datetime.fromisoformat(values[0][0])
+                
+                if values and values[0]:
+                    return datetime.fromisoformat(values[0][0])
+                else:
+                    return datetime.min
+                    
             except HttpError as e:
                 if e.resp.status == 503:  # Service unavailable
                     self.logger.warning(f"Google Sheets API unavailable (attempt {attempt + 1}/3). Retrying...")
                     await asyncio.sleep(2 ** attempt)  # Exponential backoff
                 else:
                     self.logger.error(f"Error loading last bump: {str(e)}")
-                    # Notifier le canal Discord d'erreur critique
-                    channel = self.bot.get_channel(1230946716849799381)
-                    if channel:
-                        import asyncio
-                        asyncio.create_task(channel.send(f"❌ Erreur critique lors du chargement du dernier bump: {str(e)}"))
-                    self.logger.critical(f"❌ Notification Discord envoyée pour erreur critique dans load_last_bump: {str(e)}")
-                    raise
-        raise RuntimeError("Failed to load last bump after 3 attempts")
+                    break
+            except Exception as e:
+                self.logger.error(f"Erreur inattendue lors du chargement: {e}")
+                break
+                
+        # Si toutes les tentatives échouent, retourner valeur par défaut
+        self.logger.warning("Impossible de charger last_bump, utilisation de datetime.min")
+        return datetime.min
 
     async def save_last_bump(self):
         if not self.sheet:
@@ -96,6 +144,11 @@ class Bump(commands.Cog):
         await asyncio.to_thread(request.execute)
 
     async def load_last_reminder(self):
+        """Charger la dernière date de reminder avec gestion d'erreurs robuste."""
+        if not self.sheet:
+            self.logger.warning("Sheet non initialisé, utilisation de la valeur par défaut")
+            return datetime.min
+            
         for attempt in range(3):  # Retry up to 3 times
             try:
                 request = self.sheet.values().get(
@@ -104,15 +157,26 @@ class Bump(commands.Cog):
                 )
                 result = await asyncio.to_thread(request.execute)
                 values = result.get('values', [[datetime.min.isoformat()]])
-                return datetime.fromisoformat(values[0][0])
+                
+                if values and values[0]:
+                    return datetime.fromisoformat(values[0][0])
+                else:
+                    return datetime.min
+                    
             except HttpError as e:
                 if e.resp.status == 503:  # Service unavailable
                     self.logger.warning(f"Google Sheets API unavailable (attempt {attempt + 1}/3). Retrying...")
                     await asyncio.sleep(2 ** attempt)  # Exponential backoff
                 else:
                     self.logger.error(f"Error loading last reminder: {str(e)}")
-                    raise
-        raise RuntimeError("Failed to load last reminder after 3 attempts")
+                    break
+            except Exception as e:
+                self.logger.error(f"Erreur inattendue lors du chargement du reminder: {e}")
+                break
+                
+        # Si toutes les tentatives échouent, retourner valeur par défaut
+        self.logger.warning("Impossible de charger last_reminder, utilisation de datetime.min")
+        return datetime.min
 
     async def save_last_reminder(self):
         if not self.sheet:
@@ -230,13 +294,20 @@ class Bump(commands.Cog):
 
     @check_bump.before_loop
     async def before_check_bump(self):
+        """Attendre que le bot soit prêt et l'initialisation terminée."""
         await self.bot.wait_until_ready()
+        # Attendre que l'initialisation soit terminée
+        while not self.initialization_complete:
+            await asyncio.sleep(0.5)
+        self.logger.info("✅ Check bump prêt à démarrer")
 
-    def cog_unload(self):
+    async def cog_unload(self):
         self.check_bump.cancel()
 
 async def setup(bot):
+    """Setup du cog avec initialisation sécurisée."""
     cog = Bump(bot)
     await bot.add_cog(cog)
+    # Démarrer l'initialisation asynchrone de manière sécurisée
     bot.loop.create_task(cog._async_setup())
     print("Cog bump chargé avec succès")

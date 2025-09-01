@@ -3,7 +3,18 @@ import time
 import logging
 from datetime import datetime, timedelta
 
-from utils.connection_manager import resource_monitor
+# Imports conditionnels pour les dépendances optionnelles
+try:
+    from utils.connection_manager import resource_monitor
+    CONNECTION_MANAGER_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Connection manager non disponible: {e}")
+    class MockResourceMonitor:
+        def check_and_cleanup(self):
+            pass
+    resource_monitor = MockResourceMonitor()
+    CONNECTION_MANAGER_AVAILABLE = False
+    
 from server import get_last_heartbeat, get_request_count
 
 logger = logging.getLogger('bot')
@@ -145,7 +156,8 @@ def check_bot_health(bot):
 
             # 5. Nettoyer les ressources périodiquement
             try:
-                resource_monitor.check_and_cleanup()
+                if CONNECTION_MANAGER_AVAILABLE:
+                    resource_monitor.check_and_cleanup()
             except Exception as e:
                 logger.error(f"Erreur lors du nettoyage des ressources: {e}")
 
@@ -166,8 +178,8 @@ def check_bot_health(bot):
             try:
                 from bot_state import update_bot_state
                 update_bot_state('connected', latency=bot.latency)
-            except ImportError:
-                pass
+            except (ImportError, Exception) as e:
+                logger.debug(f"Impossible de mettre à jour l'état: {e}")
             
             logger.info(
                 f"💚 Santé du bot: OK (latence: {bot.latency:.2f}s, requêtes HTTP: {get_request_count()}, échecs: {consecutive_failures})"
