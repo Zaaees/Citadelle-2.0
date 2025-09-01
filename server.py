@@ -4,7 +4,7 @@ import json
 import logging
 import traceback
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from datetime import datetime
+from datetime import datetime, timedelta
 import threading
 
 # Logger for this module
@@ -15,6 +15,9 @@ bot_start_time = datetime.now()
 last_heartbeat = datetime.now()
 request_count = 0
 state_lock = threading.Lock()
+
+# Import de l'état du bot centralisé
+from bot_state import get_bot_state
 
 
 def increment_request_count():
@@ -107,6 +110,112 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             self.send_header('Content-type', 'text/plain')
             self.end_headers()
             self.wfile.write(b'pong')
+            
+        elif self.path == '/bot-status':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.end_headers()
+            
+            try:
+                bot_state = get_bot_state()
+                current_time = datetime.now()
+                
+                # Calculer des métriques spécifiques au bot
+                status_details = {
+                    'bot_status': bot_state['status'],
+                    'is_connected': bot_state['status'] == 'connected',
+                    'restart_count': bot_state['restart_count'],
+                    'error_count': bot_state['error_count'],
+                    'current_latency': bot_state['latency'],
+                    'timestamp': current_time.isoformat()
+                }
+                
+                # Ajouter les temps de connexion/déconnexion si disponibles
+                if bot_state['last_ready']:
+                    status_details['last_ready'] = bot_state['last_ready'].isoformat()
+                    time_since_ready = current_time - bot_state['last_ready']
+                    status_details['seconds_since_ready'] = int(time_since_ready.total_seconds())
+                
+                if bot_state['last_disconnect']:
+                    status_details['last_disconnect'] = bot_state['last_disconnect'].isoformat()
+                    time_since_disconnect = current_time - bot_state['last_disconnect']
+                    status_details['seconds_since_disconnect'] = int(time_since_disconnect.total_seconds())
+                
+                # Uptime du bot
+                uptime = current_time - bot_state['uptime_start']
+                status_details['bot_uptime_seconds'] = int(uptime.total_seconds())
+                status_details['bot_uptime_human'] = str(uptime)
+                
+                # Indicateurs de santé
+                if bot_state['status'] == 'connected':
+                    status_details['health_status'] = 'healthy'
+                elif bot_state['status'] in ['connecting', 'initializing']:
+                    status_details['health_status'] = 'starting'
+                elif bot_state['status'] == 'disconnected':
+                    # Vérifier si c'est une déconnexion récente
+                    if (bot_state['last_disconnect'] and 
+                        current_time - bot_state['last_disconnect'] < timedelta(minutes=2)):
+                        status_details['health_status'] = 'reconnecting'
+                    else:
+                        status_details['health_status'] = 'unhealthy'
+                else:
+                    status_details['health_status'] = 'error'
+                
+                self.wfile.write(json.dumps(status_details, indent=2).encode())
+                
+            except Exception as e:
+                error_response = {
+                    'error': 'Unable to get bot status',
+                    'details': str(e),
+                    'timestamp': datetime.now().isoformat()
+                }
+                self.wfile.write(json.dumps(error_response).encode())
+        
+        elif self.path == '/metrics':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.end_headers()
+            
+            try:
+                bot_state = get_bot_state()
+                current_time = datetime.now()
+                
+                metrics = {
+                    'server': {
+                        'uptime_seconds': int((current_time - bot_start_time).total_seconds()),
+                        'request_count': get_request_count(),
+                        'last_heartbeat': get_last_heartbeat().isoformat()
+                    },
+                    'bot': {
+                        'status': bot_state['status'],
+                        'restart_count': bot_state['restart_count'],
+                        'error_count': bot_state['error_count'],
+                        'uptime_seconds': int((current_time - bot_state['uptime_start']).total_seconds()),
+                        'latency': bot_state['latency']
+                    },
+                    'timestamp': current_time.isoformat()
+                }
+                
+                # Ajouter les métriques avancées si disponibles
+                try:
+                    from utils.health_monitor import health_monitor
+                    if health_monitor:
+                        advanced_metrics = health_monitor.metrics.get_health_summary()
+                        metrics['advanced'] = advanced_metrics
+                except Exception:
+                    pass
+                
+                self.wfile.write(json.dumps(metrics, indent=2).encode())
+                
+            except Exception as e:
+                error_response = {
+                    'error': 'Unable to get metrics',
+                    'details': str(e),
+                    'timestamp': datetime.now().isoformat()
+                }
+                self.wfile.write(json.dumps(error_response).encode())
 
         else:
             self.send_response(404)
