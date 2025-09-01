@@ -68,16 +68,27 @@ class CustomBot(commands.Bot):
         logger.info("Tous les cogs ont été chargés")
 
     def start_http_server_thread(self):
+        """Lance le serveur HTTP si aucun thread actif n'existe."""
+        if self.http_server_thread and self.http_server_thread.is_alive():
+            return
         self.http_server_thread = threading.Thread(target=start_http_server, daemon=True)
         self.http_server_thread.start()
         logger.info("Thread du serveur HTTP démarré")
 
     def start_health_check_thread(self):
-        self.health_check_thread = threading.Thread(target=check_bot_health, args=(self,), daemon=True)
+        """Démarre la surveillance de santé si nécessaire."""
+        if self.health_check_thread and self.health_check_thread.is_alive():
+            return
+        self.health_check_thread = threading.Thread(
+            target=check_bot_health, args=(self,), daemon=True
+        )
         self.health_check_thread.start()
         logger.info("Thread de surveillance de santé démarré")
 
     def start_self_ping_thread(self):
+        """Lance le thread de self-ping si nécessaire."""
+        if self.self_ping_thread and self.self_ping_thread.is_alive():
+            return
         self.self_ping_thread = threading.Thread(target=self_ping, daemon=True)
         self.self_ping_thread.start()
         logger.info("Thread de self-ping démarré")
@@ -144,7 +155,6 @@ def main():
 
     async def on_ready():
         bot.ready_called = True
-        bot.start_health_check_thread()
         logger.info(f'🤖 Connecté en tant que {bot.user.name}')
         logger.info(f'🆔 ID du bot : {bot.user.id}')
         logger.info(f'🏓 Latence actuelle : {bot.latency:.2f}s')
