@@ -10,6 +10,7 @@ from gspread.exceptions import CellNotFound
 import datetime
 import time
 import traceback
+import asyncio
 
 load_dotenv()
 

@@ -30,6 +30,27 @@ load_dotenv()
 # Import de l'état du bot centralisé
 from bot_state import update_bot_state, get_bot_state, reset_bot_state
 
+# Imports conditionnels pour les dépendances optionnelles
+try:
+    from utils.health_monitor import get_health_monitor
+    HEALTH_MONITOR_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Health monitor non disponible: {e}")
+    def get_health_monitor(bot):
+        return None
+    HEALTH_MONITOR_AVAILABLE = False
+    
+try:
+    from utils.connection_manager import resource_monitor
+    CONNECTION_MANAGER_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Connection manager non disponible: {e}")
+    class MockResourceMonitor:
+        def check_and_cleanup(self):
+            pass
+    resource_monitor = MockResourceMonitor()
+    CONNECTION_MANAGER_AVAILABLE = False
+
 
 class CustomBot(commands.Bot):
     def __init__(self, *args, **kwargs):
