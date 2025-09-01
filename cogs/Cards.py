@@ -207,7 +207,7 @@ class Cards(commands.Cog):
                     self.upgrade_cards_by_category[category] = full_files
                     logger.info(f"[CARDS] {len(full_files)} cartes Full chargées pour {category}")
                 else:
-                    logger.warning(f"[CARDS] Variable d'environnement {full_folder_var} non définie - aucune carte Full pour {category}")
+                    logger.info(f"[CARDS] Pas de dossier Full configuré pour {category} - cartes Full désactivées (normal si pas encore implémenté)")
                     self.upgrade_cards_by_category[category] = []
 
             logger.info("[CARDS] ✅ Chargement des fichiers de cartes terminé")
@@ -879,7 +879,7 @@ class Cards(commands.Cog):
 
                     # Si aucune carte Full n'existe, ne pas effectuer l'upgrade
                     if not file_id:
-                        logger.warning(f"[UPGRADE] Carte Full {full_name} introuvable dans toutes les catégories. Upgrade ignoré pour éviter la perte de cartes.")
+                        logger.info(f"[UPGRADE] Carte Full {full_name} non disponible dans les catégories configurées. Upgrade reporté.")
                         continue
 
                     # Maintenant que nous savons que la carte Full existe, retirer les cartes normales
