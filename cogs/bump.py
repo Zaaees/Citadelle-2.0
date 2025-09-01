@@ -8,8 +8,6 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import json
 import logging
-import time
-from functools import partial
 
 class Bump(commands.Cog):
     def __init__(self, bot):
@@ -39,9 +37,9 @@ class Bump(commands.Cog):
                 return service.spreadsheets()
             self.sheet = await asyncio.to_thread(_build_service)
 
-            # Charger les données initiales en thread
-            self.last_bump = await asyncio.to_thread(self.load_last_bump)
-            self.last_reminder = await asyncio.to_thread(self.load_last_reminder)
+            # Charger les données initiales
+            self.last_bump = await self.load_last_bump()
+            self.last_reminder = await self.load_last_reminder()
         except Exception as e:
             self.logger.error(f"Erreur d'initialisation bump: {e}")
 
@@ -60,19 +58,20 @@ class Bump(commands.Cog):
         service = build('sheets', 'v4', credentials=credentials)
         return service.spreadsheets()
 
-    def load_last_bump(self):
+    async def load_last_bump(self):
         for attempt in range(3):  # Retry up to 3 times
             try:
-                result = self.sheet.values().get(
+                request = self.sheet.values().get(
                     spreadsheetId=self.GOOGLE_SHEET_ID,
                     range='A2'
-                ).execute()
+                )
+                result = await asyncio.to_thread(request.execute)
                 values = result.get('values', [[datetime.min.isoformat()]])
                 return datetime.fromisoformat(values[0][0])
             except HttpError as e:
                 if e.resp.status == 503:  # Service unavailable
                     self.logger.warning(f"Google Sheets API unavailable (attempt {attempt + 1}/3). Retrying...")
-                    time.sleep(2 ** attempt)  # Exponential backoff
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
                 else:
                     self.logger.error(f"Error loading last bump: {str(e)}")
                     # Notifier le canal Discord d'erreur critique
@@ -88,28 +87,28 @@ class Bump(commands.Cog):
         if not self.sheet:
             self.logger.warning("Sheet non initialisé; report de save_last_bump")
             return
-        def _do_update():
-            self.sheet.values().update(
-                spreadsheetId=self.GOOGLE_SHEET_ID,
-                range='A2',
-                valueInputOption='RAW',
-                body={'values': [[self.last_bump.isoformat()]]}
-            ).execute()
-        await asyncio.to_thread(_do_update)
+        request = self.sheet.values().update(
+            spreadsheetId=self.GOOGLE_SHEET_ID,
+            range='A2',
+            valueInputOption='RAW',
+            body={'values': [[self.last_bump.isoformat()]]}
+        )
+        await asyncio.to_thread(request.execute)
 
-    def load_last_reminder(self):
+    async def load_last_reminder(self):
         for attempt in range(3):  # Retry up to 3 times
             try:
-                result = self.sheet.values().get(
+                request = self.sheet.values().get(
                     spreadsheetId=self.GOOGLE_SHEET_ID,
                     range='B2'
-                ).execute()
+                )
+                result = await asyncio.to_thread(request.execute)
                 values = result.get('values', [[datetime.min.isoformat()]])
                 return datetime.fromisoformat(values[0][0])
             except HttpError as e:
                 if e.resp.status == 503:  # Service unavailable
                     self.logger.warning(f"Google Sheets API unavailable (attempt {attempt + 1}/3). Retrying...")
-                    time.sleep(2 ** attempt)  # Exponential backoff
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
                 else:
                     self.logger.error(f"Error loading last reminder: {str(e)}")
                     raise
@@ -119,14 +118,13 @@ class Bump(commands.Cog):
         if not self.sheet:
             self.logger.warning("Sheet non initialisé; report de save_last_reminder")
             return
-        def _do_update():
-            self.sheet.values().update(
-                spreadsheetId=self.GOOGLE_SHEET_ID,
-                range='B2',
-                valueInputOption='RAW',
-                body={'values': [[self.last_reminder.isoformat()]]}
-            ).execute()
-        await asyncio.to_thread(_do_update)
+        request = self.sheet.values().update(
+            spreadsheetId=self.GOOGLE_SHEET_ID,
+            range='B2',
+            valueInputOption='RAW',
+            body={'values': [[self.last_reminder.isoformat()]]}
+        )
+        await asyncio.to_thread(request.execute)
 
     def setup_logging(self):
         self.logger = logging.getLogger('bump_cog')
