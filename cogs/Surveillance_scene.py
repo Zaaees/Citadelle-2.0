@@ -193,7 +193,7 @@ class SurveillanceScene(commands.Cog):
             credentials = await asyncio.to_thread(
                 Credentials.from_service_account_info,
                 creds_info,
-                ['https://www.googleapis.com/auth/spreadsheets']
+                scopes=['https://www.googleapis.com/auth/spreadsheets']
             )
         except Exception as e:
             logging.error(f"Erreur lors du chargement des credentials Google Sheets: {e}")

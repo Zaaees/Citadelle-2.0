@@ -47,7 +47,7 @@ class Inventory(commands.Cog):
                 creds = await asyncio.to_thread(
                     ServiceAccountCredentials.from_service_account_info,
                     json.loads(os.getenv('SERVICE_ACCOUNT_JSON')),
-                    self.SCOPES
+                    scopes=self.SCOPES
                 )
                 self.client = await asyncio.to_thread(gspread.authorize, creds)
                 self.spreadsheet = await asyncio.to_thread(self.client.open_by_key, os.getenv('GOOGLE_SHEET_ID_INVENTAIRE'))
