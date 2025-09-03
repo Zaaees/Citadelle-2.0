@@ -3,6 +3,9 @@ import time
 import logging
 from datetime import datetime, timedelta
 
+# Logger doit être défini AVANT les imports conditionnels
+logger = logging.getLogger('bot')
+
 # Imports conditionnels pour les dépendances optionnelles
 try:
     from utils.connection_manager import resource_monitor
@@ -16,8 +19,6 @@ except ImportError as e:
     CONNECTION_MANAGER_AVAILABLE = False
     
 from server import get_last_heartbeat, get_request_count
-
-logger = logging.getLogger('bot')
 
 
 def check_cog_tasks_health(bot):
@@ -53,16 +54,27 @@ def check_cog_tasks_health(bot):
         logger.error(f"❌ Erreur lors de la vérification globale des tâches: {e}")
 
 
-def check_bot_health(bot):
-    consecutive_failures = 0
-    max_consecutive_failures = int(os.environ.get('HEALTHCHECK_MAX_FAILURES', '5'))  # Plus agressif
-    force_restart = os.environ.get('HEALTHCHECK_FORCE_RESTART', 'true').lower() in ('1', 'true', 'yes')  # Activé par défaut
-    last_task_check = datetime.now()
-    last_latency_check = datetime.now()
-    high_latency_count = 0
+# Variable globale pour contrôler l'arrêt du monitoring
+_monitoring_active = True
 
-    while True:
-        time.sleep(120)  # Vérification plus fréquente (2 minutes)
+def stop_health_monitoring():
+    """Arrête le monitoring de santé proprement."""
+    global _monitoring_active
+    _monitoring_active = False
+
+def check_bot_health(bot):
+    global _monitoring_active
+    consecutive_failures = 0
+    max_consecutive_failures = int(os.environ.get('HEALTHCHECK_MAX_FAILURES', '8'))  # Moins agressif pour Render
+    force_restart = os.environ.get('HEALTHCHECK_FORCE_RESTART', 'false').lower() in ('1', 'true', 'yes')  # Désactivé par défaut pour Render
+    last_task_check = datetime.now()
+    high_latency_count = 0
+    check_interval = 180  # 3 minutes au lieu de 2
+
+    logger.info(f"🏥 Health monitoring démarré (max_failures: {max_consecutive_failures}, force_restart: {force_restart})")
+
+    while _monitoring_active:
+        time.sleep(check_interval)  # Vérification moins fréquente pour Render
 
         try:
             # Vérifications de santé
@@ -71,6 +83,7 @@ def check_bot_health(bot):
             # Vérifier si le bot est fermé
             if bot.is_closed():
                 logger.warning("⚠️ Bot fermé détecté, arrêt du monitoring")
+                _monitoring_active = False
                 break
 
             # 1. Vérifier si on_ready a été appelé
@@ -92,24 +105,27 @@ def check_bot_health(bot):
                         logger.error("on_ready jamais appelé - redémarrage non forcé (configurable)")
                 continue
 
-            # 2. Vérifier la latence (plus strict)
-            if bot.latency == float('inf') or bot.latency > 15.0:  # Seuil plus strict
+            # 2. Vérifier la latence (seuil adapté pour Render)
+            if bot.latency == float('inf') or bot.latency > 25.0:  # Seuil plus tolérant pour Render
                 high_latency_count += 1
-                consecutive_failures += 1
                 logger.warning(
-                    f"⚠️ Latence problématique: {bot.latency}s (compte: {high_latency_count}, échec {consecutive_failures}/{max_consecutive_failures})"
+                    f"⚠️ Latence élevée: {bot.latency}s (compte: {high_latency_count})"
                 )
                 
-                # Plusieurs vérifications de latence élevée = problème
-                if high_latency_count >= 3 or consecutive_failures >= max_consecutive_failures:
-                    logger.critical(f"❌ Latence critique persistante: {bot.latency}s. Redémarrage du bot...")
-                    if force_restart:
-                        try:
-                            bot.loop.call_soon_threadsafe(bot.close)
-                        except Exception as e:
-                            logger.error(f"Erreur lors du close: {e}")
-                    else:
-                        logger.error("Latence critique détectée - redémarrage non forcé (configurable)")
+                # Plus tolérant pour éviter les faux positifs
+                if high_latency_count >= 5:
+                    consecutive_failures += 1
+                    logger.warning(f"⚠️ Latence persistante détectée ({consecutive_failures}/{max_consecutive_failures})")
+                    
+                    if consecutive_failures >= max_consecutive_failures:
+                        logger.critical(f"❌ Latence critique persistante: {bot.latency}s")
+                        if force_restart:
+                            try:
+                                asyncio.run_coroutine_threadsafe(bot.close(), bot.loop).result(timeout=5)
+                            except Exception as e:
+                                logger.error(f"Erreur lors du close: {e}")
+                        else:
+                            logger.error("Latence critique détectée - monitoring seulement")
                 continue
             else:
                 # Réinitialiser le compteur si la latence redevient normale
@@ -161,11 +177,14 @@ def check_bot_health(bot):
             except Exception as e:
                 logger.error(f"Erreur lors du nettoyage des ressources: {e}")
 
-            # 6. Vérifier le heartbeat du serveur HTTP
-            time_since_heartbeat = current_time - get_last_heartbeat()
-            if time_since_heartbeat > timedelta(minutes=8):  # Plus strict
-                logger.warning(f"⚠️ Aucun heartbeat HTTP depuis {time_since_heartbeat}")
-                consecutive_failures += 1
+            # 6. Vérifier le heartbeat du serveur HTTP (plus tolérant pour Render)
+            try:
+                time_since_heartbeat = current_time - get_last_heartbeat()
+                if time_since_heartbeat > timedelta(minutes=15):  # Plus tolérant
+                    logger.warning(f"⚠️ Aucun heartbeat HTTP depuis {time_since_heartbeat}")
+                    consecutive_failures += 1
+            except Exception as e:
+                logger.debug(f"Erreur lors de la vérification du heartbeat: {e}")
 
             # Si on arrive ici, tout va bien
             if consecutive_failures > 0:
@@ -206,48 +225,63 @@ def check_bot_health(bot):
 
 
 def self_ping():
-    """Fonction pour se ping soi-même et maintenir l'activité"""
+    """Fonction intelligente pour maintenir l'activité sur Render"""
     import requests
     
     consecutive_failures = 0
-    max_failures = 3
+    max_failures = 5  # Plus tolérant
+    ping_interval = 360  # 6 minutes au lieu de 5
+
+    logger.info("🏓 Self-ping Render démarré")
 
     while True:
         try:
-            time.sleep(300)  # Ping toutes les 5 minutes
+            time.sleep(ping_interval)
             port = int(os.environ.get("PORT", 10000))
             ping_success = False
 
-            # Essayer de ping localhost d'abord
-            try:
-                response = requests.get(f"http://localhost:{port}/ping", timeout=10)
-                if response.status_code == 200:
-                    logger.info("🏓 Self-ping réussi (localhost)")
-                    ping_success = True
-                    consecutive_failures = 0
-            except Exception as e:
-                logger.debug(f"Localhost ping failed: {e}")
+            # Stratégie intelligente de ping
+            endpoints_to_try = [
+                (f"http://localhost:{port}/ping", "localhost", 8),
+                (f"http://127.0.0.1:{port}/ping", "127.0.0.1", 8),
+            ]
+            
+            # Ajouter l'URL Render si disponible
+            render_url = os.environ.get("RENDER_EXTERNAL_URL")
+            if render_url:
+                endpoints_to_try.append((f"{render_url}/ping", "Render URL", 15))
 
-            # Si localhost ne marche pas, essayer l'URL Render si disponible
-            if not ping_success:
-                render_url = os.environ.get("RENDER_EXTERNAL_URL")
-                if render_url:
-                    try:
-                        response = requests.get(f"{render_url}/ping", timeout=15)
-                        if response.status_code == 200:
-                            logger.info("🏓 Self-ping réussi (Render URL)")
-                            ping_success = True
-                            consecutive_failures = 0
-                    except Exception as e:
-                        logger.debug(f"Render URL ping failed: {e}")
+            for url, name, timeout in endpoints_to_try:
+                try:
+                    response = requests.get(url, timeout=timeout)
+                    if response.status_code == 200:
+                        logger.info(f"🏓 Self-ping réussi ({name})")
+                        ping_success = True
+                        consecutive_failures = 0
+                        break
+                except requests.exceptions.RequestException as e:
+                    logger.debug(f"Ping {name} échoué: {e}")
+                    continue
 
             if not ping_success:
                 consecutive_failures += 1
-                logger.warning(f"⚠️ Self-ping échoué ({consecutive_failures}/{max_failures})")
+                logger.warning(f"⚠️ Tous les self-ping ont échoué ({consecutive_failures}/{max_failures})")
                 
+                # Attendre plus longtemps après un échec
+                if consecutive_failures >= 2:
+                    time.sleep(60)  # Attendre 1 minute supplémentaire
+                    
                 if consecutive_failures >= max_failures:
-                    logger.error("❌ Serveur HTTP semble non réactif après plusieurs tentatives")
+                    logger.error("❌ Self-ping échec critique - serveur possiblement inaccessible")
+                    # Ne pas forcer l'arrêt, juste logger
+            else:
+                # Log périodique pour confirmer l'activité
+                current_hour = datetime.now().hour
+                if current_hour % 2 == 0 and datetime.now().minute < 10:
+                    logger.info(f"💚 Self-ping maintenance active (échecs consécutifs: {consecutive_failures})")
 
         except Exception as e:
             consecutive_failures += 1
-            logger.error(f"❌ Erreur lors du self-ping: {e} ({consecutive_failures}/{max_failures})")
+            logger.error(f"❌ Erreur critique dans self-ping: {e} ({consecutive_failures}/{max_failures})")
+            # Attendre avant de réessayer en cas d'erreur critique
+            time.sleep(120)

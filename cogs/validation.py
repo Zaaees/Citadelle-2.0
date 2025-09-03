@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import os
 import re
 import time
+import asyncio
 
 class ValidationView(discord.ui.View):
     def __init__(self, cog=None):  # Modifier pour accepter le cog au lieu du sheet
@@ -381,6 +382,43 @@ class Validation(commands.Cog):
                     await message.pin()
                     # Ajouter le canal et l'ID du message à la feuille
                     self.sheet.append_row([str(after.id), "[]", "{}", str(message.id), "[]"])
+
+    @commands.command(name="render_diagnostic")
+    @commands.has_permissions(administrator=True)
+    async def render_diagnostic_command(self, ctx):
+        """Exécute un diagnostic complet pour détecter les problèmes de déconnexion sur Render."""
+        await ctx.send("🔍 Démarrage du diagnostic Render... (cela peut prendre quelques secondes)")
+        
+        try:
+            from render_diagnostic import run_render_diagnostic
+            
+            # Exécuter le diagnostic
+            report = await run_render_diagnostic(self.bot)
+            
+            # Envoyer le rapport (diviser si trop long)
+            if len(report) <= 1900:
+                await ctx.send(f"```\n{report}\n```")
+            else:
+                # Diviser le rapport en chunks
+                lines = report.split('\n')
+                current_chunk = []
+                current_length = 0
+                
+                for line in lines:
+                    if current_length + len(line) + 1 > 1900:
+                        if current_chunk:
+                            await ctx.send(f"```\n" + '\n'.join(current_chunk) + "\n```")
+                            current_chunk = []
+                            current_length = 0
+                    
+                    current_chunk.append(line)
+                    current_length += len(line) + 1
+                
+                if current_chunk:
+                    await ctx.send(f"```\n" + '\n'.join(current_chunk) + "\n```")
+                    
+        except Exception as e:
+            await ctx.send(f"❌ Erreur lors de l'exécution du diagnostic: {e}")
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Validation(bot))

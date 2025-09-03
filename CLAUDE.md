@@ -10,15 +10,26 @@ python main.py
 ```
 
 ### Testing
-```bash
-pytest tests/
-```
-Run tests for specific components like inactive user tracking, surveillance scenes, and trading board functionality.
+Currently, this project does not have a formal test suite. The bot includes some internal testing commands:
+- `!test_names` - Tests name extraction functionality in surveillance scenes
+- Built-in validation and error handling throughout the codebase
 
 ### Dependencies
 ```bash
 pip install -r requirements.txt
 ```
+
+### Environment Setup
+Copy `.env` file and configure required environment variables:
+- `DISCORD_TOKEN` - Your Discord bot token
+- `SERVICE_ACCOUNT_JSON` - Google service account credentials (JSON string)
+
+### Local Development
+```bash
+# Ensure environment variables are set
+python main.py
+```
+The bot will start with health monitoring on port 10000 by default.
 
 ## Project Architecture
 
@@ -39,7 +50,15 @@ This is a Discord bot built with discord.py that implements a comprehensive role
 - Self-ping mechanism to maintain activity on hosting platforms
 
 **Card Collection System (`cogs/Cards.py` + `cogs/cards/` modules)**
-- Modular architecture with 15 specialized modules (2,973 lines total)
+- Modular architecture with specialized modules:
+  - `config.py` - Configuration and constants
+  - `models.py` - Data models and structures  
+  - `storage.py` - Google Sheets integration
+  - `drawing.py` - Card drawing mechanics
+  - `trading.py` - Trading system
+  - `forum.py` - Forum functionality
+  - `discovery.py` - Discovery logging
+  - `utils.py` - Utility functions
 - Google Sheets integration for persistent storage
 - Features: card drawing, trading, vault system, discovery logging, forum
 - Async/threaded Google API operations to prevent Discord event loop blocking
@@ -73,12 +92,12 @@ Key environment variables:
 - `HEALTHCHECK_MAX_FAILURES` - Health check failure threshold (default: 10)
 - `HEALTHCHECK_FORCE_RESTART` - Enable automatic restarts (default: false)
 
-### Testing
+### Development Testing
 
-Test files are in `tests/` directory using pytest framework:
-- Component-specific tests for user tracking, surveillance, and trading
-- Mock Discord objects for isolated testing
-- Path manipulation for proper module imports
+The project currently lacks a formal test suite, but includes internal validation:
+- Bot commands include built-in error handling and validation
+- Google Sheets operations include connection testing and retry logic
+- Health monitoring system provides continuous validation of bot state
 
 ### Deployment
 

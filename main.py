@@ -11,6 +11,7 @@ from datetime import datetime
 from utils.health_monitor import get_health_monitor
 from server import start_http_server
 from monitoring import check_bot_health, self_ping
+from render_keepalive import setup_render_keepalive
 
 # Configuration des logs
 logging.basicConfig(
@@ -120,6 +121,15 @@ class CustomBot(commands.Bot):
         update_bot_state('disconnected', last_disconnect=datetime.now())
         if self.health_monitor:
             self.health_monitor.metrics.record_connection_event('disconnect')
+            
+        # Arrêter le keep-alive si nécessaire
+        try:
+            from render_keepalive import get_keepalive
+            keepalive = get_keepalive()
+            if keepalive:
+                await keepalive.stop_keepalive()
+        except Exception as e:
+            logger.debug(f"Erreur lors de l'arrêt du keep-alive: {e}")
 
     async def on_resumed(self):
         """Événement appelé lors de la reconnexion."""
@@ -162,13 +172,13 @@ class BotManager:
         intents.message_content = True
         intents.members = True
 
-        # Configuration plus agressive pour la robustesse
+        # Configuration optimisée pour Render
         bot = CustomBot(
             command_prefix='!',
             intents=intents,
-            heartbeat_timeout=30.0,  # Plus agressif
-            guild_ready_timeout=5.0,  # Plus rapide
-            max_messages=5000,
+            heartbeat_timeout=60.0,  # Plus tolérant pour Render
+            guild_ready_timeout=10.0,  # Plus de temps pour l'initialisation
+            max_messages=1000,  # Réduire l'usage mémoire
             chunk_guilds_at_startup=False,
             member_cache_flags=discord.MemberCacheFlags.from_intents(intents)
         )
@@ -185,6 +195,14 @@ class BotManager:
             if bot.health_monitor:
                 bot.health_monitor.metrics.record_connection_event('ready')
                 bot.health_monitor.start_monitoring()
+
+            # Démarrer le keep-alive spécial pour Render
+            try:
+                keepalive = setup_render_keepalive(bot)
+                await keepalive.start_keepalive()
+                logger.info("🔄 Render Keep-Alive activé")
+            except Exception as e:
+                logger.warning(f"⚠️ Impossible de démarrer le keep-alive: {e}")
 
             logger.info("🚀 Bot complètement opérationnel !")
 
@@ -227,20 +245,31 @@ class BotManager:
                     
                 if current_bot:
                     try:
-                        check_bot_health(current_bot)
+                        # Lancer le monitoring dans un thread séparé pour éviter le blocage
+                        monitor_thread = threading.Thread(
+                            target=check_bot_health, 
+                            args=(current_bot,), 
+                            daemon=True
+                        )
+                        monitor_thread.start()
+                        logger.info("🏥 Thread de monitoring santé démarré")
+                        
+                        # Attendre que le monitoring se termine ou que le bot se ferme
+                        while monitor_thread.is_alive() and not current_bot.is_closed() and self.should_restart:
+                            time.sleep(30)
+                            
+                        if monitor_thread.is_alive():
+                            logger.info("🛑 Arrêt du monitoring demandé")
+                            from monitoring import stop_health_monitoring
+                            stop_health_monitoring()
+                            
                     except Exception as e:
                         logger.error(f"❌ Erreur dans health check: {e}")
-                        # Si erreur critique, marquer pour redémarrage
-                        if "critical" in str(e).lower():
-                            logger.error("Erreur critique détectée, redémarrage programmé")
-                            self._restart_bot_async()
-                            time.sleep(self.restart_delay)
-                            continue
                 
             except Exception as e:
                 logger.error(f"❌ Erreur dans health check wrapper: {e}")
                 
-            time.sleep(60)  # Vérification plus fréquente
+            time.sleep(120)  # Vérification moins fréquente pour Render
     
     def _restart_bot_async(self):
         """Redémarrer le bot de manière asynchrone avec protection contre les boucles infinies."""
