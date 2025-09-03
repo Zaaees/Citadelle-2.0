@@ -31,6 +31,24 @@ python main.py
 ```
 The bot will start with health monitoring on port 10000 by default.
 
+### Auto-Update GitHub (Local → GitHub → Render)
+```bash
+# Automatic commit and push with generated message
+python auto_update.py
+
+# Custom commit message
+python auto_update.py --message "fix: your custom message"
+
+# Check for changes without committing
+python auto_update.py --check
+```
+
+**Quick Scripts:**
+- `update.bat` (Windows) - Double-click to auto-update
+- `update.sh` (Unix/Linux/macOS) - Execute to auto-update
+
+The workflow: Local changes → GitHub → Render auto-deployment
+
 ## Project Architecture
 
 This is a Discord bot built with discord.py that implements a comprehensive role-playing and card collection system. The bot is designed for deployment on Render with health monitoring and automatic recovery capabilities.
