@@ -1809,9 +1809,19 @@ class SurveillanceScene(commands.Cog):
 
             for scene, message in zip(scenes, existing_messages):
                 try:
-                    embed = await self.create_surveillance_embed(scene)
-                    view = SceneSurveillanceView(self, scene)
-                    await message.edit(embed=embed, view=view)
+                    # Vérifier si le message a réellement besoin d'être mis à jour
+                    current_embed = message.embeds[0] if message.embeds else None
+                    new_embed = await self.create_surveillance_embed(scene)
+                    
+                    # Comparer les titres pour éviter les mises à jour inutiles
+                    needs_update = (not current_embed or 
+                                  current_embed.title != new_embed.title or
+                                  len(current_embed.fields) != len(new_embed.fields))
+                    
+                    if needs_update:
+                        view = SceneSurveillanceView(self, scene)
+                        await message.edit(embed=new_embed, view=view)
+                    
                     used_message_ids.add(message.id)
                     if scene.get('message_id') != str(message.id):
                         scene['message_id'] = str(message.id)
