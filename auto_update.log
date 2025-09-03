@@ -52,3 +52,30 @@ chore: add auto_update.log to .gitignore to prevent log file commits
 M auto_update.log
  M cogs/Surveillance_scene.py
  M main.py
+2025-09-03 22:18:51,620 - INFO - [OK] Commande reussie: git diff --name-only
+2025-09-03 22:18:51,651 - INFO - [OK] Commande reussie: git ls-files --others --exclude-standard
+2025-09-03 22:18:51,651 - INFO - [FILES] Fichiers modifies: ['auto_update.log', 'cogs/Surveillance_scene.py', 'main.py']
+2025-09-03 22:18:51,797 - INFO - [OK] Commande reussie: git add .
+2025-09-03 22:18:51,798 - INFO - [COMMIT] Message de commit:
+feat(core): update core bot functionality
+
+Auto-update performed at 2025-09-03 22:18:51
+Modified files: auto_update.log, cogs/Surveillance_scene.py, main.py
+
+Generated with [Claude Code](https://claude.ai/code)
+Co-Authored-By: Claude <noreply@anthropic.com>
+2025-09-03 22:18:51,949 - INFO - [OK] Commande reussie: git commit -m "feat(core): update core bot functionality
+
+Auto-update performed at 2025-09-03 22:18:51
+Modified files: auto_update.log, cogs/Surveillance_scene.py, main.py
+
+Generated with [Claude Code](https://claude.ai/code)
+Co-Authored-By: Claude <noreply@anthropic.com>"
+2025-09-03 22:18:53,287 - INFO - [OK] Commande reussie: git push origin main
+2025-09-03 22:18:53,288 - INFO - [SUCCESS] Auto-update termine avec succes!
+2025-09-03 22:21:08,697 - INFO - [OK] Commande reussie: git status --porcelain
+2025-09-03 22:21:08,742 - INFO - [DEBUT] Demarrage de l'auto-update...
+2025-09-03 22:21:08,778 - INFO - [OK] Commande reussie: git status --porcelain
+2025-09-03 22:21:08,778 - INFO - [CHANGES] Changements detectes:
+M auto_update.log
+ M cogs/Surveillance_scene.py

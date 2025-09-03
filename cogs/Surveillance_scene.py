@@ -1806,47 +1806,57 @@ class SurveillanceScene(commands.Cog):
             ]
 
             used_message_ids = set()
-
-            for scene, message in zip(scenes, existing_messages):
-                try:
-                    # Vérifier si le message a réellement besoin d'être mis à jour
-                    current_embed = message.embeds[0] if message.embeds else None
-                    new_embed = await self.create_surveillance_embed(scene)
-                    
-                    # Comparer les titres pour éviter les mises à jour inutiles
-                    needs_update = (not current_embed or 
-                                  current_embed.title != new_embed.title or
-                                  len(current_embed.fields) != len(new_embed.fields))
-                    
-                    if needs_update:
-                        view = SceneSurveillanceView(self, scene)
-                        await message.edit(embed=new_embed, view=view)
-                    
-                    used_message_ids.add(message.id)
-                    if scene.get('message_id') != str(message.id):
-                        scene['message_id'] = str(message.id)
-                except Exception as e:
-                    logging.error(f"Erreur lors de la modification du message: {e}")
-
-            if len(scenes) > len(existing_messages):
-                for scene in scenes[len(existing_messages):]:
+            
+            # Assurer qu'on ait assez de messages pour toutes les scènes
+            # Si on a moins de messages que de scènes, on crée SEULEMENT le nombre manquant
+            messages_needed = len(scenes) - len(existing_messages)
+            if messages_needed > 0:
+                logging.warning(f"Création de {messages_needed} message(s) manquant(s) pour la surveillance")
+                for i in range(messages_needed):
                     try:
-                        embed = await self.create_surveillance_embed(scene)
-                        view = SceneSurveillanceView(self, scene)
-                        new_message = await surveillance_channel.send(embed=embed, view=view)
-                        scene['message_id'] = str(new_message.id)
-                        used_message_ids.add(new_message.id)
-                        await self.update_scene_message_id(scene['channel_id'], scene['message_id'])
-                        await asyncio.sleep(1)
+                        # Créer un message temporaire vide qu'on va modifier après
+                        temp_embed = discord.Embed(title="Chargement...", color=0x808080)
+                        temp_message = await surveillance_channel.send(embed=temp_embed)
+                        existing_messages.append(temp_message)
+                        await asyncio.sleep(0.5)  # Petit délai pour éviter le rate limiting
                     except Exception as e:
-                        logging.error(f"Erreur lors de la création du message: {e}")
+                        logging.error(f"Erreur lors de la création du message temporaire: {e}")
 
-            elif len(existing_messages) > len(scenes):
-                for message in existing_messages[len(scenes):]:
+            # Maintenant assigner les scènes aux messages (en gardant l'ordre)
+            for i, scene in enumerate(scenes):
+                if i < len(existing_messages):
+                    message = existing_messages[i]
                     try:
-                        await message.delete()
-                    except Exception:
-                        pass
+                        # Vérifier si le message a réellement besoin d'être mis à jour
+                        current_embed = message.embeds[0] if message.embeds else None
+                        new_embed = await self.create_surveillance_embed(scene)
+                        
+                        # Comparer pour éviter les mises à jour inutiles
+                        needs_update = (not current_embed or 
+                                      current_embed.title != new_embed.title or
+                                      current_embed.title == "Chargement..." or
+                                      len(current_embed.fields) != len(new_embed.fields))
+                        
+                        if needs_update:
+                            view = SceneSurveillanceView(self, scene)
+                            await message.edit(embed=new_embed, view=view)
+                        
+                        used_message_ids.add(message.id)
+                        if scene.get('message_id') != str(message.id):
+                            scene['message_id'] = str(message.id)
+                            await self.update_scene_message_id(scene['channel_id'], scene['message_id'])
+                            
+                    except Exception as e:
+                        logging.error(f"Erreur lors de la modification du message: {e}")
+
+            # Supprimer les messages en trop
+            if len(existing_messages) > len(scenes):
+                for message in existing_messages[len(scenes):]:
+                    if message.id not in used_message_ids:
+                        try:
+                            await message.delete()
+                        except Exception:
+                            pass
 
             # Nettoyage des messages orphelins
             async for message in surveillance_channel.history(limit=None):
