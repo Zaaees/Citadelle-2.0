@@ -168,3 +168,24 @@ M auto_update.log
  M monitoring.py
 ?? SOLUTION_DECONNEXIONS.md
 ?? fix_bot_disconnections.py
+2025-09-04 21:06:00,661 - INFO - [OK] Commande reussie: git diff --name-only
+2025-09-04 21:06:00,692 - INFO - [OK] Commande reussie: git ls-files --others --exclude-standard
+2025-09-04 21:06:00,693 - INFO - [FILES] Fichiers modifies: ['auto_update.log', 'cogs/Surveillance_scene.py', 'main.py', 'monitoring.py', 'SOLUTION_DECONNEXIONS.md', 'fix_bot_disconnections.py']
+2025-09-04 21:06:00,930 - INFO - [OK] Commande reussie: git add .
+2025-09-04 21:06:00,930 - INFO - [COMMIT] Message de commit:
+fix(monitoring): update monitoring and connection stability
+
+Auto-update performed at 2025-09-04 21:06:00
+Modified files: auto_update.log, cogs/Surveillance_scene.py, main.py, monitoring.py, SOLUTION_DECONNEXIONS.md and 1 more
+
+Generated with [Claude Code](https://claude.ai/code)
+Co-Authored-By: Claude <noreply@anthropic.com>
+2025-09-04 21:06:01,225 - INFO - [OK] Commande reussie: git commit -m "fix(monitoring): update monitoring and connection stability
+
+Auto-update performed at 2025-09-04 21:06:00
+Modified files: auto_update.log, cogs/Surveillance_scene.py, main.py, monitoring.py, SOLUTION_DECONNEXIONS.md and 1 more
+
+Generated with [Claude Code](https://claude.ai/code)
+Co-Authored-By: Claude <noreply@anthropic.com>"
+2025-09-04 21:06:02,710 - INFO - [OK] Commande reussie: git push origin main
+2025-09-04 21:06:02,710 - INFO - [SUCCESS] Auto-update termine avec succes!
