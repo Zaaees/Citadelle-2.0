@@ -20,6 +20,9 @@ class Bump(commands.Cog):
         self.sheet = None
         self.initialization_complete = False
         
+        # Flag pour gérer l'attente du bot ready dans la task
+        self.bot_ready_waited = False
+        
         # Chargement différé avec valeurs par défaut sécurisées
         self.last_bump = datetime.min
         self.last_reminder = datetime.min
@@ -321,6 +324,32 @@ class Bump(commands.Cog):
     @tasks.loop(minutes=1)
     async def check_bump(self):
         try:
+            # Attendre que le bot soit prêt seulement au premier run
+            if not self.bot_ready_waited:
+                self.logger.info("🔄 Attente que le bot soit prêt (premier run)...")
+                try:
+                    await asyncio.wait_for(self.bot.wait_until_ready(), timeout=30.0)
+                    self.logger.info("✅ Bot prêt !")
+                except asyncio.TimeoutError:
+                    self.logger.warning("⚠️ Timeout d'attente bot ready (30s), continuation forcée")
+                finally:
+                    self.bot_ready_waited = True
+                    
+                # Vérifier que l'initialisation est terminée
+                if not self.initialization_complete:
+                    self.logger.warning("⚠️ Initialisation non terminée, attente...")
+                    for i in range(12):  # 60 secondes max (12 * 5s)
+                        if self.initialization_complete:
+                            break
+                        await asyncio.sleep(5)
+                        if i % 2 == 0:  # Log toutes les 10 secondes
+                            self.logger.info(f"🕰️ Attente initialisation... ({(i+1)*5}s)")
+                    
+                    if not self.initialization_complete:
+                        self.logger.error("❌ Initialisation non terminée après 60s, continuation forcée")
+                
+                self.logger.info("🏁 Check bump opérationnel !")
+            
             now = datetime.now()
             time_since_last_bump = now - self.last_bump
             time_since_last_reminder = now - self.last_reminder
@@ -407,24 +436,8 @@ class Bump(commands.Cog):
 
     @check_bump.before_loop
     async def before_check_bump(self):
-        """Attendre que le bot soit prêt et l'initialisation terminée avec timeout."""
-        self.logger.info("🔄 En attente que le bot soit prêt...")
-        await self.bot.wait_until_ready()
-        self.logger.info("✅ Bot prêt, attente de la fin d'initialisation...")
-        
-        # Attendre que l'initialisation soit terminée avec timeout
-        timeout = 60  # 60 secondes maximum
-        elapsed = 0
-        while not self.initialization_complete and elapsed < timeout:
-            await asyncio.sleep(0.5)
-            elapsed += 0.5
-            if elapsed % 10 == 0:  # Log toutes les 10 secondes
-                self.logger.info(f"🕰️ Attente de l'initialisation... ({elapsed}s/{timeout}s)")
-                
-        if not self.initialization_complete:
-            self.logger.error(f"❌ Timeout d'initialisation atteint ({timeout}s), démarrage forcé")
-        else:
-            self.logger.info("✅ Check bump prêt à démarrer")
+        """Préparation avant démarrage de la task - pas de blocage pour éviter les deadlocks."""
+        self.logger.info("🏁 Préparation de la tâche check_bump (pas de blocage)")
 
     async def cog_unload(self):
         self.check_bump.cancel()
