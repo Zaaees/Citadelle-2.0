@@ -164,17 +164,26 @@ class SurveillanceScene(commands.Cog):
     async def _ws_get_all_records(self):
         if not self.sheet:
             return []
-        return await asyncio.to_thread(self.sheet.get_all_records)
+        timeout = int(os.environ.get('GOOGLE_SHEETS_TIMEOUT', '30'))
+        return await asyncio.wait_for(
+            asyncio.to_thread(self.sheet.get_all_records), timeout=timeout
+        )
 
     async def _ws_update(self, range_a1: str, values):
         if not self.sheet:
             return None
-        return await asyncio.to_thread(self.sheet.update, range_a1, values)
+        timeout = int(os.environ.get('GOOGLE_SHEETS_TIMEOUT', '30'))
+        return await asyncio.wait_for(
+            asyncio.to_thread(self.sheet.update, range_a1, values), timeout=timeout
+        )
 
     async def _ws_append_row(self, values):
         if not self.sheet:
             return None
-        return await asyncio.to_thread(self.sheet.append_row, values)
+        timeout = int(os.environ.get('GOOGLE_SHEETS_TIMEOUT', '30'))
+        return await asyncio.wait_for(
+            asyncio.to_thread(self.sheet.append_row, values), timeout=timeout
+        )
 
     async def _ws_delete_rows(self, index: int):
         if not self.sheet:

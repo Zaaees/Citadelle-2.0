@@ -137,3 +137,34 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 2025-09-04 18:25:49,815 - INFO - [CHANGES] Changements detectes:
 M auto_update.log
  M cogs/bump.py
+2025-09-04 18:25:49,846 - INFO - [OK] Commande reussie: git diff --name-only
+2025-09-04 18:25:49,876 - INFO - [OK] Commande reussie: git ls-files --others --exclude-standard
+2025-09-04 18:25:49,876 - INFO - [FILES] Fichiers modifies: ['auto_update.log', 'cogs/bump.py']
+2025-09-04 18:25:49,945 - INFO - [OK] Commande reussie: git add .
+2025-09-04 18:25:49,945 - INFO - [COMMIT] Message de commit:
+fix(cogs): update cogs/bump.py
+
+Auto-update performed at 2025-09-04 18:25:49
+Modified files: auto_update.log, cogs/bump.py
+
+Generated with [Claude Code](https://claude.ai/code)
+Co-Authored-By: Claude <noreply@anthropic.com>
+2025-09-04 18:25:50,057 - INFO - [OK] Commande reussie: git commit -m "fix(cogs): update cogs/bump.py
+
+Auto-update performed at 2025-09-04 18:25:49
+Modified files: auto_update.log, cogs/bump.py
+
+Generated with [Claude Code](https://claude.ai/code)
+Co-Authored-By: Claude <noreply@anthropic.com>"
+2025-09-04 18:25:51,434 - INFO - [OK] Commande reussie: git push origin main
+2025-09-04 18:25:51,434 - INFO - [SUCCESS] Auto-update termine avec succes!
+2025-09-04 21:06:00,462 - INFO - [OK] Commande reussie: git status --porcelain
+2025-09-04 21:06:00,504 - INFO - [DEBUT] Demarrage de l'auto-update...
+2025-09-04 21:06:00,536 - INFO - [OK] Commande reussie: git status --porcelain
+2025-09-04 21:06:00,536 - INFO - [CHANGES] Changements detectes:
+M auto_update.log
+ M cogs/Surveillance_scene.py
+ M main.py
+ M monitoring.py
+?? SOLUTION_DECONNEXIONS.md
+?? fix_bot_disconnections.py

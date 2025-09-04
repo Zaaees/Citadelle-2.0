@@ -69,7 +69,7 @@ def check_bot_health(bot):
     force_restart = os.environ.get('HEALTHCHECK_FORCE_RESTART', 'false').lower() in ('1', 'true', 'yes')  # Désactivé par défaut pour Render
     last_task_check = datetime.now()
     high_latency_count = 0
-    check_interval = 180  # 3 minutes au lieu de 2
+    check_interval = int(os.environ.get('BOT_MONITORING_INTERVAL', '600'))  # 10 minutes par défaut pour Render
 
     logger.info(f"🏥 Health monitoring démarré (max_failures: {max_consecutive_failures}, force_restart: {force_restart})")
 
@@ -106,7 +106,7 @@ def check_bot_health(bot):
                 continue
 
             # 2. Vérifier la latence (seuil adapté pour Render)
-            if bot.latency == float('inf') or bot.latency > 25.0:  # Seuil plus tolérant pour Render
+            if bot.latency == float('inf') or bot.latency > 35.0:  # Seuil encore plus tolérant pour Render
                 high_latency_count += 1
                 logger.warning(
                     f"⚠️ Latence élevée: {bot.latency}s (compte: {high_latency_count})"
@@ -230,7 +230,7 @@ def self_ping():
     
     consecutive_failures = 0
     max_failures = 5  # Plus tolérant
-    ping_interval = 360  # 6 minutes au lieu de 5
+    ping_interval = 720  # 12 minutes pour Render (moins agressif)
 
     logger.info("🏓 Self-ping Render démarré")
 

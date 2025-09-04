@@ -176,8 +176,8 @@ class BotManager:
         bot = CustomBot(
             command_prefix='!',
             intents=intents,
-            heartbeat_timeout=60.0,  # Plus tolérant pour Render
-            guild_ready_timeout=10.0,  # Plus de temps pour l'initialisation
+            heartbeat_timeout=90.0,  # Très tolérant pour Render
+            guild_ready_timeout=30.0,  # Temps d'initialisation généreux
             max_messages=1000,  # Réduire l'usage mémoire
             chunk_guilds_at_startup=False,
             member_cache_flags=discord.MemberCacheFlags.from_intents(intents)
@@ -256,7 +256,7 @@ class BotManager:
                         
                         # Attendre que le monitoring se termine ou que le bot se ferme
                         while monitor_thread.is_alive() and not current_bot.is_closed() and self.should_restart:
-                            time.sleep(30)
+                            time.sleep(60)  # Réduit la fréquence des vérifications
                             
                         if monitor_thread.is_alive():
                             logger.info("🛑 Arrêt du monitoring demandé")
