@@ -79,3 +79,34 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 2025-09-03 22:21:08,778 - INFO - [CHANGES] Changements detectes:
 M auto_update.log
  M cogs/Surveillance_scene.py
+2025-09-03 22:21:08,809 - INFO - [OK] Commande reussie: git diff --name-only
+2025-09-03 22:21:08,838 - INFO - [OK] Commande reussie: git ls-files --others --exclude-standard
+2025-09-03 22:21:08,838 - INFO - [FILES] Fichiers modifies: ['auto_update.log', 'cogs/Surveillance_scene.py']
+2025-09-03 22:21:08,937 - INFO - [OK] Commande reussie: git add .
+2025-09-03 22:21:08,937 - INFO - [COMMIT] Message de commit:
+fix(cogs): update cogs/Surveillance_scene.py
+
+Auto-update performed at 2025-09-03 22:21:08
+Modified files: auto_update.log, cogs/Surveillance_scene.py
+
+Generated with [Claude Code](https://claude.ai/code)
+Co-Authored-By: Claude <noreply@anthropic.com>
+2025-09-03 22:21:09,073 - INFO - [OK] Commande reussie: git commit -m "fix(cogs): update cogs/Surveillance_scene.py
+
+Auto-update performed at 2025-09-03 22:21:08
+Modified files: auto_update.log, cogs/Surveillance_scene.py
+
+Generated with [Claude Code](https://claude.ai/code)
+Co-Authored-By: Claude <noreply@anthropic.com>"
+2025-09-03 22:21:10,486 - INFO - [OK] Commande reussie: git push origin main
+2025-09-03 22:21:10,486 - INFO - [SUCCESS] Auto-update termine avec succes!
+2025-09-04 17:45:11,693 - INFO - [OK] Commande reussie: git status --porcelain
+2025-09-04 17:45:11,790 - INFO - [DEBUT] Demarrage de l'auto-update...
+2025-09-04 17:45:11,823 - INFO - [OK] Commande reussie: git status --porcelain
+2025-09-04 17:45:11,823 - INFO - [CHANGES] Changements detectes:
+M .claude/settings.local.json
+ M .gitignore
+ M auto_update.log
+ M cogs/bump.py
+?? bot.log
+?? bump.log

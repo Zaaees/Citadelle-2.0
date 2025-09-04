@@ -6,3 +6,4 @@ __pycache__/
 RENDER_UPTIME_GUIDE.md
 sync_local.py
 auto_update.log
+claude.ps1

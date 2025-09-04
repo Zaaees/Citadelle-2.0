@@ -1,0 +1,41 @@
+2025-09-04 17:42:50,295 - discord.client - INFO - logging in using static token
+2025-09-04 17:42:50,298 - bot - ERROR - Erreur OS lors du démarrage du serveur : [WinError 10022] Un argument non valide a été fourni
+2025-09-04 17:42:50,800 - bot - ERROR - Erreur lors du chargement de cogs.inventaire : Extension 'cogs.inventaire' raised an error: ImportError: cannot import name 'CellNotFound' from 'gspread.exceptions' (C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\site-packages\gspread\exceptions.py)
+2025-09-04 17:42:51,333 - cards - ERROR - [CARDS] Traceback: Traceback (most recent call last):
+  File "F:\Users\freed\Desktop\Citadelle-2.0\cogs\Cards.py", line 59, in __init__
+    creds = Credentials.from_service_account_info(creds_info, scopes=[
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\site-packages\google\oauth2\service_account.py", line 243, in from_service_account_info
+    signer = _service_account_info.from_dict(
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\site-packages\google\auth\_service_account_info.py", line 57, in from_dict
+    signer = crypt.RSASigner.from_service_account_info(data)
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\site-packages\google\auth\crypt\base.py", line 109, in from_service_account_info
+    return cls.from_string(
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\site-packages\google\auth\crypt\_python_rsa.py", line 173, in from_string
+    raise exceptions.MalformedError("No key could be detected.")
+google.auth.exceptions.MalformedError: No key could be detected.
+
+2025-09-04 17:42:53,374 - bot - ERROR - Erreur lors du chargement de cogs.vocabulaire : Extension 'cogs.vocabulaire' raised an error: ModuleNotFoundError: No module named 'oauth2client'
+2025-09-04 17:42:53,391 - bot - ERROR - Erreur lors du chargement de cogs.souselement : Extension 'cogs.souselement' raised an error: MalformedError: No key could be detected.
+2025-09-04 17:42:53,429 - bot - ERROR - Erreur lors du chargement de cogs.excès : Extension 'cogs.excès' raised an error: MalformedError: No key could be detected.
+2025-09-04 17:42:53,448 - root - ERROR - Erreur lors du chargement des credentials Google Sheets: No key could be detected.
+2025-09-04 17:42:53,472 - bump_cog - ERROR - Traceback: Traceback (most recent call last):
+  File "F:\Users\freed\Desktop\Citadelle-2.0\cogs\bump.py", line 71, in _async_setup
+    self.sheet = await asyncio.wait_for(
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\asyncio\tasks.py", line 445, in wait_for
+    return fut.result()
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\asyncio\threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\concurrent\futures\thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "F:\Users\freed\Desktop\Citadelle-2.0\cogs\bump.py", line 62, in _build_service
+    credentials = service_account.Credentials.from_service_account_info(
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\site-packages\google\oauth2\service_account.py", line 243, in from_service_account_info
+    signer = _service_account_info.from_dict(
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\site-packages\google\auth\_service_account_info.py", line 57, in from_dict
+    signer = crypt.RSASigner.from_service_account_info(data)
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\site-packages\google\auth\crypt\base.py", line 109, in from_service_account_info
+    return cls.from_string(
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\site-packages\google\auth\crypt\_python_rsa.py", line 173, in from_string
+    raise exceptions.MalformedError("No key could be detected.")
+google.auth.exceptions.MalformedError: No key could be detected.
+

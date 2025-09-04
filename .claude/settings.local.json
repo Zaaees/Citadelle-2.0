@@ -7,7 +7,17 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(npx create-next-app:*)",
+      "Bash(npm install)",
+      "Bash(npx next:*)",
+      "Read(/F:\\Users\\freed\\Desktop\\Citadelle-2.0/**)",
+      "Read(/F:\\Users\\freed\\Desktop\\Citadelle-2.0/**)",
+      "Read(/F:\\Users\\freed\\Desktop\\Citadelle-2.0\\cogs/**)",
+      "Read(/F:\\Users\\freed\\Desktop\\Citadelle-2.0/**)",
+      "Read(/F:\\Users\\freed\\Desktop\\Citadelle-2.0/**)",
+      "Bash(pip install:*)",
+      "Read(/F:\\Users\\freed\\Desktop\\Citadelle-2.0/**)"
     ],
     "deny": [],
     "ask": []
