@@ -226,16 +226,16 @@ class SceneSurveillance(commands.Cog):
                 # Nouvelle scène, ajouter une nouvelle ligne
                 row = len(self.sheet.get_all_values()) + 1
                 
-            # Préparer les données
+            # Préparer les données (convertir les ID en strings pour éviter la notation scientifique)
             row_data = [
                 channel_id,
-                scene_data['mj_id'],
-                scene_data.get('status_message_id', ''),
-                scene_data.get('status_channel_id', ''),
+                str(scene_data['mj_id']),  # Convertir en string
+                str(scene_data.get('status_message_id', '')),  # Convertir en string
+                str(scene_data.get('status_channel_id', '')),  # Convertir en string
                 scene_data['created_at'],
                 scene_data.get('last_activity', ''),
                 json.dumps(scene_data.get('participants', [])),
-                scene_data.get('last_author_id', ''),
+                str(scene_data.get('last_author_id', '')),  # Convertir en string
                 scene_data['status']
             ]
             
@@ -259,7 +259,7 @@ class SceneSurveillance(commands.Cog):
             
         try:
             cell = self.sheet.find(channel_id)
-            self.sheet.update_cell(cell.row, 2, new_mj_id)  # Colonne MJ
+            self.sheet.update_cell(cell.row, 2, str(new_mj_id))  # Colonne MJ - convertir en string
         except Exception as e:
             logger.error(f"Erreur mise à jour MJ: {e}")
 
@@ -275,7 +275,7 @@ class SceneSurveillance(commands.Cog):
             row = cell.row
             self.sheet.update_cell(row, 6, last_activity)  # last_activity
             self.sheet.update_cell(row, 7, json.dumps(participants))  # participants
-            self.sheet.update_cell(row, 8, last_author_id)  # last_author_id
+            self.sheet.update_cell(row, 8, str(last_author_id))  # last_author_id - convertir en string
         except Exception as e:
             logger.error(f"Erreur mise à jour activité: {e}")
 
