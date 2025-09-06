@@ -339,8 +339,8 @@ class SceneSurveillance(commands.Cog):
             title="🎭 Surveillance de Scène RP",
             description=f"**Salon:** {channel.mention if channel else f'<#{channel_id}>'}\n"
                        f"**Type:** {channel.type.name.title() if channel else 'Inconnu'}",
-            color=color,
-            timestamp=datetime.now()
+            color=color
+            # Timestamp sera défini par la fonction appelante pour le tri
         )
         
         # MJ responsable
@@ -501,10 +501,14 @@ class SceneSurveillance(commands.Cog):
                 del self.active_scenes[channel_id]
                 return
             
+            # Appliquer le timestamp de tri dès la création
+            sort_timestamp = self.calculate_sort_timestamp(scene_data)
+            embed.timestamp = sort_timestamp
+            
             view = SceneSurveillanceView(self, scene_data)
             
-            # Envoyer le message de statut
-            status_message = await interaction.followup.send(embed=embed, view=view)
+            # Envoyer le message de statut comme message indépendant (pas de réponse)
+            status_message = await interaction.channel.send(embed=embed, view=view)
             scene_data['status_message_id'] = status_message.id
             
             # Mettre à jour avec l'ID du message
@@ -613,8 +617,38 @@ class SceneSurveillance(commands.Cog):
         except Exception as e:
             logger.error(f"Erreur notification MJ: {e}")
 
-    async def update_status_message(self, channel_id: str):
-        """Met à jour le message de statut d'une scène."""
+    def calculate_sort_timestamp(self, scene_data: dict) -> datetime:
+        """Calcule un timestamp de tri pour que les scènes inactives remontent."""
+        try:
+            last_activity_str = scene_data.get('last_activity', scene_data.get('created_at', datetime.now().isoformat()))
+            last_activity = datetime.fromisoformat(last_activity_str)
+        except (ValueError, TypeError):
+            last_activity = datetime.now()
+        
+        now = datetime.now()
+        time_diff = now - last_activity
+        
+        # Logique de tri : plus c'est inactif, plus le timestamp est récent (pour remonter)
+        # Base : timestamp actuel moins l'inactivité (inversé)
+        if time_diff < timedelta(hours=6):
+            # Très actif : timestamp ancien (reste en bas)
+            sort_timestamp = now - timedelta(days=7)
+        elif time_diff < timedelta(days=1):
+            # Modérément actif : timestamp un peu plus récent
+            sort_timestamp = now - timedelta(days=5)
+        elif time_diff < timedelta(days=3):
+            # Peu actif : timestamp plus récent
+            sort_timestamp = now - timedelta(days=2)
+        else:
+            # Inactif : timestamp très récent (remonte en haut)
+            # Plus c'est inactif, plus ça remonte
+            days_inactive = min(time_diff.days, 30)  # Cap à 30 jours
+            sort_timestamp = now - timedelta(hours=days_inactive)
+            
+        return sort_timestamp
+
+    async def update_status_message(self, channel_id: str, force_reorder: bool = False):
+        """Met à jour le message de statut d'une scène avec tri intelligent."""
         if channel_id not in self.active_scenes:
             return
             
@@ -634,6 +668,10 @@ class SceneSurveillance(commands.Cog):
             embed = await self.create_scene_embed(channel_id)
             view = SceneSurveillanceView(self, scene_data)
             
+            # Calculer le timestamp de tri pour l'embed
+            sort_timestamp = self.calculate_sort_timestamp(scene_data)
+            embed.timestamp = sort_timestamp
+            
             await status_message.edit(embed=embed, view=view)
             
         except Exception as e:
@@ -641,9 +679,18 @@ class SceneSurveillance(commands.Cog):
 
     @tasks.loop(minutes=30)
     async def activity_monitor(self):
-        """Tâche de surveillance périodique pour mettre à jour les statuts."""
+        """Tâche de surveillance périodique pour mettre à jour les statuts et tri."""
+        logger.info(f"🔄 Mise à jour périodique des {len(self.active_scenes)} scènes surveillées...")
+        
         for channel_id in list(self.active_scenes.keys()):
-            await self.update_status_message(channel_id)
+            try:
+                await self.update_status_message(channel_id)
+                # Petit délai pour éviter le rate limiting
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                logger.error(f"Erreur lors de la mise à jour de la scène {channel_id}: {e}")
+                
+        logger.info("✅ Mise à jour périodique terminée")
 
     @tasks.loop(hours=24)
     async def inactivity_checker(self):
