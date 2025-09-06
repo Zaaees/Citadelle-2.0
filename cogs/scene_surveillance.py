@@ -125,8 +125,35 @@ class SceneSurveillance(commands.Cog):
                 scopes=['https://www.googleapis.com/auth/spreadsheets']
             )
             self.gc = gspread.authorize(self.credentials)
-            # Créer ou utiliser une feuille spécifique pour la surveillance des scènes
-            self.sheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SURVEILLANCE', os.getenv('GOOGLE_SHEET_ID_ACTIVITE'))).worksheet('SceneSurveillance')
+            
+            # Ouvrir la feuille de calcul
+            spreadsheet_id = os.getenv('GOOGLE_SHEET_ID_SURVEILLANCE', os.getenv('GOOGLE_SHEET_ID_ACTIVITE'))
+            spreadsheet = self.gc.open_by_key(spreadsheet_id)
+            
+            # Essayer d'accéder à la feuille SceneSurveillance, la créer si elle n'existe pas
+            try:
+                self.sheet = spreadsheet.worksheet('SceneSurveillance')
+                logger.info("Feuille SceneSurveillance trouvée")
+            except gspread.WorksheetNotFound:
+                logger.info("Création de la feuille SceneSurveillance...")
+                self.sheet = spreadsheet.add_worksheet('SceneSurveillance', rows=1000, cols=10)
+                
+                # Ajouter les en-têtes
+                headers = [
+                    'channel_id', 'mj_id', 'status_message_id', 'status_channel_id',
+                    'created_at', 'last_activity', 'participants', 'last_author_id', 'status'
+                ]
+                self.sheet.insert_row(headers, 1)
+                
+                # Formater les en-têtes
+                self.sheet.format('A1:I1', {
+                    'backgroundColor': {'red': 0.2, 'green': 0.6, 'blue': 0.9},
+                    'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}},
+                    'horizontalAlignment': 'CENTER'
+                })
+                
+                logger.info("✅ Feuille SceneSurveillance créée et configurée")
+                
         except Exception as e:
             logger.error(f"Erreur initialisation Google Sheets: {e}")
             self.sheet = None
@@ -152,30 +179,40 @@ class SceneSurveillance(commands.Cog):
     async def load_active_scenes(self):
         """Charge les scènes actives depuis Google Sheets."""
         if not self.sheet:
+            logger.warning("Aucune feuille Google Sheets disponible pour charger les scènes")
             return
             
         try:
             records = self.sheet.get_all_records()
+            scenes_loaded = 0
             for record in records:
-                if record.get('status') == 'active':
-                    channel_id = str(record['channel_id'])
-                    self.active_scenes[channel_id] = {
-                        'channel_id': int(channel_id),
-                        'mj_id': int(record['mj_id']),
-                        'status_message_id': int(record.get('status_message_id', 0)),
-                        'status_channel_id': int(record.get('status_channel_id', 0)),
-                        'created_at': record['created_at'],
-                        'last_activity': record.get('last_activity'),
-                        'participants': json.loads(record.get('participants', '[]')),
-                        'last_author_id': int(record.get('last_author_id', 0)),
-                        'status': record['status']
-                    }
+                if record.get('status') == 'active' and record.get('channel_id'):
+                    try:
+                        channel_id = str(record['channel_id'])
+                        self.active_scenes[channel_id] = {
+                            'channel_id': int(channel_id),
+                            'mj_id': int(record.get('mj_id', 0)),
+                            'status_message_id': int(record.get('status_message_id', 0)),
+                            'status_channel_id': int(record.get('status_channel_id', 0)),
+                            'created_at': record.get('created_at', ''),
+                            'last_activity': record.get('last_activity', ''),
+                            'participants': json.loads(record.get('participants', '[]')),
+                            'last_author_id': int(record.get('last_author_id', 0)),
+                            'status': record.get('status', 'active')
+                        }
+                        scenes_loaded += 1
+                    except (ValueError, json.JSONDecodeError) as e:
+                        logger.warning(f"Erreur parsing scène {record.get('channel_id')}: {e}")
+                        continue
+            logger.info(f"✅ {scenes_loaded} scènes actives chargées depuis Google Sheets")
         except Exception as e:
             logger.error(f"Erreur lors du chargement des scènes: {e}")
+            logger.info("Le système fonctionnera en mode dégradé (sans persistance)")
 
     async def save_scene_to_sheets(self, scene_data: dict):
         """Sauvegarde une scène dans Google Sheets."""
         if not self.sheet:
+            logger.warning("Impossible de sauvegarder la scène: Google Sheets non disponible")
             return
             
         try:
@@ -217,6 +254,7 @@ class SceneSurveillance(commands.Cog):
     async def update_scene_mj(self, channel_id: str, new_mj_id: int):
         """Met à jour le MJ responsable d'une scène."""
         if not self.sheet:
+            logger.warning("Impossible de mettre à jour le MJ: Google Sheets non disponible")
             return
             
         try:
@@ -229,6 +267,7 @@ class SceneSurveillance(commands.Cog):
                                   participants: List[int], last_author_id: int):
         """Met à jour l'activité d'une scène."""
         if not self.sheet:
+            logger.debug("Impossible de mettre à jour l'activité: Google Sheets non disponible")
             return
             
         try:
