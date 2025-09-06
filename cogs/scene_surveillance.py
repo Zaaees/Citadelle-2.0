@@ -505,10 +505,14 @@ class SceneSurveillance(commands.Cog):
             return
         
         try:
-            # Sync pour ce serveur spécifiquement
+            # D'abord, copier les commandes globales vers ce serveur
+            await ctx.send("🔄 Copie des commandes globales vers ce serveur...")
+            self.bot.tree.copy_global_to(guild=ctx.guild)
+            
+            # Puis sync pour ce serveur spécifiquement
             synced = await self.bot.tree.sync(guild=ctx.guild)
             await ctx.send(f"✅ {len(synced)} commandes synchronisées pour ce serveur !")
-            logger.info(f"🔄 Sync forcée par {ctx.author}: {len(synced)} commandes")
+            logger.info(f"🔄 Sync forcée par {ctx.author}: {len(synced)} commandes (avec copie globale)")
         except Exception as e:
             await ctx.send(f"❌ Erreur lors de la synchronisation: {e}")
             logger.error(f"❌ Erreur sync forcée: {e}")
