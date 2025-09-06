@@ -728,7 +728,19 @@ class SceneSurveillance(commands.Cog):
             if not last_activity:
                 continue
                 
-            last_activity_dt = datetime.fromisoformat(last_activity)
+            try:
+                last_activity_dt = datetime.fromisoformat(last_activity)
+            except (ValueError, TypeError):
+                continue
+            
+            # Uniformiser les timezones pour éviter l'erreur offset-naive vs offset-aware
+            if last_activity_dt.tzinfo is not None and now.tzinfo is None:
+                # last_activity_dt a une timezone, now n'en a pas → convertir last_activity_dt en naive
+                last_activity_dt = last_activity_dt.replace(tzinfo=None)
+            elif last_activity_dt.tzinfo is None and now.tzinfo is not None:
+                # now a une timezone, last_activity_dt n'en a pas → convertir now en naive  
+                now = now.replace(tzinfo=None)
+                
             time_diff = now - last_activity_dt
             
             # Alerte après 7 jours d'inactivité
