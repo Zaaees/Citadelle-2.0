@@ -48,7 +48,6 @@ class StableBot(commands.Bot):
             'cogs.souselement',
             'cogs.ticket',
             'cogs.excès',
-            'cogs.scene_surveillance',
         ]
         
         critical_cogs = ['cogs.Cards', 'cogs.RPTracker', 'cogs.Surveillance_scene']
