@@ -17,7 +17,14 @@
       "Read(/F:\\Users\\freed\\Desktop\\Citadelle-2.0/**)",
       "Read(/F:\\Users\\freed\\Desktop\\Citadelle-2.0/**)",
       "Bash(pip install:*)",
-      "Read(/F:\\Users\\freed\\Desktop\\Citadelle-2.0/**)"
+      "Read(/F:\\Users\\freed\\Desktop\\Citadelle-2.0/**)",
+      "mcp__render__list_services",
+      "mcp__render__list_workspaces",
+      "mcp__render__get_service",
+      "mcp__render__list_deploys",
+      "mcp__render__list_logs",
+      "mcp__render__get_metrics",
+      "mcp__render__update_environment_variables"
     ],
     "deny": [],
     "ask": []

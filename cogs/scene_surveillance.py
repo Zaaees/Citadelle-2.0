@@ -513,6 +513,55 @@ class SceneSurveillance(commands.Cog):
             await ctx.send(f"❌ Erreur lors de la synchronisation: {e}")
             logger.error(f"❌ Erreur sync forcée: {e}")
 
+    @commands.command(name="debug_commands", help="Diagnostiquer les commandes du bot (MJ uniquement)")
+    async def debug_commands(self, ctx):
+        """Commande pour diagnostiquer l'état des commandes du bot."""
+        
+        if not self.has_mj_permission(ctx.author):
+            await ctx.send("❌ Seuls les MJ peuvent utiliser cette commande.")
+            return
+        
+        try:
+            # Compter les commandes dans le tree
+            guild_commands = self.bot.tree.get_commands(guild=ctx.guild)
+            global_commands = self.bot.tree.get_commands(guild=None)
+            
+            embed = discord.Embed(
+                title="🔍 Diagnostic des Commandes",
+                color=discord.Color.blue(),
+                timestamp=datetime.now()
+            )
+            
+            embed.add_field(
+                name="📊 Commandes dans le Tree",
+                value=f"Serveur: {len(guild_commands)}\nGlobales: {len(global_commands)}",
+                inline=True
+            )
+            
+            # Lister les commandes du serveur
+            if guild_commands:
+                guild_names = [f"`/{cmd.name}`" for cmd in guild_commands[:10]]
+                embed.add_field(
+                    name="🎯 Commandes Serveur",
+                    value="\n".join(guild_names) + ("..." if len(guild_commands) > 10 else ""),
+                    inline=False
+                )
+            
+            # Informations sur les cogs
+            cog_count = len(self.bot.cogs)
+            embed.add_field(
+                name="🧩 Extensions Chargées",
+                value=f"{cog_count} cogs actifs",
+                inline=True
+            )
+            
+            await ctx.send(embed=embed)
+            logger.info(f"🔍 Debug commandes par {ctx.author}: {len(guild_commands)} serveur, {len(global_commands)} global")
+            
+        except Exception as e:
+            await ctx.send(f"❌ Erreur lors du diagnostic: {e}")
+            logger.error(f"❌ Erreur debug commandes: {e}")
+
     @app_commands.command(name="surveiller_scene", description="Démarre la surveillance d'une scène RP")
     @app_commands.describe(
         channel="Le salon, thread ou forum à surveiller (optionnel, utilise le salon actuel si non spécifié)"
