@@ -187,14 +187,35 @@ class Bump(commands.Cog):
                     await asyncio.sleep(1)
             except HttpError as e:
                 if e.resp.status == 503:  # Service unavailable
-                    self.logger.warning(f"Google Sheets API indisponible (tentative {attempt + 1}/3). Retry...")
+                    self.logger.warning(f"🔄 Google Sheets API indisponible (tentative {attempt + 1}/3). Retry...")
                     await asyncio.sleep(2 ** attempt)  # Exponential backoff
                 else:
-                    self.logger.error(f"Erreur HTTP Google Sheets lors du chargement last_bump: {str(e)}")
+                    self.logger.error(f"❌ Erreur HTTP Google Sheets lors du chargement last_bump: {str(e)}")
+                    break
+            except (ConnectionError, OSError) as e:
+                # Erreurs réseau/SSL temporaires
+                error_str = str(e).lower()
+                if any(keyword in error_str for keyword in ['ssl', 'connection', 'network', 'timeout', 'decryption']):
+                    self.logger.warning(f"🔄 Erreur réseau/SSL temporaire (tentative {attempt + 1}/3): {e}")
+                    if attempt < 2:
+                        delay = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                        await asyncio.sleep(delay)
+                        continue
+                else:
+                    self.logger.error(f"❌ Erreur réseau critique lors du chargement last_bump: {e}")
                     break
             except Exception as e:
-                self.logger.error(f"Erreur inattendue lors du chargement last_bump: {e}")
-                break
+                # Vérifier si c'est une erreur SSL dans l'exception générale
+                error_str = str(e).lower()
+                if any(keyword in error_str for keyword in ['ssl', 'decryption', 'bad record mac', 'handshake']):
+                    self.logger.warning(f"🔄 Erreur SSL temporaire (tentative {attempt + 1}/3): {e}")
+                    if attempt < 2:
+                        delay = 2 ** attempt  # Exponential backoff
+                        await asyncio.sleep(delay)
+                        continue
+                else:
+                    self.logger.error(f"❌ Erreur inattendue lors du chargement last_bump: {e}")
+                    break
                 
         # Si toutes les tentatives échouent, retourner valeur par défaut
         self.logger.warning("❌ Impossible de charger last_bump après 3 tentatives, utilisation de datetime.min")
@@ -266,14 +287,35 @@ class Bump(commands.Cog):
                     await asyncio.sleep(1)
             except HttpError as e:
                 if e.resp.status == 503:  # Service unavailable
-                    self.logger.warning(f"Google Sheets API indisponible (tentative {attempt + 1}/3). Retry...")
+                    self.logger.warning(f"🔄 Google Sheets API indisponible (tentative {attempt + 1}/3). Retry...")
                     await asyncio.sleep(2 ** attempt)  # Exponential backoff
                 else:
-                    self.logger.error(f"Erreur HTTP Google Sheets lors du chargement last_reminder: {str(e)}")
+                    self.logger.error(f"❌ Erreur HTTP Google Sheets lors du chargement last_reminder: {str(e)}")
+                    break
+            except (ConnectionError, OSError) as e:
+                # Erreurs réseau/SSL temporaires
+                error_str = str(e).lower()
+                if any(keyword in error_str for keyword in ['ssl', 'connection', 'network', 'timeout', 'decryption']):
+                    self.logger.warning(f"🔄 Erreur réseau/SSL temporaire (tentative {attempt + 1}/3): {e}")
+                    if attempt < 2:
+                        delay = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                        await asyncio.sleep(delay)
+                        continue
+                else:
+                    self.logger.error(f"❌ Erreur réseau critique lors du chargement last_reminder: {e}")
                     break
             except Exception as e:
-                self.logger.error(f"Erreur inattendue lors du chargement last_reminder: {e}")
-                break
+                # Vérifier si c'est une erreur SSL dans l'exception générale
+                error_str = str(e).lower()
+                if any(keyword in error_str for keyword in ['ssl', 'decryption', 'bad record mac', 'handshake']):
+                    self.logger.warning(f"🔄 Erreur SSL temporaire (tentative {attempt + 1}/3): {e}")
+                    if attempt < 2:
+                        delay = 2 ** attempt  # Exponential backoff
+                        await asyncio.sleep(delay)
+                        continue
+                else:
+                    self.logger.error(f"❌ Erreur inattendue lors du chargement last_reminder: {e}")
+                    break
                 
         # Si toutes les tentatives échouent, retourner valeur par défaut
         self.logger.warning("❌ Impossible de charger last_reminder après 3 tentatives, utilisation de datetime.min")
