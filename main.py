@@ -38,7 +38,7 @@ class StableBot(commands.Bot):
         extensions = [
             'cogs.Cards',
             'cogs.RPTracker', 
-            'cogs.Surveillance_scene',
+            'cogs.scene_surveillance',
             'cogs.bump',
             'cogs.validation',
             'cogs.InactiveUserTracker',
@@ -50,7 +50,7 @@ class StableBot(commands.Bot):
             'cogs.excès',
         ]
         
-        critical_cogs = ['cogs.Cards', 'cogs.RPTracker', 'cogs.Surveillance_scene']
+        critical_cogs = ['cogs.Cards', 'cogs.RPTracker', 'cogs.scene_surveillance']
         loaded_count = 0
         critical_loaded = 0
         
