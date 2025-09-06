@@ -70,28 +70,12 @@ class StableBot(commands.Bot):
         logger.info(f"📊 Extensions chargées: {loaded_count}/{len(extensions)} ({critical_loaded}/{len(critical_cogs)} critiques)")
         
         try:
-            # Forcer un clear + resync complet pour éviter les commandes fantômes
-            self.tree.clear_commands(guild=None)  # Clear global
-            logger.info("🧹 Commandes globales nettoyées")
-            
-            # Si on a un serveur spécifique, le nettoyer aussi
-            guild_id = os.getenv('GUILD_ID')
-            if guild_id:
-                try:
-                    guild = discord.Object(id=int(guild_id))
-                    self.tree.clear_commands(guild=guild)
-                    logger.info(f"🧹 Commandes serveur {guild_id} nettoyées")
-                except Exception as ge:
-                    logger.warning(f"⚠️ Erreur clear serveur: {ge}")
-            
-            # Attendre un peu avant la resync
-            await asyncio.sleep(2)
-            
-            # Re-synchronisation globale
+            # Synchronisation globale
             await self.tree.sync()
             logger.info("✅ Commandes synchronisées globalement")
             
-            # Et pour le serveur spécifique si configuré
+            # Si GUILD_ID est configuré, sync aussi pour ce serveur spécifiquement
+            guild_id = os.getenv('GUILD_ID')
             if guild_id:
                 try:
                     guild = discord.Object(id=int(guild_id))
