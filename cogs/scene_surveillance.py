@@ -769,11 +769,16 @@ class SceneSurveillance(commands.Cog):
         failed_count = 0
         
         try:
+            logger.info(f"🔄 Début migration de {len(self.active_scenes)} scènes...")
+            
             for channel_id, scene_data in list(self.active_scenes.items()):
                 try:
+                    logger.info(f"📋 Migration scène {channel_id}...")
+                    
                     # Re-scanner l'historique pour les vraies données
                     target_channel = self.bot.get_channel(int(channel_id))
                     if not target_channel:
+                        logger.error(f"❌ Canal {channel_id} introuvable")
                         failed_count += 1
                         continue
                     
@@ -823,12 +828,19 @@ class SceneSurveillance(commands.Cog):
                             except:
                                 pass  # Ignorer si l'ancien message n'existe plus
                         
-                        # Créer le nouveau message indépendant
-                        new_message = await interaction.channel.send(embed=embed, view=view)
+                        # Créer le nouveau message indépendant dans le bon canal (celui où était l'ancien message)
+                        status_channel_id = scene_data.get('status_channel_id')
+                        status_channel = self.bot.get_channel(status_channel_id) if status_channel_id else interaction.channel
+                        
+                        if not status_channel:
+                            # Fallback sur le canal de la commande si l'ancien canal n'existe plus
+                            status_channel = interaction.channel
+                        
+                        new_message = await status_channel.send(embed=embed, view=view)
                         
                         # Mettre à jour les données avec le nouveau message
                         scene_data['status_message_id'] = new_message.id
-                        scene_data['status_channel_id'] = interaction.channel.id
+                        scene_data['status_channel_id'] = status_channel.id
                         
                         # Sauvegarder dans Google Sheets
                         await self.save_scene_to_sheets(scene_data)
@@ -836,7 +848,8 @@ class SceneSurveillance(commands.Cog):
                         migrated_count += 1
                         
                 except Exception as e:
-                    logger.error(f"Erreur migration scène {channel_id}: {e}")
+                    logger.error(f"❌ Erreur migration scène {channel_id}: {e}")
+                    logger.error(f"🔍 Données scène: {scene_data}")
                     failed_count += 1
                     
         except Exception as e:
@@ -851,6 +864,40 @@ class SceneSurveillance(commands.Cog):
         result_msg += f"\n🔄 Les anciens messages ont été supprimés et remplacés par de nouveaux messages indépendants avec le système de tri intelligent."
         
         await interaction.followup.send(result_msg, ephemeral=True)
+
+    @app_commands.command(name="debug_scenes", description="Debug: Affiche les détails techniques des scènes surveillées")
+    async def debug_scenes(self, interaction: discord.Interaction):
+        """Commande de debug pour voir l'état des scènes."""
+        
+        if not self.has_mj_permission(interaction.user):
+            await interaction.response.send_message("❌ Seuls les MJ peuvent utiliser cette commande.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        
+        if not self.active_scenes:
+            await interaction.followup.send("📋 Aucune scène active.", ephemeral=True)
+            return
+        
+        debug_info = f"🔍 **Debug Scènes Surveillées** ({len(self.active_scenes)} actives)\n\n"
+        
+        for i, (channel_id, scene_data) in enumerate(self.active_scenes.items(), 1):
+            target_channel = self.bot.get_channel(int(channel_id))
+            status_channel = self.bot.get_channel(scene_data.get('status_channel_id', 0))
+            
+            debug_info += f"**{i}. Canal:** {target_channel.mention if target_channel else f'❌ {channel_id}'}\n"
+            debug_info += f"   • MJ: <@{scene_data.get('mj_id', 'N/A')}>\n"
+            debug_info += f"   • Status Channel: {status_channel.mention if status_channel else f'❌ {scene_data.get(\"status_channel_id\", \"N/A\")}'}\n"
+            debug_info += f"   • Status Message ID: {scene_data.get('status_message_id', 'N/A')}\n"
+            debug_info += f"   • Participants: {len(scene_data.get('participants', []))}\n"
+            debug_info += f"   • Dernière activité: {scene_data.get('last_activity', 'N/A')[:19]}\n\n"
+            
+            # Limiter pour éviter les messages trop longs
+            if i >= 5:
+                debug_info += f"... et {len(self.active_scenes) - 5} autres scènes\n"
+                break
+        
+        await interaction.followup.send(debug_info, ephemeral=True)
 
     @app_commands.command(name="scenes_actives", description="Affiche la liste des scènes actuellement surveillées")
     async def list_active_scenes(self, interaction: discord.Interaction):
