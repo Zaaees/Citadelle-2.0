@@ -174,6 +174,9 @@ class SceneSurveillance(commands.Cog):
 
     def has_mj_permission(self, user: discord.Member) -> bool:
         """Vérifie si un utilisateur a le rôle MJ."""
+        # Vérifier que c'est bien un Member (pas juste un User)
+        if not isinstance(user, discord.Member):
+            return False
         return any(role.id == self.mj_role_id for role in user.roles)
 
     async def load_active_scenes(self):
@@ -443,7 +446,7 @@ class SceneSurveillance(commands.Cog):
         
         embed = discord.Embed(
             title="🎭 Commandes MJ Disponibles",
-            description="Liste des commandes préfixées `!` accessibles aux MJ",
+            description="Liste des commandes préfixées `!` accessibles aux MJ et Admins",
             color=discord.Color.gold(),
             timestamp=datetime.now()
         )
@@ -465,11 +468,27 @@ class SceneSurveillance(commands.Cog):
             inline=False
         )
         
+        # Commandes cartes (Admin uniquement)
+        embed.add_field(
+            name="🎴 Gestion Cartes (Admin)",
+            value="`!initialiser_forum_cartes` - Initialise structure forum cartes\n"
+                  "`!reconstruire_mur [catégorie]` - Reconstruit le mur de cartes\n"
+                  "`!galerie [@user]` - Affiche galerie cartes d'un utilisateur\n"
+                  "`!give_bonus @user nombre source` - Donner cartes bonus\n"
+                  "`!logs_cartes [user_id] [limit]` - Voir logs cartes\n"
+                  "`!stats_logs` - Statistiques des logs\n"
+                  "`!verifier_full_automatique` - Vérifie conversions Full auto\n"
+                  "`!verifier_integrite` - Vérifie intégrité données cartes",
+            inline=False
+        )
+        
         # Commandes système
         embed.add_field(
             name="⚙️ Système",
             value="`!validation` - Envoie le message de validation\n"
-                  "`!ajouter_sous_element` - Ajouter un nouveau sous-élément",
+                  "`!ajouter-sous-element` - Ajouter un nouveau sous-élément\n"
+                  "`!verifier_inactifs` - Vérifier utilisateurs inactifs\n"
+                  "`!bumpstatus` - État du système de bump",
             inline=False
         )
         
