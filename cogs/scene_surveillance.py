@@ -449,16 +449,44 @@ class SceneSurveillance(commands.Cog):
             return
         
         try:
-            # Créer les données de la scène
+            # Scanner l'historique récent pour initialiser les données correctement
+            participants = []
+            last_activity = datetime.now().isoformat()
+            last_author_id = interaction.user.id
+            
+            try:
+                # Récupérer les 50 derniers messages pour analyser l'activité
+                first_message = True
+                async for message in target_channel.history(limit=50):
+                    if message.author.bot and not message.webhook_id:
+                        continue  # Ignorer les bots non-webhook
+                    
+                    # Détecter l'utilisateur réel (webhook ou utilisateur normal)
+                    real_user_id = self.detect_webhook_user(message) or message.author.id
+                    
+                    # Ajouter aux participants s'il n'y est pas déjà
+                    if real_user_id not in participants:
+                        participants.append(real_user_id)
+                    
+                    # Le premier message valide (le plus récent) définit la dernière activité
+                    if first_message:
+                        last_activity = message.created_at.isoformat()
+                        last_author_id = real_user_id
+                        first_message = False
+                        
+            except Exception as e:
+                logger.warning(f"Erreur lors du scan de l'historique: {e}")
+            
+            # Créer les données de la scène avec les vraies données
             now = datetime.now().isoformat()
             scene_data = {
                 'channel_id': target_channel.id,
                 'mj_id': interaction.user.id,
                 'status_channel_id': interaction.channel.id,
                 'created_at': now,
-                'last_activity': now,
-                'participants': [],
-                'last_author_id': interaction.user.id,
+                'last_activity': last_activity,
+                'participants': participants,
+                'last_author_id': last_author_id,
                 'status': 'active'
             }
             
