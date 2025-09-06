@@ -449,12 +449,15 @@ class SceneSurveillance(commands.Cog):
             return
         
         try:
+            logger.info(f"🚀 Démarrage surveillance pour canal {target_channel.id} par {interaction.user.id}")
+            
             # Scanner l'historique récent pour initialiser les données correctement
             participants = []
             last_activity = datetime.now().isoformat()
             last_author_id = interaction.user.id
             
             try:
+                logger.info(f"📋 Scan historique canal {target_channel.name}...")
                 # Récupérer les 50 derniers messages pour analyser l'activité
                 first_message = True
                 async for message in target_channel.history(limit=50):
@@ -477,6 +480,8 @@ class SceneSurveillance(commands.Cog):
             except Exception as e:
                 logger.warning(f"Erreur lors du scan de l'historique: {e}")
             
+            logger.info(f"✅ Scan terminé: {len(participants)} participants trouvés")
+            
             # Créer les données de la scène avec les vraies données
             now = datetime.now().isoformat()
             scene_data = {
@@ -491,9 +496,11 @@ class SceneSurveillance(commands.Cog):
             }
             
             # Ajouter à active_scenes AVANT de créer l'embed
+            logger.info(f"💾 Ajout scène aux actives: {channel_id}")
             self.active_scenes[channel_id] = scene_data
             
             # Créer l'embed de surveillance
+            logger.info(f"🎨 Création embed surveillance...")
             embed = await self.create_scene_embed(channel_id)
             if not embed:
                 await interaction.followup.send("❌ Erreur lors de la création du message de surveillance.", ephemeral=True)
@@ -508,8 +515,10 @@ class SceneSurveillance(commands.Cog):
             view = SceneSurveillanceView(self, scene_data)
             
             # Envoyer le message de statut comme message indépendant (pas de réponse)
+            logger.info(f"📤 Envoi message surveillance...")
             status_message = await interaction.channel.send(embed=embed, view=view)
             scene_data['status_message_id'] = status_message.id
+            logger.info(f"✅ Message envoyé: {status_message.id}")
             
             # Mettre à jour avec l'ID du message
             self.active_scenes[channel_id] = scene_data
@@ -524,8 +533,12 @@ class SceneSurveillance(commands.Cog):
             )
             
         except Exception as e:
-            logger.error(f"Erreur lors du démarrage de surveillance: {e}")
-            await interaction.followup.send("❌ Erreur lors du démarrage de la surveillance.", ephemeral=True)
+            logger.error(f"❌ Erreur lors du démarrage de surveillance: {e}")
+            logger.error(f"🔍 Type erreur: {type(e).__name__}")
+            logger.error(f"🔍 Détails: {str(e)}")
+            import traceback
+            logger.error(f"🔍 Traceback: {traceback.format_exc()}")
+            await interaction.followup.send(f"❌ Erreur lors du démarrage de la surveillance: {e}", ephemeral=True)
 
     async def stop_scene_surveillance(self, channel_id: str):
         """Arrête la surveillance d'une scène."""
