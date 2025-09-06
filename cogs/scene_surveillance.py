@@ -316,7 +316,13 @@ class SceneSurveillance(commands.Cog):
         mj = self.bot.get_user(scene_data['mj_id'])
         
         # Couleur basée sur l'activité récente
-        last_activity = datetime.fromisoformat(scene_data.get('last_activity', scene_data['created_at']))
+        try:
+            last_activity_str = scene_data.get('last_activity', scene_data.get('created_at', datetime.now().isoformat()))
+            last_activity = datetime.fromisoformat(last_activity_str)
+        except (ValueError, TypeError):
+            last_activity = datetime.now()
+            logger.warning(f"Erreur parsing last_activity pour scène {channel_id}")
+            
         now = datetime.now()
         time_diff = now - last_activity
         
@@ -369,13 +375,20 @@ class SceneSurveillance(commands.Cog):
         
         # Dernière activité
         last_activity_str = scene_data.get('last_activity', 'Jamais')
-        if last_activity_str != 'Jamais':
-            last_activity_dt = datetime.fromisoformat(last_activity_str)
-            embed.add_field(
-                name="⏰ Dernière activité",
-                value=f"<t:{int(last_activity_dt.timestamp())}:R>",
-                inline=True
-            )
+        if last_activity_str != 'Jamais' and last_activity_str:
+            try:
+                last_activity_dt = datetime.fromisoformat(last_activity_str)
+                embed.add_field(
+                    name="⏰ Dernière activité",
+                    value=f"<t:{int(last_activity_dt.timestamp())}:R>",
+                    inline=True
+                )
+            except (ValueError, TypeError):
+                embed.add_field(
+                    name="⏰ Dernière activité",
+                    value="Erreur de format",
+                    inline=True
+                )
         else:
             embed.add_field(
                 name="⏰ Dernière activité",
@@ -449,15 +462,24 @@ class SceneSurveillance(commands.Cog):
                 'status': 'active'
             }
             
+            # Ajouter à active_scenes AVANT de créer l'embed
+            self.active_scenes[channel_id] = scene_data
+            
             # Créer l'embed de surveillance
             embed = await self.create_scene_embed(channel_id)
+            if not embed:
+                await interaction.followup.send("❌ Erreur lors de la création du message de surveillance.", ephemeral=True)
+                # Nettoyer
+                del self.active_scenes[channel_id]
+                return
+            
             view = SceneSurveillanceView(self, scene_data)
             
             # Envoyer le message de statut
             status_message = await interaction.followup.send(embed=embed, view=view)
             scene_data['status_message_id'] = status_message.id
             
-            # Sauvegarder
+            # Mettre à jour avec l'ID du message
             self.active_scenes[channel_id] = scene_data
             await self.save_scene_to_sheets(scene_data)
             
