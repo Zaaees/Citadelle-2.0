@@ -872,13 +872,42 @@ class SceneSurveillance(commands.Cog):
             
             # Alerte après 7 jours d'inactivité
             if time_diff >= timedelta(days=7):
-                await self.send_inactivity_alert(scene_data, time_diff.days)
+                # Vérifier si une alerte a déjà été envoyée récemment
+                last_alert = scene_data.get('last_alert_sent')
+                should_send_alert = True
+                
+                if last_alert:
+                    try:
+                        last_alert_dt = datetime.fromisoformat(last_alert)
+                        # Uniformiser les timezones
+                        if last_alert_dt.tzinfo is not None and now.tzinfo is None:
+                            last_alert_dt = last_alert_dt.replace(tzinfo=None)
+                        elif last_alert_dt.tzinfo is None and now.tzinfo is not None:
+                            now_for_alert = now.replace(tzinfo=None)
+                        else:
+                            now_for_alert = now
+                            
+                        time_since_alert = now_for_alert - last_alert_dt
+                        # Ne envoyer qu'une alerte par jour maximum
+                        should_send_alert = time_since_alert >= timedelta(hours=23)
+                    except (ValueError, TypeError):
+                        should_send_alert = True
+                
+                if should_send_alert:
+                    success = await self.send_inactivity_alert(scene_data, time_diff.days)
+                    if success:
+                        # Mettre à jour la date de dernière alerte
+                        scene_data['last_alert_sent'] = now.isoformat()
+                        self.active_scenes[channel_id] = scene_data
+                        # Sauvegarder en Google Sheets si possible
+                        await self.update_scene_alert_date(channel_id, now.isoformat())
 
-    async def send_inactivity_alert(self, scene_data: dict, days_inactive: int):
-        """Envoie une alerte d'inactivité au MJ responsable."""
+    async def send_inactivity_alert(self, scene_data: dict, days_inactive: int) -> bool:
+        """Envoie une alerte d'inactivité au MJ responsable. Retourne True si envoyée avec succès."""
         mj = self.bot.get_user(scene_data['mj_id'])
         if not mj:
-            return
+            logger.warning(f"MJ {scene_data['mj_id']} introuvable pour alerte inactivité")
+            return False
             
         try:
             channel_id = scene_data['channel_id']
@@ -905,9 +934,27 @@ class SceneSurveillance(commands.Cog):
             )
             
             await mj.send(embed=embed)
+            logger.info(f"📨 Alerte inactivité envoyée au MJ {mj.display_name} pour scène {channel_id}")
+            return True
             
         except Exception as e:
             logger.error(f"Erreur envoi alerte inactivité: {e}")
+            return False
+
+    async def update_scene_alert_date(self, channel_id: str, alert_date: str):
+        """Met à jour la date de dernière alerte d'une scène dans Google Sheets."""
+        if not self.sheet:
+            logger.debug("Impossible de mettre à jour date alerte: Google Sheets non disponible")
+            return
+            
+        try:
+            # Trouver la ligne de la scène et mettre à jour la colonne de dernière alerte
+            # (On assumera qu'une nouvelle colonne sera ajoutée au Google Sheets pour cela)
+            cell = self.sheet.find(channel_id)
+            # Colonne 8 pour last_alert_sent (à ajuster selon votre structure)
+            self.sheet.update_cell(cell.row, 8, alert_date)
+        except Exception as e:
+            logger.error(f"Erreur mise à jour date alerte: {e}")
 
     @activity_monitor.before_loop
     async def before_activity_monitor(self):
