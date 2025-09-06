@@ -195,3 +195,24 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 2025-09-06 17:23:46,163 - INFO - [CHANGES] Changements detectes:
 M auto_update.log
 ?? cogs/.claude/
+2025-09-06 17:23:46,193 - INFO - [OK] Commande reussie: git diff --name-only
+2025-09-06 17:23:46,222 - INFO - [OK] Commande reussie: git ls-files --others --exclude-standard
+2025-09-06 17:23:46,222 - INFO - [FILES] Fichiers modifies: ['auto_update.log', 'cogs/.claude/settings.local.json']
+2025-09-06 17:23:46,305 - INFO - [OK] Commande reussie: git add .
+2025-09-06 17:23:46,305 - INFO - [COMMIT] Message de commit:
+fix(cogs): update cogs/.claude/settings.local.json
+
+Auto-update performed at 2025-09-06 17:23:46
+Modified files: auto_update.log, cogs/.claude/settings.local.json
+
+Generated with [Claude Code](https://claude.ai/code)
+Co-Authored-By: Claude <noreply@anthropic.com>
+2025-09-06 17:23:46,443 - INFO - [OK] Commande reussie: git commit -m "fix(cogs): update cogs/.claude/settings.local.json
+
+Auto-update performed at 2025-09-06 17:23:46
+Modified files: auto_update.log, cogs/.claude/settings.local.json
+
+Generated with [Claude Code](https://claude.ai/code)
+Co-Authored-By: Claude <noreply@anthropic.com>"
+2025-09-06 17:23:47,806 - INFO - [OK] Commande reussie: git push origin main
+2025-09-06 17:23:47,807 - INFO - [SUCCESS] Auto-update termine avec succes!
