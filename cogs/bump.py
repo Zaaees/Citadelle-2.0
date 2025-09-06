@@ -328,10 +328,10 @@ class Bump(commands.Cog):
             if not self.bot_ready_waited:
                 self.logger.info("🔄 Attente que le bot soit prêt (premier run)...")
                 try:
-                    await asyncio.wait_for(self.bot.wait_until_ready(), timeout=30.0)
+                    await asyncio.wait_for(self.bot.wait_until_ready(), timeout=60.0)
                     self.logger.info("✅ Bot prêt !")
                 except asyncio.TimeoutError:
-                    self.logger.warning("⚠️ Timeout d'attente bot ready (30s), continuation forcée")
+                    self.logger.warning("⚠️ Timeout d'attente bot ready (60s), continuation forcée")
                 finally:
                     self.bot_ready_waited = True
                     
@@ -463,10 +463,10 @@ async def setup(bot):
         # Optionnel: surveiller l'initialisation en arrière-plan
         async def _monitor_init():
             try:
-                await asyncio.wait_for(init_task, timeout=30.0)
+                await asyncio.wait_for(init_task, timeout=60.0)
                 logger.info("✅ Initialisation du cog Bump terminée avec succès")
             except asyncio.TimeoutError:
-                logger.warning("⚠️ Timeout d'initialisation du cog Bump (30s), mais le bot continue")
+                logger.warning("⚠️ Timeout d'initialisation du cog Bump (60s), mais le bot continue")
             except Exception as e:
                 logger.error(f"❌ Erreur lors de l'initialisation du cog Bump: {e}")
                 
