@@ -25,14 +25,13 @@ logger = logging.getLogger('bot')
 # Charger les variables d'environnement
 load_dotenv()
 
-
 class StableBot(commands.Bot):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.ready_called = False
         self.connection_attempts = 0
         self.max_connection_attempts = 3  # Limité pour éviter les boucles
-
+        
     async def setup_hook(self):
         """Charge les cogs avec gestion d'erreurs robuste."""
         extensions = [
@@ -48,7 +47,6 @@ class StableBot(commands.Bot):
             'cogs.souselement',
             'cogs.ticket',
             'cogs.excès',
-            'cogs.scene_surveillance',
         ]
         
         critical_cogs = ['cogs.Cards', 'cogs.RPTracker', 'cogs.Surveillance_scene']
@@ -75,8 +73,6 @@ class StableBot(commands.Bot):
             logger.info("✅ Commandes synchronisées")
         except Exception as e:
             logger.warning(f"⚠️ Erreur sync commandes: {e}")
-
-
 
     async def on_disconnect(self):
         """Gestion simple des déconnexions."""
@@ -147,8 +143,6 @@ class BotManagerStable:
         ping_thread = threading.Thread(target=self_ping_minimal, daemon=True)
         ping_thread.start()
         logger.info("🏓 Self-ping minimal démarré")
-    
-    
     
     def run_bot(self):
         """Exécuter le bot de manière stable."""

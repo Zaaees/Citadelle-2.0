@@ -4,7 +4,7 @@ Modales pour les interactions utilisateur du système de cartes.
 
 import discord
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Tuple
 
 if TYPE_CHECKING:
     from ...Cards import Cards
@@ -326,96 +326,223 @@ class TradeOfferCardModal(discord.ui.Modal, title="Proposer un échange"):
             )
 
 
-class TradeResponseModal(discord.ui.Modal, title="Réponse à l'échange"):
-    """Modal pour répondre à un échange de carte individuelle."""
-    
+class BoardDepositModal(discord.ui.Modal, title="Déposer sur le tableau"):
+    """Modal pour déposer une carte sur le tableau d'échanges."""
+
     card_name = discord.ui.TextInput(
-        label="Carte que vous proposez (nom ou identifiant)",
+        label="Carte à déposer (nom ou identifiant)",
         placeholder="Ex : Alex (Variante) ou C42",
+        required=True,
+        max_length=100,
+    )
+
+    comment = discord.ui.TextInput(
+        label="Commentaire (optionnel)",
+        placeholder="Ajoutez un commentaire",
+        required=False,
+        max_length=200,
+    )
+
+    def __init__(self, cog: "Cards", user: discord.User):
+        super().__init__()
+        self.cog = cog
+        self.user = user
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            input_text = self.card_name.value.strip()
+            card_match = self.cog.find_user_card_by_input(self.user.id, input_text)
+            if not card_match:
+                await interaction.followup.send(
+                    f"❌ Carte non trouvée : **{input_text}**",
+                    ephemeral=True,
+                )
+                return
+
+            category, name = card_match
+            comment = self.comment.value.strip() if self.comment.value else None
+            success = self.cog.trading_manager.deposit_to_board(
+                self.user.id, category, name, comment=comment
+            )
+
+            if success:
+                display_name = name.removesuffix('.png')
+                await interaction.followup.send(
+                    f"✅ Carte **{display_name}** déposée sur le tableau.",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    "❌ Impossible de déposer la carte.",
+                    ephemeral=True,
+                )
+
+        except Exception as e:
+            logging.error(f"[BOARD] Erreur lors du dépôt: {e}")
+            await interaction.followup.send(
+                "❌ Une erreur est survenue lors du dépôt.",
+                ephemeral=True,
+            )
+
+
+class OfferCardModal(discord.ui.Modal, title="Offrir une carte"):
+    """Modal pour proposer une ou plusieurs cartes en échange depuis le tableau."""
+
+    card_name = discord.ui.TextInput(
+        label="Cartes offertes (noms ou identifiants)",
+        placeholder="Ex : Alex (Variante), C42",
+        required=True,
+        max_length=100,
+    )
+
+    def __init__(self, cog: "Cards", user: discord.User, board_id: int):
+        super().__init__()
+        self.cog = cog
+        self.user = user
+        self.board_id = board_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            raw_values = [v.strip() for v in self.card_name.value.split(',') if v.strip()]
+            offered_cards = []
+            for val in raw_values:
+                match = self.cog.find_user_card_by_input(self.user.id, val)
+                if not match:
+                    await interaction.followup.send(
+                        f"❌ Carte non trouvée : **{val}**",
+                        ephemeral=True,
+                    )
+                    return
+                offered_cards.append(match)
+
+            info = self.cog.trading_manager.initiate_board_trade(
+                self.user.id, self.board_id, offered_cards
+            )
+
+            if not info:
+                await interaction.followup.send(
+                    "❌ Échange impossible.",
+                    ephemeral=True,
+                )
+                return
+
+            owner_id, board_cat, board_name = info
+
+            owner = await interaction.client.fetch_user(owner_id)
+            from .trade_views import BoardTradeRequestView
+
+            view = BoardTradeRequestView(
+                self.cog,
+                buyer_id=self.user.id,
+                board_id=self.board_id,
+                offered_cards=offered_cards,
+            )
+
+            display_offered = ", ".join(n.removesuffix('.png') for _, n in offered_cards)
+            display_board = board_name.removesuffix('.png')
+            try:
+                await owner.send(
+                    f"{interaction.user.display_name} propose **{display_offered}** contre **{display_board}**.",
+                    view=view,
+                )
+                await interaction.followup.send(
+                    "✅ Offre envoyée au propriétaire, en attente de confirmation.",
+                    ephemeral=True,
+                )
+            except Exception:
+                await interaction.followup.send(
+                    "❌ Impossible de contacter le propriétaire.",
+                    ephemeral=True,
+                )
+
+        except Exception as e:
+            logging.error(f"[BOARD] Erreur lors de l'échange: {e}")
+            await interaction.followup.send(
+                "❌ Une erreur est survenue lors de l'échange.",
+                ephemeral=True,
+            )
+
+
+class TradeResponseModal(discord.ui.Modal, title="Réponse à l'échange"):
+    """Modal pour répondre à un échange de cartes."""
+
+    card_name = discord.ui.TextInput(
+        label="Cartes que vous proposez (noms ou identifiants)",
+        placeholder="Ex : Alex (Variante), C42",
         required=True
     )
-    
-    def __init__(self, cog: "Cards", offerer: discord.User, target: discord.User, 
-                 offer_cat: str, offer_name: str):
+
+    def __init__(self, cog: "Cards", offerer: discord.User, target: discord.User,
+                 offer_cards: List[Tuple[str, str]]):
         super().__init__()
         self.cog = cog
         self.offerer = offerer
         self.target = target
-        self.offer_cat = offer_cat
-        self.offer_name = offer_name
-    
+        self.offer_cards = offer_cards
+
     async def on_submit(self, interaction: discord.Interaction):
         """Traite la réponse à l'échange."""
         await interaction.response.defer(ephemeral=True)
-        
+
         try:
-            input_text = self.card_name.value.strip()
-            
-            # Rechercher la carte dans l'inventaire de la cible
-            card_match = self.cog.find_user_card_by_input(self.target.id, input_text)
-            
-            if not card_match:
-                # Générer des suggestions
-                suggestions = self.cog.get_user_card_suggestions(self.target.id, input_text)
-                error_msg = f"❌ Carte non trouvée dans votre inventaire : **{input_text}**\n"
-                error_msg += f"💡 Utilisez le nom exact de la carte ou son identifiant (ex: C42)"
+            raw_values = [v.strip() for v in self.card_name.value.split(',') if v.strip()]
+            return_cards = []
+            for val in raw_values:
+                match = self.cog.find_user_card_by_input(self.target.id, val)
+                if not match:
+                    suggestions = self.cog.get_user_card_suggestions(self.target.id, val)
+                    error_msg = f"❌ Carte non trouvée dans votre inventaire : **{val}**\n"
+                    error_msg += "💡 Utilisez le nom exact de la carte ou son identifiant (ex: C42)"
+                    if suggestions:
+                        error_msg += "\n\n🔍 **Suggestions similaires :**\n" + "\n".join(f"• {s}" for s in suggestions)
+                    await interaction.followup.send(error_msg, ephemeral=True)
+                    return
+                return_cards.append(match)
 
-                if suggestions:
-                    error_msg += f"\n\n🔍 **Suggestions similaires :**\n"
-                    for suggestion in suggestions:
-                        error_msg += f"• {suggestion}\n"
-
-                await interaction.followup.send(error_msg, ephemeral=True)
-                return
-            
-            return_cat, return_name = card_match
-            
-            # Créer la vue de confirmation finale
             from .trade_views import TradeFinalConfirmView
-            
+
             final_view = TradeFinalConfirmView(
-                self.cog, self.offerer, self.target, 
-                self.offer_cat, self.offer_name, return_cat, return_name
+                self.cog, self.offerer, self.target,
+                self.offer_cards, return_cards
             )
-            
-            # Créer l'embed de confirmation
-            offer_display = self.offer_name.removesuffix('.png')
-            return_display = return_name.removesuffix('.png')
-            
-            offer_id = self.cog.get_card_id(self.offer_cat, self.offer_name)
-            return_id = self.cog.get_card_id(return_cat, return_name)
-            
-            if offer_id:
-                offer_display += f" ({offer_id})"
-            if return_id:
-                return_display += f" ({return_id})"
-            
+
+            offer_display = "\n".join(
+                f"• {name.removesuffix('.png')}" for _, name in self.offer_cards
+            )
+            return_display = "\n".join(
+                f"• {name.removesuffix('.png')}" for _, name in return_cards
+            )
+
             embed = discord.Embed(
                 title="🔄 Confirmation d'échange",
                 description="Récapitulatif de l'échange :",
-                color=0x3498db
+                color=0x3498db,
             )
-            
+
             embed.add_field(
                 name=f"📤 {self.offerer.display_name} donne",
-                value=f"**{offer_display}** ({self.offer_cat})",
-                inline=True
+                value=offer_display or "Aucune carte",
+                inline=True,
             )
-            
+
             embed.add_field(
                 name=f"📥 {self.target.display_name} donne",
-                value=f"**{return_display}** ({return_cat})",
-                inline=True
+                value=return_display or "Aucune carte",
+                inline=True,
             )
-            
+
             embed.add_field(
                 name="⚠️ Attention",
                 value="Cet échange est **irréversible** !",
-                inline=False
+                inline=False,
             )
-            
+
             await interaction.followup.send(embed=embed, view=final_view, ephemeral=True)
-            
+
         except Exception as e:
             logging.error(f"[TRADE_RESPONSE] Erreur lors de la réponse: {e}")
             await interaction.followup.send(

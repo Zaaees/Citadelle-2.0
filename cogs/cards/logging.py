@@ -169,80 +169,90 @@ class CardsLoggingManager:
         )
     
     def log_trade_direct(self, offerer_id: int, offerer_name: str, target_id: int, target_name: str,
-                        offer_card: tuple, return_card: tuple, source: str = None) -> bool:
+                        offer_cards: list, return_cards: list, source: str = None) -> bool:
         """Enregistre un échange direct entre deux utilisateurs."""
-        offer_cat, offer_name = offer_card
-        return_cat, return_name = return_card
-        
+        success = True
+
+        received_by_offerer = [f"{cat}:{name}" for cat, name in return_cards]
+        received_by_target = [f"{cat}:{name}" for cat, name in offer_cards]
+
         # Enregistrer pour le proposeur (perte)
-        success1 = self._log_action(
-            action=self.ACTION_TRADE_DIRECT,
-            user_id=offerer_id,
-            user_name=offerer_name,
-            card_category=offer_cat,
-            card_name=offer_name,
-            quantity=-1,
-            details=f"Échange avec {target_name} - Carte donnée",
-            source=source,
-            additional_data={
-                "trade_partner_id": target_id,
-                "trade_partner_name": target_name,
-                "received_card": f"{return_cat}:{return_name}"
-            }
-        )
-        
+        for offer_cat, offer_name in offer_cards:
+            if not self._log_action(
+                action=self.ACTION_TRADE_DIRECT,
+                user_id=offerer_id,
+                user_name=offerer_name,
+                card_category=offer_cat,
+                card_name=offer_name,
+                quantity=-1,
+                details=f"Échange avec {target_name} - Carte donnée",
+                source=source,
+                additional_data={
+                    "trade_partner_id": target_id,
+                    "trade_partner_name": target_name,
+                    "received_cards": received_by_offerer,
+                },
+            ):
+                success = False
+
         # Enregistrer pour le proposeur (gain)
-        success2 = self._log_action(
-            action=self.ACTION_TRADE_DIRECT,
-            user_id=offerer_id,
-            user_name=offerer_name,
-            card_category=return_cat,
-            card_name=return_name,
-            quantity=1,
-            details=f"Échange avec {target_name} - Carte reçue",
-            source=source,
-            additional_data={
-                "trade_partner_id": target_id,
-                "trade_partner_name": target_name,
-                "given_card": f"{offer_cat}:{offer_name}"
-            }
-        )
-        
+        for return_cat, return_name in return_cards:
+            if not self._log_action(
+                action=self.ACTION_TRADE_DIRECT,
+                user_id=offerer_id,
+                user_name=offerer_name,
+                card_category=return_cat,
+                card_name=return_name,
+                quantity=1,
+                details=f"Échange avec {target_name} - Carte reçue",
+                source=source,
+                additional_data={
+                    "trade_partner_id": target_id,
+                    "trade_partner_name": target_name,
+                    "given_cards": received_by_target,
+                },
+            ):
+                success = False
+
         # Enregistrer pour la cible (perte)
-        success3 = self._log_action(
-            action=self.ACTION_TRADE_DIRECT,
-            user_id=target_id,
-            user_name=target_name,
-            card_category=return_cat,
-            card_name=return_name,
-            quantity=-1,
-            details=f"Échange avec {offerer_name} - Carte donnée",
-            source=source,
-            additional_data={
-                "trade_partner_id": offerer_id,
-                "trade_partner_name": offerer_name,
-                "received_card": f"{offer_cat}:{offer_name}"
-            }
-        )
-        
+        for return_cat, return_name in return_cards:
+            if not self._log_action(
+                action=self.ACTION_TRADE_DIRECT,
+                user_id=target_id,
+                user_name=target_name,
+                card_category=return_cat,
+                card_name=return_name,
+                quantity=-1,
+                details=f"Échange avec {offerer_name} - Carte donnée",
+                source=source,
+                additional_data={
+                    "trade_partner_id": offerer_id,
+                    "trade_partner_name": offerer_name,
+                    "received_cards": received_by_target,
+                },
+            ):
+                success = False
+
         # Enregistrer pour la cible (gain)
-        success4 = self._log_action(
-            action=self.ACTION_TRADE_DIRECT,
-            user_id=target_id,
-            user_name=target_name,
-            card_category=offer_cat,
-            card_name=offer_name,
-            quantity=1,
-            details=f"Échange avec {offerer_name} - Carte reçue",
-            source=source,
-            additional_data={
-                "trade_partner_id": offerer_id,
-                "trade_partner_name": offerer_name,
-                "given_card": f"{return_cat}:{return_name}"
-            }
-        )
-        
-        return success1 and success2 and success3 and success4
+        for offer_cat, offer_name in offer_cards:
+            if not self._log_action(
+                action=self.ACTION_TRADE_DIRECT,
+                user_id=target_id,
+                user_name=target_name,
+                card_category=offer_cat,
+                card_name=offer_name,
+                quantity=1,
+                details=f"Échange avec {offerer_name} - Carte reçue",
+                source=source,
+                additional_data={
+                    "trade_partner_id": offerer_id,
+                    "trade_partner_name": offerer_name,
+                    "given_cards": received_by_offerer,
+                },
+            ):
+                success = False
+
+        return success
 
     def log_trade_vault(self, user1_id: int, user1_name: str, user2_id: int, user2_name: str,
                        user1_cards: list, user2_cards: list, source: str = None) -> bool:

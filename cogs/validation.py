@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import os
 import re
 import time
+import asyncio
 
 class ValidationView(discord.ui.View):
     def __init__(self, cog=None):  # Modifier pour accepter le cog au lieu du sheet

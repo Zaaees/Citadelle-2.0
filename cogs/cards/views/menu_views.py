@@ -159,7 +159,7 @@ class CardsMenuView(discord.ui.View):
                 None,
             )
             if file_id:
-                file_bytes = self.cog.download_drive_file(file_id)
+                file_bytes = await self.cog.download_drive_file(file_id)
                 if file_bytes:
                     embed, image_file = self.cog.build_card_embed(cat, name, file_bytes, self.user)
                     embed_msgs.append((embed, image_file))
@@ -229,7 +229,7 @@ class CardsMenuView(discord.ui.View):
                     None,
                 )
                 if file_id:
-                    file_bytes = self.cog.download_drive_file(file_id)
+                    file_bytes = await self.cog.download_drive_file(file_id)
                     if file_bytes:
                         embed, image_file = self.cog.build_card_embed(cat, name, file_bytes, self.user)
                         embed_msgs.append((embed, image_file))
@@ -412,22 +412,20 @@ class CardsMenuView(discord.ui.View):
             return
         
         await interaction.response.defer(ephemeral=True)
-        
+
         try:
-            # Importer ici pour éviter les imports circulaires
-            from .trade_views import TradeMenuView
-            
-            # Créer la vue de trading
-            trade_view = TradeMenuView(self.cog, self.user)
-            
+            from .trade_views import ExchangeBoardView
+
+            board_view = await ExchangeBoardView.create(self.cog, self.user, interaction.guild)
+
             embed = discord.Embed(
-                title="🔄 Menu des échanges",
-                description="Choisissez une action d'échange :",
+                title="🔄 Tableau d'échanges",
+                description="Déposez une carte ou échangez-en une avec un autre joueur.",
                 color=0x3498db
             )
-            
-            await interaction.followup.send(embed=embed, view=trade_view, ephemeral=True)
-            
+
+            await interaction.followup.send(embed=embed, view=board_view, ephemeral=True)
+
         except Exception as e:
             logging.error(f"[MENU] Erreur lors de l'affichage du menu d'échange: {e}")
             await interaction.followup.send(
@@ -550,7 +548,7 @@ class SacrificialDrawConfirmationView(discord.ui.View):
                         None,
                     )
                     if file_id:
-                        file_bytes = self.cog.download_drive_file(file_id)
+                        file_bytes = await self.cog.download_drive_file(file_id)
                         if file_bytes:
                             embed, image_file = self.cog.build_card_embed(cat, name, file_bytes, self.user)
                             embed_msgs.append((embed, image_file))

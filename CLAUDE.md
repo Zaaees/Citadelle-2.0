@@ -12,6 +12,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `pip install -r requirements.txt` - Install dependencies
 - The bot uses Python 3.11+ and Discord.py 2.3.0+
 
+### Testing
+Currently, this project does not have a formal test suite. The bot includes some internal testing commands:
+- `!test_names` - Tests name extraction functionality in surveillance scenes
+- Built-in validation and error handling throughout the codebase
+
+### Auto-Update GitHub (Local → GitHub → Render)
+```bash
+# Automatic commit and push with generated message
+python auto_update.py
+
+# Custom commit message
+python auto_update.py --message "fix: your custom message"
+
+# Check for changes without committing
+python auto_update.py --check
+```
+
+**Quick Scripts:**
+- `update_github.bat` (Windows) - Double-click to auto-update
+- `update.sh` (Unix/Linux/macOS) - Execute to auto-update
+
+The workflow: Local changes → GitHub → Render auto-deployment
+
 ### Environment Variables Required
 - `DISCORD_TOKEN` - Discord bot token
 - `SERVICE_ACCOUNT_JSON` - Google Service Account JSON for Google Sheets integration
@@ -31,7 +54,7 @@ This is a Discord.py bot (`Citadelle-2.0`) with a modular cog-based architecture
 ### Core Components
 
 #### Main Bot (`main.py`)
-- `CustomBot` class extends `commands.Bot` with health monitoring
+- `CustomBot`/`StableBot` class extends `commands.Bot` with health monitoring
 - Built-in HTTP server for health checks (`/health`, `/ping`)
 - Background threads for monitoring and self-pinging
 - Automatic cog loading and command synchronization
@@ -41,6 +64,7 @@ Located in `cogs/` directory:
 
 **Core Cogs:**
 - `Cards.py` - Main card collection system (refactored modular architecture)
+- `scene_surveillance.py` - **NEW** Automatic RP scene monitoring system
 - `RPTracker.py` - Roleplay activity tracking with Google Sheets integration
 - `InactiveUserTracker.py` - User activity monitoring
 - `bump.py` - Server bump functionality
@@ -48,6 +72,21 @@ Located in `cogs/` directory:
 - `ticket.py` - Ticket management system
 - `inventaire.py` - Inventory management
 - Other utility cogs: `vocabulaire.py`, `souselement.py`, `excès.py`
+
+**Scene Surveillance System (`cogs/scene_surveillance.py`):**
+The newest addition to the bot - a comprehensive RP scene monitoring system:
+
+```
+SceneSurveillance Features:
+├── /surveiller_scene - Start scene monitoring
+├── /scenes_actives - List active scenes
+├── Interactive buttons (take over/close scene)
+├── Smart participant detection (webhooks, bots)
+├── Private MJ notifications
+├── 7-day inactivity alerts
+├── Real-time status updates
+└── Google Sheets persistence
+```
 
 **Cards System Architecture:**
 The cards system has been refactored from a monolithic 6183-line file into a modular architecture:
@@ -84,11 +123,11 @@ cogs/cards/
 - Local caching for performance optimization
 - File-based logging for debugging and monitoring
 
-### Monitoring and Health
-- Built-in health monitoring system with detailed metrics
-- HTTP endpoints for external monitoring
-- Automatic restart logic for failed tasks
-- Resource cleanup and memory management
+### Health & Monitoring System
+- HTTP server (`server.py`) provides `/health`, `/ping` endpoints on port 10000
+- Health monitoring with configurable failure thresholds
+- Resource monitoring and cleanup via `utils/connection_manager.py`
+- Self-ping mechanism to maintain activity on hosting platforms
 
 ## Development Notes
 
@@ -97,6 +136,13 @@ cogs/cards/
 - Use the modular cards system as an example for complex features
 - Maintain Google Sheets integration patterns across cogs
 - Follow the established error handling and logging patterns
+
+### Threading Architecture
+The bot uses a sophisticated threading system to prevent blocking:
+- HTTP server runs in dedicated daemon thread
+- Health monitoring in separate daemon thread
+- Google Sheets operations wrapped in `asyncio.to_thread()`
+- Self-ping functionality in daemon thread
 
 ### Authentication
 - Google service accounts for Sheets API access
