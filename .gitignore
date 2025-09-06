@@ -1,5 +1,6 @@
 .env
 git_auto.ps1
+update_github.bat
 Vocabulaire.csv
 __pycache__/
 *.pyc
