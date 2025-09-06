@@ -433,6 +433,50 @@ class SceneSurveillance(commands.Cog):
         
         return embed
 
+    @app_commands.command(name="mj", description="Affiche la liste des commandes MJ disponibles")
+    async def mj_commands(self, interaction: discord.Interaction):
+        """Commande pour lister toutes les commandes MJ disponibles."""
+        
+        if not self.has_mj_permission(interaction.user):
+            await interaction.response.send_message("❌ Seuls les MJ peuvent utiliser cette commande.", ephemeral=True)
+            return
+        
+        embed = discord.Embed(
+            title="🎭 Commandes MJ Disponibles",
+            description="Liste des commandes préfixées `!` accessibles aux MJ",
+            color=discord.Color.gold(),
+            timestamp=datetime.now()
+        )
+        
+        # Commandes de surveillance
+        embed.add_field(
+            name="🎬 Surveillance de Scènes",
+            value="`!surveiller_scene [canal]` - Démarre la surveillance d'une scène RP\n"
+                  "`!scenes_actives` - Liste les scènes actuellement surveillées",
+            inline=False
+        )
+        
+        # Commandes d'inventaire
+        embed.add_field(
+            name="🏅 Gestion Inventaire", 
+            value="`!medaille @user nombre` - Ajouter des médailles\n"
+                  "`!unmedaille @user nombre` - Retirer des médailles\n"
+                  "`!lier nom_personnage @user` - Associer personnage à utilisateur",
+            inline=False
+        )
+        
+        # Commandes système
+        embed.add_field(
+            name="⚙️ Système",
+            value="`!validation` - Envoie le message de validation\n"
+                  "`!ajouter_sous_element` - Ajouter un nouveau sous-élément",
+            inline=False
+        )
+        
+        embed.set_footer(text="💡 Utilisez ! devant chaque commande • Commandes visibles uniquement par vous")
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
     @app_commands.command(name="surveiller_scene", description="Démarre la surveillance d'une scène RP")
     @app_commands.describe(
         channel="Le salon, thread ou forum à surveiller (optionnel, utilise le salon actuel si non spécifié)"
