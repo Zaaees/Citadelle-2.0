@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Important Instructions for Claude Code
+
+**AUTOMATIC GITHUB PUSH POLICY**: After any modification to the codebase, ALWAYS automatically push changes to GitHub using `git add . && git commit && git push` unless explicitly told otherwise by the user. This ensures all changes are immediately backed up and deployed to production.
+
 ## Common Commands
 
 ### Running the Bot
