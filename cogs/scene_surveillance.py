@@ -324,6 +324,15 @@ class SceneSurveillance(commands.Cog):
             logger.warning(f"Erreur parsing last_activity pour scène {channel_id}")
             
         now = datetime.now()
+        
+        # Uniformiser les timezones pour éviter l'erreur offset-naive vs offset-aware
+        if last_activity.tzinfo is not None and now.tzinfo is None:
+            # last_activity a une timezone, now n'en a pas → convertir last_activity en naive
+            last_activity = last_activity.replace(tzinfo=None)
+        elif last_activity.tzinfo is None and now.tzinfo is not None:
+            # now a une timezone, last_activity n'en a pas → convertir now en naive  
+            now = now.replace(tzinfo=None)
+            
         time_diff = now - last_activity
         
         if time_diff < timedelta(hours=6):
@@ -639,6 +648,15 @@ class SceneSurveillance(commands.Cog):
             last_activity = datetime.now()
         
         now = datetime.now()
+        
+        # Uniformiser les timezones pour éviter l'erreur offset-naive vs offset-aware
+        if last_activity.tzinfo is not None and now.tzinfo is None:
+            # last_activity a une timezone, now n'en a pas → convertir now en naive
+            last_activity = last_activity.replace(tzinfo=None)
+        elif last_activity.tzinfo is None and now.tzinfo is not None:
+            # now a une timezone, last_activity n'en a pas → convertir last_activity en naive  
+            now = now.replace(tzinfo=None)
+            
         time_diff = now - last_activity
         
         # Logique de tri : plus c'est inactif, plus le timestamp est récent (pour remonter)
