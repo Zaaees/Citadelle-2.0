@@ -755,6 +755,103 @@ class SceneSurveillance(commands.Cog):
         await self.bot.wait_until_ready()
         await asyncio.sleep(300)  # Attendre 5 minutes après le démarrage
 
+    @app_commands.command(name="migrer_surveillance", description="Met à jour les anciens messages de surveillance avec le nouveau système")
+    async def migrate_surveillance(self, interaction: discord.Interaction):
+        """Commande pour migrer les anciens messages de surveillance."""
+        
+        if not self.has_mj_permission(interaction.user):
+            await interaction.response.send_message("❌ Seuls les MJ peuvent utiliser cette commande.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        
+        migrated_count = 0
+        failed_count = 0
+        
+        try:
+            for channel_id, scene_data in list(self.active_scenes.items()):
+                try:
+                    # Re-scanner l'historique pour les vraies données
+                    target_channel = self.bot.get_channel(int(channel_id))
+                    if not target_channel:
+                        failed_count += 1
+                        continue
+                    
+                    participants = []
+                    last_activity = scene_data.get('last_activity', datetime.now().isoformat())
+                    last_author_id = scene_data.get('last_author_id', scene_data['mj_id'])
+                    
+                    # Scanner l'historique récent pour les vraies données
+                    first_message = True
+                    async for message in target_channel.history(limit=50):
+                        if message.author.bot and not message.webhook_id:
+                            continue
+                        
+                        real_user_id = self.detect_webhook_user(message) or message.author.id
+                        
+                        if real_user_id not in participants:
+                            participants.append(real_user_id)
+                        
+                        if first_message:
+                            last_activity = message.created_at.isoformat()
+                            last_author_id = real_user_id
+                            first_message = False
+                    
+                    # Mettre à jour les données
+                    scene_data['participants'] = participants
+                    scene_data['last_activity'] = last_activity
+                    scene_data['last_author_id'] = last_author_id
+                    
+                    # Créer un nouveau message indépendant avec le nouveau système
+                    embed = await self.create_scene_embed(channel_id)
+                    if embed:
+                        sort_timestamp = self.calculate_sort_timestamp(scene_data)
+                        embed.timestamp = sort_timestamp
+                        
+                        view = SceneSurveillanceView(self, scene_data)
+                        
+                        # Supprimer l'ancien message s'il existe
+                        old_message_id = scene_data.get('status_message_id')
+                        old_channel_id = scene_data.get('status_channel_id')
+                        
+                        if old_message_id and old_channel_id:
+                            try:
+                                old_channel = self.bot.get_channel(old_channel_id)
+                                if old_channel:
+                                    old_message = await old_channel.fetch_message(old_message_id)
+                                    await old_message.delete()
+                            except:
+                                pass  # Ignorer si l'ancien message n'existe plus
+                        
+                        # Créer le nouveau message indépendant
+                        new_message = await interaction.channel.send(embed=embed, view=view)
+                        
+                        # Mettre à jour les données avec le nouveau message
+                        scene_data['status_message_id'] = new_message.id
+                        scene_data['status_channel_id'] = interaction.channel.id
+                        
+                        # Sauvegarder dans Google Sheets
+                        await self.save_scene_to_sheets(scene_data)
+                        
+                        migrated_count += 1
+                        
+                except Exception as e:
+                    logger.error(f"Erreur migration scène {channel_id}: {e}")
+                    failed_count += 1
+                    
+        except Exception as e:
+            await interaction.followup.send(f"❌ Erreur lors de la migration: {e}", ephemeral=True)
+            return
+        
+        # Message de résultat
+        result_msg = f"✅ **Migration terminée**\n"
+        result_msg += f"• {migrated_count} scènes migrées avec succès\n"
+        if failed_count > 0:
+            result_msg += f"• {failed_count} échecs\n"
+        result_msg += f"\n🔄 Les anciens messages ont été supprimés et remplacés par de nouveaux messages indépendants avec le système de tri intelligent."
+        
+        await interaction.followup.send(result_msg, ephemeral=True)
+
     @app_commands.command(name="scenes_actives", description="Affiche la liste des scènes actuellement surveillées")
     async def list_active_scenes(self, interaction: discord.Interaction):
         """Commande pour lister les scènes actives."""
