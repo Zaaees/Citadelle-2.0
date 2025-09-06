@@ -887,7 +887,8 @@ class SceneSurveillance(commands.Cog):
             
             debug_info += f"**{i}. Canal:** {target_channel.mention if target_channel else f'❌ {channel_id}'}\n"
             debug_info += f"   • MJ: <@{scene_data.get('mj_id', 'N/A')}>\n"
-            debug_info += f"   • Status Channel: {status_channel.mention if status_channel else f'❌ {scene_data.get(\"status_channel_id\", \"N/A\")}'}\n"
+            status_channel_text = status_channel.mention if status_channel else f"❌ {scene_data.get('status_channel_id', 'N/A')}"
+            debug_info += f"   • Status Channel: {status_channel_text}\n"
             debug_info += f"   • Status Message ID: {scene_data.get('status_message_id', 'N/A')}\n"
             debug_info += f"   • Participants: {len(scene_data.get('participants', []))}\n"
             debug_info += f"   • Dernière activité: {scene_data.get('last_activity', 'N/A')[:19]}\n\n"
