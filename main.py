@@ -70,22 +70,29 @@ class StableBot(commands.Bot):
         logger.info(f"📊 Extensions chargées: {loaded_count}/{len(extensions)} ({critical_loaded}/{len(critical_cogs)} critiques)")
         
         try:
-            # Synchronisation globale
-            await self.tree.sync()
-            logger.info("✅ Commandes synchronisées globalement")
-            
-            # Si GUILD_ID est configuré, sync aussi pour ce serveur spécifiquement
+            # Synchronisation prioritaire sur le serveur si configuré (instantané)
             guild_id = os.getenv('GUILD_ID')
             if guild_id:
                 try:
                     guild = discord.Object(id=int(guild_id))
-                    await self.tree.sync(guild=guild)
-                    logger.info(f"✅ Commandes synchronisées pour serveur {guild_id}")
+                    synced = await self.tree.sync(guild=guild)
+                    logger.info(f"✅ {len(synced)} commandes synchronisées pour serveur {guild_id} (instantané)")
                 except Exception as ge:
-                    logger.warning(f"⚠️ Erreur sync serveur spécifique: {ge}")
+                    logger.error(f"❌ Erreur sync serveur spécifique: {ge}")
+                    # Fallback sur sync globale
+                    synced = await self.tree.sync()
+                    logger.info(f"⚠️ Fallback: {len(synced)} commandes synchronisées globalement (1h délai)")
+            else:
+                # Pas de GUILD_ID configuré, sync globale uniquement
+                synced = await self.tree.sync()
+                logger.info(f"✅ {len(synced)} commandes synchronisées globalement (délai 1h)")
+                logger.warning("💡 Configurez GUILD_ID dans .env pour sync instantanée!")
                     
         except Exception as e:
-            logger.warning(f"⚠️ Erreur sync commandes: {e}")
+            logger.error(f"❌ Erreur critique sync commandes: {e}")
+            logger.error("🔍 Vérifiez les permissions bot (applications.commands scope)")
+            import traceback
+            logger.error(f"🔍 Traceback: {traceback.format_exc()}")
 
 
 

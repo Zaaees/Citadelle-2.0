@@ -496,6 +496,23 @@ class SceneSurveillance(commands.Cog):
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @commands.command(name="sync_commands", help="Force la synchronisation des commandes slash (MJ uniquement)")
+    async def sync_commands(self, ctx):
+        """Commande pour forcer la synchronisation des commandes slash."""
+        
+        if not self.has_mj_permission(ctx.author):
+            await ctx.send("❌ Seuls les MJ peuvent utiliser cette commande.")
+            return
+        
+        try:
+            # Sync pour ce serveur spécifiquement
+            synced = await self.bot.tree.sync(guild=ctx.guild)
+            await ctx.send(f"✅ {len(synced)} commandes synchronisées pour ce serveur !")
+            logger.info(f"🔄 Sync forcée par {ctx.author}: {len(synced)} commandes")
+        except Exception as e:
+            await ctx.send(f"❌ Erreur lors de la synchronisation: {e}")
+            logger.error(f"❌ Erreur sync forcée: {e}")
+
     @app_commands.command(name="surveiller_scene", description="Démarre la surveillance d'une scène RP")
     @app_commands.describe(
         channel="Le salon, thread ou forum à surveiller (optionnel, utilise le salon actuel si non spécifié)"
