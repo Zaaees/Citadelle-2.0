@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//f/Users/freed/Desktop/Citadelle-2.0/**)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git pull:*)",
+      "Bash(git push:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
