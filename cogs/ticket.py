@@ -119,17 +119,17 @@ class Ticket(commands.Cog):
                 await asyncio.sleep(2)
                 await self.process_ticket(channel)
 
-    @discord.app_commands.command(name="ticket", description="Traite tous les tickets existants")
-    @discord.app_commands.default_permissions(administrator=True)
-    async def process_tickets(self, interaction: discord.Interaction):
+    @commands.command(name="ticket", help="Traite tous les tickets existants")
+    @commands.has_permissions(administrator=True)
+    async def process_tickets(self, ctx: commands.Context):
             try:
-                await interaction.response.send_message("Traitement des tickets en cours...", ephemeral=True)
+                await ctx.send("Traitement des tickets en cours...")
 
                 processed = 0
                 total_processed = 0
 
                 channels_to_check = [
-                    channel for channel in interaction.guild.text_channels 
+                    channel for channel in ctx.guild.text_channels 
                     if channel.category is None
                 ]
 
@@ -142,15 +142,14 @@ class Ticket(commands.Cog):
                     except Exception as e:
                         print(f"Erreur lors du traitement du ticket {channel.name}: {e}")
 
-                await interaction.followup.send(
-                    f"Traitement terminé. {processed} tickets ont été traités sur {total_processed} salons vérifiés.",
-                    ephemeral=True
+                await ctx.send(
+                    f"Traitement terminé. {processed} tickets ont été traités sur {total_processed} salons vérifiés."
                 )
 
             except Exception as e:
                 print(f"Erreur lors de l'exécution de la commande: {str(e)}")
                 try:
-                    await interaction.followup.send("Une erreur est survenue lors du traitement.", ephemeral=True)
+                    await ctx.send("Une erreur est survenue lors du traitement.")
                 except:
                     pass
 

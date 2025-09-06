@@ -566,37 +566,31 @@ class SceneSurveillance(commands.Cog):
             await ctx.send(f"❌ Erreur lors du diagnostic: {e}")
             logger.error(f"❌ Erreur debug commandes: {e}")
 
-    @app_commands.command(name="surveiller_scene", description="Démarre la surveillance d'une scène RP")
-    @app_commands.describe(
-        channel="Le salon, thread ou forum à surveiller (optionnel, utilise le salon actuel si non spécifié)"
-    )
-    async def start_surveillance(self, interaction: discord.Interaction, 
+    @commands.command(name="surveiller_scene", help="Démarre la surveillance d'une scène RP")
+    async def start_surveillance(self, ctx: commands.Context, 
                                channel: Optional[Union[discord.TextChannel, discord.Thread, discord.ForumChannel]] = None):
         """Commande pour démarrer la surveillance d'une scène."""
         
-        if not self.has_mj_permission(interaction.user):
-            await interaction.response.send_message("❌ Seuls les MJ peuvent utiliser cette commande.", ephemeral=True)
+        if not self.has_mj_permission(ctx.author):
+            await ctx.send("❌ Seuls les MJ peuvent utiliser cette commande.")
             return
-            
-        await interaction.response.defer()
         
         # Utiliser le salon actuel si non spécifié
-        target_channel = channel or interaction.channel
+        target_channel = channel or ctx.channel
         channel_id = str(target_channel.id)
         
         # Vérifier si déjà surveillé
         if channel_id in self.active_scenes:
-            await interaction.followup.send(f"❌ Ce salon est déjà surveillé par <@{self.active_scenes[channel_id]['mj_id']}>", 
-                                          ephemeral=True)
+            await ctx.send(f"❌ Ce salon est déjà surveillé par <@{self.active_scenes[channel_id]['mj_id']}>")
             return
         
         try:
-            logger.info(f"🚀 Démarrage surveillance pour canal {target_channel.id} par {interaction.user.id}")
+            logger.info(f"🚀 Démarrage surveillance pour canal {target_channel.id} par {ctx.author.id}")
             
             # Scanner l'historique récent pour initialiser les données correctement
             participants = []
             last_activity = datetime.now().isoformat()
-            last_author_id = interaction.user.id
+            last_author_id = ctx.author.id
             
             try:
                 logger.info(f"📋 Scan historique canal {target_channel.name}...")
@@ -628,8 +622,8 @@ class SceneSurveillance(commands.Cog):
             now = datetime.now().isoformat()
             scene_data = {
                 'channel_id': target_channel.id,
-                'mj_id': interaction.user.id,
-                'status_channel_id': interaction.channel.id,
+                'mj_id': ctx.author.id,
+                'status_channel_id': ctx.channel.id,
                 'created_at': now,
                 'last_activity': last_activity,
                 'participants': participants,
@@ -645,7 +639,7 @@ class SceneSurveillance(commands.Cog):
             logger.info(f"🎨 Création embed surveillance...")
             embed = await self.create_scene_embed(channel_id)
             if not embed:
-                await interaction.followup.send("❌ Erreur lors de la création du message de surveillance.", ephemeral=True)
+                await ctx.send("❌ Erreur lors de la création du message de surveillance.")
                 # Nettoyer
                 del self.active_scenes[channel_id]
                 return
@@ -658,7 +652,7 @@ class SceneSurveillance(commands.Cog):
             
             # Envoyer le message de statut comme message indépendant (pas de réponse)
             logger.info(f"📤 Envoi message surveillance...")
-            status_message = await interaction.channel.send(embed=embed, view=view)
+            status_message = await ctx.channel.send(embed=embed, view=view)
             scene_data['status_message_id'] = status_message.id
             logger.info(f"✅ Message envoyé: {status_message.id}")
             
@@ -675,7 +669,7 @@ class SceneSurveillance(commands.Cog):
             logger.error(f"🔍 Détails: {str(e)}")
             import traceback
             logger.error(f"🔍 Traceback: {traceback.format_exc()}")
-            await interaction.followup.send(f"❌ Erreur lors du démarrage de la surveillance: {e}", ephemeral=True)
+            await ctx.send(f"❌ Erreur lors du démarrage de la surveillance: {e}")
 
     async def stop_scene_surveillance(self, channel_id: str):
         """Arrête la surveillance d'une scène."""
@@ -964,7 +958,7 @@ class SceneSurveillance(commands.Cog):
                 inline=True
             )
         
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await ctx.send(embed=embed)
 
 
 async def setup(bot):

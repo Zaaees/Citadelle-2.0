@@ -316,15 +316,14 @@ class Validation(commands.Cog):
     async def on_ready(self):
         print("Validation Cog is ready!")
 
-    @app_commands.command(name="validation", description="Envoie le message de validation dans ce salon")
-    @app_commands.default_permissions(administrator=True)
-    async def validation(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        if not interaction.channel.name.startswith("【🎭】"):
-            await interaction.followup.send("Ce salon n'est pas un ticket de personnage.", ephemeral=True)
+    @commands.command(name="validation", help="Envoie le message de validation dans ce salon")
+    @commands.has_permissions(administrator=True)
+    async def validation(self, ctx: commands.Context):
+        if not ctx.channel.name.startswith("【🎭】"):
+            await ctx.send("Ce salon n'est pas un ticket de personnage.")
             return
 
-        channel_id = str(interaction.channel.id)
+        channel_id = str(ctx.channel.id)
         try:
             cell = self.sheet.find(channel_id)
         except gspread.exceptions.CellNotFound:
@@ -337,7 +336,7 @@ class Validation(commands.Cog):
         )
         
         view = ValidationView(self)
-        message = await interaction.followup.send(embed=embed, view=view)
+        message = await ctx.send(embed=embed, view=view)
         await message.pin()
         
         cell = self.sheet.find(channel_id)

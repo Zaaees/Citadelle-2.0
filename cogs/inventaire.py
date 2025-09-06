@@ -32,11 +32,17 @@ class Inventory(commands.Cog):
         self.history_sheet = None
         # Initialisation différée; sera faite en tâche asynchrone
 
-    async def check_role(self, interaction: discord.Interaction) -> bool:
+    def check_role(self, user_or_interaction) -> bool:
         """Vérifie si l'utilisateur possède un rôle autorisé pour utiliser les commandes du cog."""
         authorized_role_ids = [123456789012345678, 987654321098765432]  # Remplace par tes IDs de rôles
-        user_roles = [role.id for role in interaction.user.roles]
-
+        
+        # Support pour interaction (slash) et ctx.author (prefix)
+        if hasattr(user_or_interaction, 'user'):
+            user = user_or_interaction.user  # Interaction
+        else:
+            user = user_or_interaction  # User direct
+            
+        user_roles = [role.id for role in user.roles]
         return any(role_id in user_roles for role_id in authorized_role_ids)
 
     
@@ -195,15 +201,12 @@ class Inventory(commands.Cog):
         except Exception as e:
             print(f"Erreur lors de l'enregistrement dans l'historique : {e}")
 
-    @app_commands.command(name="medaille", description="Ajouter des médailles à un ou plusieurs élèves")
-    async def add_medal(self, interaction: discord.Interaction, noms: str, montant: float):
+    @commands.command(name="medaille", help="Ajouter des médailles à un ou plusieurs élèves")
+    async def add_medal(self, ctx: commands.Context, noms: str, montant: float):
         # Vérification des permissions en premier
-        if not self.check_role(interaction):
-            await interaction.response.send_message("Vous n'avez pas la permission d'utiliser cette commande.", ephemeral=True)
+        if not self.check_role(ctx.author):
+            await ctx.send("Vous n'avez pas la permission d'utiliser cette commande.")
             return
-
-        # Defer après la vérification des permissions
-        await interaction.response.defer(ephemeral=False)
 
         students = self.load_students()
         noms_list = [nom.strip() for nom in noms.split(',')]
@@ -219,7 +222,7 @@ class Inventory(commands.Cog):
                     students[nom] = {'medals': montant, 'user_id': None}
                 
                 new_medals = students[nom]['medals']
-                self.log_medal_change(nom, montant, new_medals, str(interaction.user))
+                self.log_medal_change(nom, montant, new_medals, str(ctx.author))
                 
                 # Construire la description avec la bonne conjugaison singulier/pluriel
                 added_count = montant
@@ -234,25 +237,22 @@ class Inventory(commands.Cog):
                 
                 # Sauvegarder immédiatement après chaque modification
                 self.save_students(students)
-                await self.check_and_send_year_change_alert(interaction.guild, old_medals, new_medals, nom)
+                await self.check_and_send_year_change_alert(ctx.guild, old_medals, new_medals, nom)
 
             # Mettre à jour l'affichage une seule fois à la fin
             await self.update_medal_inventory()
             
-            await interaction.followup.send(embeds=embeds)
+            await ctx.send(embeds=embeds)
         except Exception as e:
             print(f"Erreur dans add_medal : {e}")
-            await interaction.followup.send("Une erreur s'est produite lors de l'ajout des médailles.", ephemeral=True)
+            await ctx.send("Une erreur s'est produite lors de l'ajout des médailles.")
 
-    @app_commands.command(name="unmedaille", description="Retirer des médailles à un ou plusieurs élèves")
-    async def remove_medal(self, interaction: discord.Interaction, noms: str, montant: float):
+    @commands.command(name="unmedaille", help="Retirer des médailles à un ou plusieurs élèves")
+    async def remove_medal(self, ctx: commands.Context, noms: str, montant: float):
         # Vérification des permissions
-        if not self.check_role(interaction):
-            await interaction.response.send_message("Vous n'avez pas la permission d'utiliser cette commande.", ephemeral=True)
+        if not self.check_role(ctx.author):
+            await ctx.send("Vous n'avez pas la permission d'utiliser cette commande.")
             return
-            
-        # Défer l'interaction après la vérification des permissions
-        await interaction.response.defer()
 
         # Charger les étudiants existants
         students = self.load_students()
@@ -266,7 +266,7 @@ class Inventory(commands.Cog):
                 students[nom]['medals'] -= montant
                 
                 # Enregistrer dans l'historique avant toute suppression potentielle
-                self.log_medal_change(nom, -montant, max(0, students[nom]['medals']), str(interaction.user))
+                self.log_medal_change(nom, -montant, max(0, students[nom]['medals']), str(ctx.author))
                 
                 if students[nom]['medals'] <= 0:
                     # Supprimer directement la ligne de Google Sheets
@@ -312,19 +312,17 @@ class Inventory(commands.Cog):
         await self.update_medal_inventory()
 
         # Envoyer les résultats sous forme d'embed
-        await interaction.followup.send(embeds=embeds)
+        await ctx.send(embeds=embeds)
 
-    @app_commands.command(name="lier", description="Associer un personnage à un utilisateur Discord")
-    async def link_character(self, interaction: discord.Interaction, nom: str, utilisateur: discord.Member):
-        if not self.check_role(interaction):
-            await interaction.response.send_message("Vous n'avez pas la permission d'utiliser cette commande.", ephemeral=True)
+    @commands.command(name="lier", help="Associer un personnage à un utilisateur Discord")
+    async def link_character(self, ctx: commands.Context, nom: str, utilisateur: discord.Member):
+        if not self.check_role(ctx.author):
+            await ctx.send("Vous n'avez pas la permission d'utiliser cette commande.")
             return
-
-        await interaction.response.defer()
         
         students = self.load_students()
         if nom not in students:
-            await interaction.followup.send(f"Le personnage {nom} n'existe pas dans la liste.", ephemeral=True)
+            await ctx.send(f"Le personnage {nom} n'existe pas dans la liste.")
             return
 
         # Mettre à jour l'ID utilisateur
@@ -336,7 +334,7 @@ class Inventory(commands.Cog):
             description=f"Le personnage **{nom}** a été associé à {utilisateur.mention}",
             color=0x6d5380
         )
-        await interaction.followup.send(embed=embed)
+        await ctx.send(embed=embed)
 
     async def update_medal_inventory(self):
         try:

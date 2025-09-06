@@ -734,10 +734,7 @@ class SousElements(commands.Cog):
             )
             
         except Exception as e:
-            await interaction.followup.send(
-                f"Une erreur est survenue : {str(e)}",
-                ephemeral=True
-            )
+            await ctx.send(f"Une erreur est survenue : {str(e)}")
 
     async def get_all_subelements(self):
         current_time = int(time.time())
