@@ -533,13 +533,8 @@ class SceneSurveillance(commands.Cog):
             self.active_scenes[channel_id] = scene_data
             await self.save_scene_to_sheets(scene_data)
             
-            # Message de confirmation
-            await interaction.followup.send(
-                f"✅ Surveillance démarrée pour {target_channel.mention}\n"
-                f"📋 Message de suivi créé ci-dessus\n"
-                f"🔔 Vous recevrez des notifications privées lors de nouvelle activité",
-                ephemeral=True
-            )
+            # Réponse silencieuse - pas de message de confirmation
+            logger.info(f"✅ Surveillance démarrée pour {target_channel.name}")
             
         except Exception as e:
             logger.error(f"❌ Erreur lors du démarrage de surveillance: {e}")
