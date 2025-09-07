@@ -455,8 +455,9 @@ class SceneSurveillance(commands.Cog):
         # Commandes de surveillance
         embed.add_field(
             name="🎬 Surveillance de Scènes",
-            value="`!surveiller_scene [canal]` - Démarre la surveillance d'une scène RP\n"
-                  "`!scenes_actives` - Liste les scènes actuellement surveillées",
+            value="`!surveiller_scene [canal]` - Démarre la surveillance automatique d'une scène RP\n"
+                  "`!scenes_actives` - Liste les scènes actuellement surveillées\n"
+                  "📡 *Scanner automatique toutes les 15 min pour détecter l'activité réelle*",
             inline=False
         )
         
@@ -729,144 +730,8 @@ class SceneSurveillance(commands.Cog):
         # Mettre à jour le message de statut
         await self.update_status_message(channel_id)
 
-    @commands.Cog.listener()
-    async def on_message_delete(self, message: discord.Message):
-        """Surveille les messages supprimés dans les scènes surveillées pour recalculer l'activité."""
-        if not message.guild or message.author.bot:
-            return
-            
-        channel_id = str(message.channel.id)
-        if channel_id not in self.active_scenes:
-            return
-            
-        scene_data = self.active_scenes[channel_id]
-        
-        # Vérifier si le message supprimé était récent et pertinent
-        last_author_id = scene_data.get('last_author_id')
-        last_activity = scene_data.get('last_activity')
-        
-        # Déterminer l'auteur réel du message supprimé
-        real_author_id = message.author.id
-        if message.webhook_id:
-            detected_user = self.detect_webhook_user(message)
-            if detected_user:
-                real_author_id = detected_user
-        
-        # Optimisation : ne recalculer que si nécessaire
-        should_recalculate = False
-        
-        # Cas 1: Le message supprimé était du dernier auteur actif
-        if real_author_id == last_author_id:
-            should_recalculate = True
-            
-        # Cas 2: Le message supprimé était récent (moins de 24h de la dernière activité)
-        elif last_activity:
-            try:
-                last_activity_dt = datetime.fromisoformat(last_activity)
-                message_age = datetime.now() - message.created_at.replace(tzinfo=None)
-                activity_age = datetime.now() - last_activity_dt.replace(tzinfo=None)
-                
-                # Si le message supprimé était dans la même période que la dernière activité
-                if abs(message_age - activity_age) < timedelta(hours=24):
-                    should_recalculate = True
-            except (ValueError, TypeError):
-                should_recalculate = True  # En cas d'erreur, recalculer par sécurité
-        
-        if should_recalculate:
-            await self.recalculate_scene_activity(channel_id)
-            logger.info(f"🗑️ Message supprimé pertinent - Recalcul activité pour scène {channel_id}")
-        else:
-            logger.debug(f"🗑️ Message supprimé non pertinent pour scène {channel_id}, pas de recalcul")
-
-    @commands.Cog.listener() 
-    async def on_bulk_message_delete(self, messages):
-        """Surveille les suppressions en masse de messages."""
-        if not messages:
-            return
-            
-        # Regrouper par canal pour éviter les recalculs multiples
-        affected_channels = set()
-        
-        for message in messages:
-            if not message.guild or message.author.bot:
-                continue
-                
-            channel_id = str(message.channel.id)
-            if channel_id in self.active_scenes:
-                affected_channels.add(channel_id)
-        
-        # Recalculer l'activité pour tous les canaux affectés
-        for channel_id in affected_channels:
-            await self.recalculate_scene_activity(channel_id)
-            logger.info(f"🗑️ Suppressions multiples - Recalcul activité pour scène {channel_id}")
-
-    async def recalculate_scene_activity(self, channel_id: str):
-        """Recalcule la vraie dernière activité d'une scène en scannant l'historique."""
-        if channel_id not in self.active_scenes:
-            return
-            
-        scene_data = self.active_scenes[channel_id]
-        channel = self.bot.get_channel(int(channel_id))
-        
-        if not channel:
-            logger.warning(f"Canal {channel_id} introuvable pour recalcul activité")
-            return
-            
-        try:
-            # Scanner les 50 derniers messages pour trouver la vraie dernière activité
-            participants = []
-            last_activity = None
-            last_author_id = None
-            
-            async for message in channel.history(limit=50):
-                # Ignorer les bots système mais garder les webhooks RP
-                if message.author.bot and not message.webhook_id:
-                    continue
-                    
-                # Ignorer les messages système
-                if message.type != discord.MessageType.default and not message.webhook_id:
-                    continue
-                    
-                # Déterminer l'auteur réel
-                real_author_id = message.author.id
-                if message.webhook_id:
-                    detected_user = self.detect_webhook_user(message)
-                    if detected_user:
-                        real_author_id = detected_user
-                
-                # Ajouter aux participants
-                if real_author_id not in participants:
-                    participants.append(real_author_id)
-                
-                # Le premier message valide est le plus récent (dernière activité)
-                if last_activity is None:
-                    last_activity = message.created_at.isoformat()
-                    last_author_id = real_author_id
-            
-            # Mettre à jour les données de la scène
-            if last_activity:
-                scene_data['last_activity'] = last_activity
-                scene_data['last_author_id'] = last_author_id
-                scene_data['participants'] = participants
-                
-                # Sauvegarder dans Google Sheets
-                await self.update_scene_activity(channel_id, last_activity, participants, last_author_id)
-                
-                # Mettre à jour le message de statut
-                await self.update_status_message(channel_id)
-                
-                logger.info(f"✅ Activité recalculée pour {channel_id}: {len(participants)} participants, dernière activité: {last_activity}")
-            else:
-                # Aucun message trouvé, marquer comme inactive
-                scene_data['last_activity'] = scene_data.get('created_at', datetime.now().isoformat())
-                scene_data['last_author_id'] = scene_data.get('mj_id')  # Fallback sur le MJ
-                scene_data['participants'] = []
-                
-                await self.update_status_message(channel_id)
-                logger.info(f"⚠️ Aucune activité trouvée pour {channel_id}, marquée comme inactive")
-                
-        except Exception as e:
-            logger.error(f"Erreur lors du recalcul d'activité pour {channel_id}: {e}")
+    # Les événements on_message_delete sont remplacés par le scanner périodique
+    # qui détecte automatiquement tous les changements d'activité
 
     async def notify_mj(self, scene_data: dict, message: discord.Message, real_author_id: int):
         """Envoie une notification privée au MJ responsable."""
@@ -970,20 +835,118 @@ class SceneSurveillance(commands.Cog):
         except Exception as e:
             logger.error(f"Erreur mise à jour message statut: {e}")
 
-    @tasks.loop(minutes=30)
+    @tasks.loop(minutes=15)
     async def activity_monitor(self):
-        """Tâche de surveillance périodique pour mettre à jour les statuts et tri."""
-        logger.info(f"🔄 Mise à jour périodique des {len(self.active_scenes)} scènes surveillées...")
+        """Tâche de surveillance périodique qui scanne l'historique réel des canaux."""
+        logger.info(f"🔄 Scanner périodique de {len(self.active_scenes)} scènes surveillées...")
         
         for channel_id in list(self.active_scenes.keys()):
             try:
+                # Scanner l'historique réel du canal pour détecter les changements
+                await self.scan_channel_activity(channel_id)
+                # Mettre à jour le message de statut
                 await self.update_status_message(channel_id)
                 # Petit délai pour éviter le rate limiting
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(1)
             except Exception as e:
-                logger.error(f"Erreur lors de la mise à jour de la scène {channel_id}: {e}")
+                logger.error(f"Erreur lors du scan de la scène {channel_id}: {e}")
                 
-        logger.info("✅ Mise à jour périodique terminée")
+        logger.info("✅ Scanner périodique terminé")
+
+    async def scan_channel_activity(self, channel_id: str):
+        """Scanne l'historique réel d'un canal pour détecter l'activité actuelle."""
+        if channel_id not in self.active_scenes:
+            return
+            
+        scene_data = self.active_scenes[channel_id]
+        channel = self.bot.get_channel(int(channel_id))
+        
+        if not channel:
+            logger.warning(f"Canal {channel_id} introuvable pour scan activité")
+            return
+            
+        try:
+            # Scanner les 100 derniers messages pour être sûr de capturer l'activité
+            current_participants = []
+            current_last_activity = None
+            current_last_author_id = None
+            
+            logger.debug(f"🔍 Scan historique canal {channel.name}...")
+            
+            async for message in channel.history(limit=100):
+                # Ignorer les bots système mais garder les webhooks RP
+                if message.author.bot and not message.webhook_id:
+                    continue
+                    
+                # Ignorer les messages système
+                if message.type != discord.MessageType.default and not message.webhook_id:
+                    continue
+                    
+                # Déterminer l'auteur réel
+                real_author_id = message.author.id
+                if message.webhook_id:
+                    detected_user = self.detect_webhook_user(message)
+                    if detected_user:
+                        real_author_id = detected_user
+                
+                # Ajouter aux participants
+                if real_author_id not in current_participants:
+                    current_participants.append(real_author_id)
+                
+                # Le premier message valide est le plus récent (dernière activité)
+                if current_last_activity is None:
+                    current_last_activity = message.created_at.isoformat()
+                    current_last_author_id = real_author_id
+                    
+            # Vérifier s'il y a eu des changements
+            old_last_activity = scene_data.get('last_activity')
+            old_participants = set(scene_data.get('participants', []))
+            new_participants = set(current_participants)
+            
+            changes_detected = False
+            
+            # Détecter les changements d'activité
+            if current_last_activity != old_last_activity:
+                changes_detected = True
+                logger.info(f"🔄 Changement d'activité détecté pour {channel_id}")
+                
+            # Détecter les changements de participants
+            if old_participants != new_participants:
+                changes_detected = True
+                added = new_participants - old_participants
+                removed = old_participants - new_participants
+                if added:
+                    logger.info(f"➕ Nouveaux participants détectés pour {channel_id}: {len(added)}")
+                if removed:
+                    logger.info(f"➖ Participants supprimés détectés pour {channel_id}: {len(removed)}")
+            
+            # Mettre à jour les données si nécessaire
+            if changes_detected:
+                if current_last_activity:
+                    scene_data['last_activity'] = current_last_activity
+                    scene_data['last_author_id'] = current_last_author_id
+                else:
+                    # Aucun message trouvé, marquer comme inactive depuis la création
+                    scene_data['last_activity'] = scene_data.get('created_at', datetime.now().isoformat())
+                    scene_data['last_author_id'] = scene_data.get('mj_id')
+                
+                scene_data['participants'] = current_participants
+                self.active_scenes[channel_id] = scene_data
+                
+                # Sauvegarder dans Google Sheets
+                await self.update_scene_activity(
+                    channel_id, 
+                    scene_data['last_activity'], 
+                    current_participants, 
+                    scene_data['last_author_id']
+                )
+                
+                logger.info(f"✅ Données mises à jour pour {channel_id}: {len(current_participants)} participants")
+            else:
+                logger.debug(f"✓ Aucun changement pour {channel_id}")
+                
+        except Exception as e:
+            logger.error(f"Erreur lors du scan d'activité pour {channel_id}: {e}")
 
     @tasks.loop(hours=24)
     async def inactivity_checker(self):
@@ -1110,6 +1073,16 @@ class SceneSurveillance(commands.Cog):
         await self.bot.wait_until_ready()
         await asyncio.sleep(60)  # Attendre 1 minute après le démarrage
         await self.load_active_scenes()  # Charger les scènes existantes
+        
+        # Faire un scan initial complet pour détecter les changements pendant que le bot était hors ligne
+        logger.info("🚀 Scanner initial complet au démarrage...")
+        for channel_id in list(self.active_scenes.keys()):
+            try:
+                await self.scan_channel_activity(channel_id)
+                await asyncio.sleep(2)  # Délai plus long pour éviter le rate limiting au démarrage
+            except Exception as e:
+                logger.error(f"Erreur scan initial {channel_id}: {e}")
+        logger.info("✅ Scanner initial terminé")
 
     @inactivity_checker.before_loop
     async def before_inactivity_checker(self):
@@ -1156,32 +1129,8 @@ class SceneSurveillance(commands.Cog):
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @commands.command(name="recalculer_scene", help="Force le recalcul de l'activité d'une scène surveillée")
-    async def force_recalculate_scene(self, ctx: commands.Context, 
-                                    channel: Optional[Union[discord.TextChannel, discord.Thread, discord.ForumChannel]] = None):
-        """Commande pour forcer le recalcul de l'activité d'une scène."""
-        
-        if not self.has_mj_permission(ctx.author):
-            await ctx.send("❌ Seuls les MJ peuvent utiliser cette commande.")
-            return
-        
-        # Utiliser le salon actuel si non spécifié
-        target_channel = channel or ctx.channel
-        channel_id = str(target_channel.id)
-        
-        # Vérifier si la scène est surveillée
-        if channel_id not in self.active_scenes:
-            await ctx.send(f"❌ Ce salon n'est pas actuellement surveillé.")
-            return
-        
-        try:
-            # Forcer le recalcul
-            await self.recalculate_scene_activity(channel_id)
-            await ctx.send(f"✅ Activité recalculée pour {target_channel.mention}")
-            
-        except Exception as e:
-            logger.error(f"Erreur lors du recalcul forcé: {e}")
-            await ctx.send(f"❌ Erreur lors du recalcul: {e}")
+    # La commande manuelle n'est plus nécessaire - le scanner périodique
+    # s'occupe automatiquement de détecter tous les changements
 
 
 async def setup(bot):
