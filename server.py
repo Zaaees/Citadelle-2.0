@@ -49,6 +49,22 @@ def get_last_heartbeat():
 
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_HEAD(self):
+        """Support HEAD requests for UptimeRobot and other monitors."""
+        rc = increment_request_count()
+        lh = update_last_heartbeat()
+        
+        if self.path in ['/', '/health', '/ping', '/bot-status', '/metrics']:
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json' if self.path != '/ping' else 'text/plain')
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.send_header('Pragma', 'no-cache')
+            self.send_header('Expires', '0')
+            self.end_headers()
+        else:
+            self.send_response(404)
+            self.end_headers()
+    
     def do_GET(self):
         rc = increment_request_count()
         lh = update_last_heartbeat()
