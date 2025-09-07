@@ -457,6 +457,7 @@ class SceneSurveillance(commands.Cog):
             name="🎬 Surveillance de Scènes",
             value="`!surveiller_scene [canal]` - Démarre la surveillance automatique d'une scène RP\n"
                   "`!scenes_actives` - Liste les scènes actuellement surveillées\n"
+                  "`!reattribuer_scene @nouveau_mj [canal]` - Réattribue une scène à un autre MJ\n"
                   "📡 *Scanner automatique toutes les 15 min pour détecter l'activité réelle*",
             inline=False
         )
@@ -1129,8 +1130,130 @@ class SceneSurveillance(commands.Cog):
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    # La commande manuelle n'est plus nécessaire - le scanner périodique
-    # s'occupe automatiquement de détecter tous les changements
+    @commands.command(name="reattribuer_scene", help="Réattribue une scène surveillée à un autre MJ")
+    async def reassign_scene(self, ctx: commands.Context, 
+                           nouveau_mj: discord.Member,
+                           channel: Optional[Union[discord.TextChannel, discord.Thread, discord.ForumChannel]] = None):
+        """Commande pour réattribuer une scène surveillée à un autre MJ."""
+        
+        # Vérifier que l'utilisateur a les permissions MJ
+        if not self.has_mj_permission(ctx.author):
+            await ctx.send("❌ Seuls les MJ peuvent utiliser cette commande.")
+            return
+        
+        # Vérifier que le nouveau MJ a aussi les permissions MJ
+        if not self.has_mj_permission(nouveau_mj):
+            await ctx.send(f"❌ {nouveau_mj.mention} n'a pas le rôle MJ requis.")
+            return
+        
+        # Utiliser le salon actuel si non spécifié
+        target_channel = channel or ctx.channel
+        channel_id = str(target_channel.id)
+        
+        # Vérifier que la scène est surveillée
+        if channel_id not in self.active_scenes:
+            await ctx.send(f"❌ Le salon {target_channel.mention} n'est pas actuellement surveillé.")
+            return
+        
+        scene_data = self.active_scenes[channel_id]
+        ancien_mj_id = scene_data['mj_id']
+        
+        # Vérifier qu'il y a effectivement un changement
+        if ancien_mj_id == nouveau_mj.id:
+            await ctx.send(f"❌ {nouveau_mj.mention} est déjà le MJ responsable de cette scène.")
+            return
+        
+        try:
+            # Mettre à jour les données locales
+            scene_data['mj_id'] = nouveau_mj.id
+            self.active_scenes[channel_id] = scene_data
+            
+            # Mettre à jour dans Google Sheets
+            await self.update_scene_mj(channel_id, nouveau_mj.id)
+            
+            # Mettre à jour le message de surveillance s'il existe
+            await self.update_status_message(channel_id)
+            
+            # Notifications
+            ancien_mj = self.bot.get_user(ancien_mj_id)
+            
+            # Message de confirmation publique
+            embed = discord.Embed(
+                title="🔄 Scène Réattribuée",
+                description=f"La responsabilité de la surveillance de {target_channel.mention} a été transférée.",
+                color=discord.Color.blue(),
+                timestamp=datetime.now()
+            )
+            
+            embed.add_field(
+                name="🎭 Ancien MJ", 
+                value=ancien_mj.mention if ancien_mj else f"<@{ancien_mj_id}>", 
+                inline=True
+            )
+            embed.add_field(
+                name="🎪 Nouveau MJ", 
+                value=nouveau_mj.mention, 
+                inline=True
+            )
+            embed.add_field(
+                name="👤 Réattribué par", 
+                value=ctx.author.mention, 
+                inline=True
+            )
+            
+            await ctx.send(embed=embed)
+            
+            # Notification privée à l'ancien MJ
+            if ancien_mj and ancien_mj.id != ctx.author.id:
+                try:
+                    embed_notification = discord.Embed(
+                        title="📋 Transfert de Responsabilité",
+                        description=f"La surveillance de {target_channel.mention} vous a été retirée.",
+                        color=discord.Color.orange(),
+                        timestamp=datetime.now()
+                    )
+                    embed_notification.add_field(
+                        name="🎪 Nouveau MJ responsable", 
+                        value=nouveau_mj.mention, 
+                        inline=True
+                    )
+                    embed_notification.add_field(
+                        name="👤 Changement effectué par", 
+                        value=ctx.author.mention, 
+                        inline=True
+                    )
+                    await ancien_mj.send(embed=embed_notification)
+                except discord.HTTPException:
+                    logger.warning(f"Impossible d'envoyer notification à l'ancien MJ {ancien_mj_id}")
+            
+            # Notification privée au nouveau MJ (si différent de celui qui fait la commande)
+            if nouveau_mj.id != ctx.author.id:
+                try:
+                    embed_notification = discord.Embed(
+                        title="🎭 Nouvelle Responsabilité",
+                        description=f"Vous êtes maintenant responsable de la surveillance de {target_channel.mention}.",
+                        color=discord.Color.green(),
+                        timestamp=datetime.now()
+                    )
+                    embed_notification.add_field(
+                        name="👤 Attribué par", 
+                        value=ctx.author.mention, 
+                        inline=True
+                    )
+                    embed_notification.add_field(
+                        name="📊 Participants actuels", 
+                        value=f"{len(scene_data.get('participants', []))} participant(s)", 
+                        inline=True
+                    )
+                    await nouveau_mj.send(embed=embed_notification)
+                except discord.HTTPException:
+                    logger.warning(f"Impossible d'envoyer notification au nouveau MJ {nouveau_mj.id}")
+            
+            logger.info(f"🔄 Scène {channel_id} réattribuée: {ancien_mj_id} → {nouveau_mj.id} par {ctx.author.id}")
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la réattribution de scène: {e}")
+            await ctx.send("❌ Erreur lors de la réattribution de la scène. Consultez les logs pour plus de détails.")
 
 
 async def setup(bot):
