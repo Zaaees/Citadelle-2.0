@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: web
     name: citadelle-bot
     env: python
     plan: free
@@ -8,6 +8,7 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
+    healthCheckPath: /ping
     autoDeploy: true
     disk:
       name: citadelle-data

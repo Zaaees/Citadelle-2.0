@@ -8,8 +8,8 @@ from dotenv import load_dotenv
 import time
 import asyncio
 from datetime import datetime
+from server_minimal import start_server_thread, update_bot_health
 from monitoring_minimal import check_bot_health_minimal
-# Monitoring d'état simplifié pour Background Worker
 
 # Configuration des logs - moins verbose
 logging.basicConfig(
@@ -31,7 +31,9 @@ class StableBot(commands.Bot):
         super().__init__(*args, **kwargs)
         self.ready_called = False
         self.connection_attempts = 0
-        self.max_connection_attempts = 3  # Limité pour éviter les boucles
+        self.max_connection_attempts = 3
+        self.last_ready_time = None
+        self.consecutive_disconnects = 0
 
     async def setup_hook(self):
         """Charge les cogs avec gestion d'erreurs robuste."""
@@ -106,15 +108,31 @@ class StableBot(commands.Bot):
 
 
     async def on_disconnect(self):
-        """Gestion simple des déconnexions."""
-        logger.warning("🔌 Déconnecté de Discord")
+        """Gestion intelligente des déconnexions."""
         self.ready_called = False
+        self.consecutive_disconnects += 1
+        
+        # Temps depuis la dernière connexion réussie
+        downtime = datetime.now() - self.last_ready_time if self.last_ready_time else None
+        
+        logger.warning(f"🔌 Déconnecté de Discord (#{self.consecutive_disconnects})")
+        if downtime:
+            logger.warning(f"⏱️ Temps de connexion avant déco: {downtime}")
+        
+        # Marquer comme malsain pour health check
+        update_bot_health(healthy=False)
 
     async def on_resumed(self):
-        """Gestion simple des reconnexions."""
-        logger.info("🔄 Reconnecté à Discord")
+        """Gestion optimisée des reconnexions."""
         self.ready_called = True
         self.connection_attempts = 0
+        self.consecutive_disconnects = 0
+        self.last_ready_time = datetime.now()
+        
+        logger.info(f"🔄 Reconnecté à Discord (latence: {self.latency:.2f}s)")
+        
+        # Marquer comme sain pour health check
+        update_bot_health(healthy=True)
 
     async def on_error(self, event_method, *args, **kwargs):
         """Gestion d'erreur renforcée contre les crashes silencieux."""
@@ -153,61 +171,115 @@ class BotManagerStable:
         bot = StableBot(
             command_prefix='!',
             intents=intents,
-            heartbeat_timeout=120.0,  # Très tolérant
-            guild_ready_timeout=60.0,
-            max_messages=500,  # Réduire l'usage mémoire
-            chunk_guilds_at_startup=False
+            heartbeat_timeout=180.0,  # Ultra-tolérant: 3 minutes
+            guild_ready_timeout=120.0,  # 2 minutes pour les gros serveurs
+            max_messages=100,  # Minimal pour économiser la mémoire
+            chunk_guilds_at_startup=False,
+            enable_debug_events=False,  # Réduire le spam de logs
+            assume_unsync_clock=False
         )
         
         @bot.event
         async def on_ready():
             bot.ready_called = True
+            bot.last_ready_time = datetime.now()
+            bot.consecutive_disconnects = 0
+            
             logger.info(f'🤖 Bot connecté: {bot.user.name}')
             logger.info(f'🏓 Latence: {bot.latency:.2f}s')
-            logger.info("🚀 Bot opérationnel en mode Background Worker!")
+            logger.info(f'🌐 Serveurs: {len(bot.guilds)}')
+            logger.info("🚀 Bot ultra-robuste opérationnel!")
+            
+            # Marquer comme sain
+            update_bot_health(healthy=True)
 
         return bot
     
     def start_support_threads(self):
-        """Démarrer uniquement les threads essentiels pour Background Worker."""
-        # Thread monitoring minimal (sans redémarrage automatique)
+        """Démarrer les threads optimisés pour Web Service ultra-robuste."""
+        # Serveur HTTP minimal
+        server_thread = start_server_thread()
+        logger.info("📡 Serveur HTTP minimal démarré")
+        
+        # Monitoring avec heartbeat intelligent
         def monitoring_wrapper():
-            time.sleep(60)  # Attendre que le bot soit prêt
+            time.sleep(90)  # Plus de temps pour l'initialisation complète
             if self.bot and not self.bot.is_closed():
                 check_bot_health_minimal(self.bot)
         
         monitor_thread = threading.Thread(target=monitoring_wrapper, daemon=True)
         monitor_thread.start()
-        logger.info("🏥 Monitoring minimal démarré")
-        logger.info("🎯 Mode Background Worker - Pas de serveur HTTP requis")
+        logger.info("🏥 Monitoring ultra-robuste démarré")
+        
+        # Heartbeat périodique pour maintenir la connexion
+        def heartbeat_keeper():
+            while True:
+                time.sleep(600)  # 10 minutes
+                try:
+                    if self.bot and self.bot.is_ready() and not self.bot.is_closed():
+                        # Ping silencieux pour maintenir la connexion
+                        asyncio.run_coroutine_threadsafe(
+                            self.bot.change_presence(), self.bot.loop
+                        )
+                        logger.debug("💓 Heartbeat keepalive envoyé")
+                except Exception as e:
+                    logger.debug(f"⚠️ Heartbeat failed: {e}")
+        
+        heartbeat_thread = threading.Thread(target=heartbeat_keeper, daemon=True)
+        heartbeat_thread.start()
+        logger.info("💓 Heartbeat keepalive démarré")
     
     
     
     def run_bot(self):
-        """Exécuter le bot de manière stable."""
-        max_attempts = 3
+        """Exécuter le bot avec récupération maximale."""
+        max_attempts = 5  # Plus de tentatives
         attempt = 0
         
         while attempt < max_attempts:
             try:
-                logger.info(f"🚀 Démarrage bot (tentative {attempt + 1}/{max_attempts})")
-                self.bot.run(os.getenv('DISCORD_TOKEN'))
+                logger.info(f"🚀 Démarrage bot ultra-robuste (tentative {attempt + 1}/{max_attempts})")
+                
+                # Nettoyage préventif avant redémarrage
+                if attempt > 0:
+                    import gc
+                    gc.collect()
+                    logger.info("🧹 Nettoyage mémoire effectué")
+                
+                # Marquer comme sain avant démarrage
+                update_bot_health(healthy=True)
+                
+                self.bot.run(os.getenv('DISCORD_TOKEN'), reconnect=True)
                 break  # Sortie propre
                 
-            except discord.LoginFailure:
-                logger.critical("❌ Token Discord invalide!")
+            except discord.LoginFailure as e:
+                logger.critical(f"❌ Token Discord invalide: {e}")
+                update_bot_health(healthy=False)
                 break
+            
+            except discord.HTTPException as e:
+                logger.error(f"❌ Erreur HTTP Discord: {e}")
+                if "429" in str(e):  # Rate limit
+                    delay = 300  # 5 minutes pour rate limit
+                    logger.warning(f"🚦 Rate limit détecté, attente {delay}s")
+                    time.sleep(delay)
+                attempt += 1
                 
             except Exception as e:
-                logger.error(f"❌ Erreur bot: {e}")
+                logger.error(f"❌ Erreur bot inattendue: {e}")
+                logger.error(f"🔍 Traceback: {traceback.format_exc()}")
+                
                 attempt += 1
                 if attempt < max_attempts:
-                    delay = 60 * attempt  # 1, 2, 3 minutes
-                    logger.info(f"⏳ Attente {delay}s avant nouvelle tentative...")
+                    # Délai progressif: 30s, 60s, 120s, 240s
+                    delay = min(30 * (2 ** attempt), 300)
+                    logger.info(f"⏳ Tentative {attempt}/{max_attempts} - Attente {delay}s...")
+                    update_bot_health(healthy=False)
                     time.sleep(delay)
         
         if attempt >= max_attempts:
-            logger.critical("❌ Échec définitif du bot")
+            logger.critical("❌ Échec définitif après toutes les tentatives")
+            update_bot_health(healthy=False)
     
     def start(self):
         """Démarrer le gestionnaire."""
