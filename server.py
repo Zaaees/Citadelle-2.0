@@ -122,10 +122,25 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 self.wfile.write(f'Erreur: {str(e)}'.encode())
 
         elif self.path == '/ping':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/plain')
-            self.end_headers()
-            self.wfile.write(b'pong')
+            # Vérification rapide de santé
+            try:
+                bot_state = get_bot_state()
+                if bot_state['status'] in ['connected', 'connecting']:
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/plain')
+                    self.end_headers()
+                    self.wfile.write(b'pong')
+                else:
+                    self.send_response(503)
+                    self.send_header('Content-type', 'text/plain')
+                    self.end_headers()
+                    self.wfile.write(f"bot_status:{bot_state['status']}".encode())
+            except Exception:
+                # Fallback - si on ne peut pas vérifier l'état, on répond OK
+                self.send_response(200)
+                self.send_header('Content-type', 'text/plain')
+                self.end_headers()
+                self.wfile.write(b'pong')
             
         elif self.path == '/bot-status':
             self.send_response(200)
@@ -251,7 +266,11 @@ def start_http_server():
 
             # Créer le serveur avec des options de socket améliorées
             server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-            server.socket.setsockopt(1, 2, 1)  # SO_REUSEADDR
+            try:
+                server.socket.setsockopt(1, 2, 1)  # SO_REUSEADDR
+            except OSError as sock_error:
+                logger.warning(f"Impossible de configurer SO_REUSEADDR: {sock_error}")
+                # Continuer sans cette option
 
             logger.info(f"✅ Serveur HTTP démarré avec succès sur le port {port}")
             logger.info("🌐 Endpoints disponibles:")

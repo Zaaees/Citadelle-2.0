@@ -10,6 +10,7 @@ import asyncio
 from datetime import datetime
 from server import start_http_server
 from monitoring_minimal import check_bot_health_minimal, self_ping_minimal
+from bot_state import update_bot_state
 
 # Configuration des logs - moins verbose
 logging.basicConfig(
@@ -62,10 +63,19 @@ class StableBot(commands.Bot):
                     critical_loaded += 1
                 logger.info(f"✅ Extension {ext} chargée")
             except Exception as e:
-                if ext in critical_cogs:
-                    logger.error(f"❌ CRITIQUE: Échec de {ext}: {e}")
+                error_type = type(e).__name__
+                if "MalformedError" in str(e) or "No key could be detected" in str(e):
+                    logger.error(f"❌ {ext}: Google Sheets non configuré ({error_type})")
+                elif "ModuleNotFoundError" in str(e):
+                    logger.error(f"❌ {ext}: Dépendance manquante ({error_type})")
+                elif ext in critical_cogs:
+                    logger.error(f"❌ CRITIQUE: Échec de {ext}: {error_type}")
                 else:
-                    logger.warning(f"⚠️ Optionnel: Échec de {ext}: {e}")
+                    logger.warning(f"⚠️ Optionnel: Échec de {ext}: {error_type}")
+                
+                # Log complet seulement en debug pour les erreurs de config
+                if error_type not in ['MalformedError', 'ModuleNotFoundError']:
+                    logger.debug(f"🔍 Détails erreur {ext}: {e}")
         
         logger.info(f"📊 Extensions chargées: {loaded_count}/{len(extensions)} ({critical_loaded}/{len(critical_cogs)} critiques)")
         
@@ -100,12 +110,14 @@ class StableBot(commands.Bot):
         """Gestion simple des déconnexions."""
         logger.warning("🔌 Déconnecté de Discord")
         self.ready_called = False
+        update_bot_state('disconnected', last_disconnect=datetime.now())
 
     async def on_resumed(self):
         """Gestion simple des reconnexions."""
         logger.info("🔄 Reconnecté à Discord")
         self.ready_called = True
         self.connection_attempts = 0
+        update_bot_state('connected', last_ready=datetime.now(), latency=self.latency)
 
     async def on_error(self, event_method, *args, **kwargs):
         """Gestion d'erreur renforcée contre les crashes silencieux."""
@@ -156,6 +168,7 @@ class BotManagerStable:
             logger.info(f'🤖 Bot connecté: {bot.user.name}')
             logger.info(f'🏓 Latence: {bot.latency:.2f}s')
             logger.info("🚀 Bot opérationnel!")
+            update_bot_state('connected', last_ready=datetime.now(), latency=bot.latency)
 
         return bot
     
