@@ -1,5 +1,5 @@
 services:
-  - type: web
+  - type: worker
     name: citadelle-bot
     env: python
     plan: free
@@ -8,9 +8,6 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
-      - key: PORT
-        generateValue: true
-    healthCheckPath: /health
     autoDeploy: true
     disk:
       name: citadelle-data

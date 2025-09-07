@@ -73,41 +73,5 @@ def check_cog_tasks_health(bot):
     except Exception as e:
         logger.error(f"❌ Erreur vérification cogs: {e}")
 
-def self_ping_minimal():
-    """Version simplifiée et stable du self-ping."""
-    import requests
-    
-    consecutive_failures = 0
-    max_failures = 10
-    ping_interval = 900  # 15 minutes
-    
-    logger.info("🏓 Self-ping minimal démarré")
-    
-    while True:
-        try:
-            time.sleep(ping_interval)
-            port = int(os.environ.get("PORT", 10000))
-            
-            # Ping simple localhost uniquement
-            try:
-                response = requests.get(f"http://localhost:{port}/ping", timeout=10)
-                if response.status_code == 200:
-                    consecutive_failures = 0
-                    if datetime.now().minute < 5:  # Log une fois par heure
-                        logger.info("🏓 Self-ping OK")
-                else:
-                    consecutive_failures += 1
-                    logger.warning(f"⚠️ Self-ping échec HTTP {response.status_code}")
-                    
-            except Exception as e:
-                consecutive_failures += 1
-                logger.warning(f"⚠️ Self-ping échec: {e}")
-            
-            if consecutive_failures >= max_failures:
-                logger.error("❌ Self-ping échecs multiples - serveur possiblement down")
-                # NE PAS forcer d'action, juste logger
-                consecutive_failures = 0  # Reset pour éviter le spam
-                
-        except Exception as e:
-            logger.error(f"❌ Erreur critique self-ping: {e}")
-            time.sleep(60)
+# Self-ping supprimé - pas nécessaire pour Background Worker
+# Render maintient automatiquement les Background Workers actifs

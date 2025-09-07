@@ -8,9 +8,8 @@ from dotenv import load_dotenv
 import time
 import asyncio
 from datetime import datetime
-from server import start_http_server
-from monitoring_minimal import check_bot_health_minimal, self_ping_minimal
-from bot_state import update_bot_state
+from monitoring_minimal import check_bot_health_minimal
+# Monitoring d'état simplifié pour Background Worker
 
 # Configuration des logs - moins verbose
 logging.basicConfig(
@@ -110,14 +109,12 @@ class StableBot(commands.Bot):
         """Gestion simple des déconnexions."""
         logger.warning("🔌 Déconnecté de Discord")
         self.ready_called = False
-        update_bot_state('disconnected', last_disconnect=datetime.now())
 
     async def on_resumed(self):
         """Gestion simple des reconnexions."""
         logger.info("🔄 Reconnecté à Discord")
         self.ready_called = True
         self.connection_attempts = 0
-        update_bot_state('connected', last_ready=datetime.now(), latency=self.latency)
 
     async def on_error(self, event_method, *args, **kwargs):
         """Gestion d'erreur renforcée contre les crashes silencieux."""
@@ -167,18 +164,12 @@ class BotManagerStable:
             bot.ready_called = True
             logger.info(f'🤖 Bot connecté: {bot.user.name}')
             logger.info(f'🏓 Latence: {bot.latency:.2f}s')
-            logger.info("🚀 Bot opérationnel!")
-            update_bot_state('connected', last_ready=datetime.now(), latency=bot.latency)
+            logger.info("🚀 Bot opérationnel en mode Background Worker!")
 
         return bot
     
     def start_support_threads(self):
-        """Démarrer uniquement les threads essentiels."""
-        # Thread serveur HTTP
-        http_thread = threading.Thread(target=start_http_server, daemon=True)
-        http_thread.start()
-        logger.info("📡 Serveur HTTP démarré")
-        
+        """Démarrer uniquement les threads essentiels pour Background Worker."""
         # Thread monitoring minimal (sans redémarrage automatique)
         def monitoring_wrapper():
             time.sleep(60)  # Attendre que le bot soit prêt
@@ -188,11 +179,7 @@ class BotManagerStable:
         monitor_thread = threading.Thread(target=monitoring_wrapper, daemon=True)
         monitor_thread.start()
         logger.info("🏥 Monitoring minimal démarré")
-        
-        # Thread self-ping minimal
-        ping_thread = threading.Thread(target=self_ping_minimal, daemon=True)
-        ping_thread.start()
-        logger.info("🏓 Self-ping minimal démarré")
+        logger.info("🎯 Mode Background Worker - Pas de serveur HTTP requis")
     
     
     
