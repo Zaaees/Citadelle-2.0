@@ -729,6 +729,145 @@ class SceneSurveillance(commands.Cog):
         # Mettre à jour le message de statut
         await self.update_status_message(channel_id)
 
+    @commands.Cog.listener()
+    async def on_message_delete(self, message: discord.Message):
+        """Surveille les messages supprimés dans les scènes surveillées pour recalculer l'activité."""
+        if not message.guild or message.author.bot:
+            return
+            
+        channel_id = str(message.channel.id)
+        if channel_id not in self.active_scenes:
+            return
+            
+        scene_data = self.active_scenes[channel_id]
+        
+        # Vérifier si le message supprimé était récent et pertinent
+        last_author_id = scene_data.get('last_author_id')
+        last_activity = scene_data.get('last_activity')
+        
+        # Déterminer l'auteur réel du message supprimé
+        real_author_id = message.author.id
+        if message.webhook_id:
+            detected_user = self.detect_webhook_user(message)
+            if detected_user:
+                real_author_id = detected_user
+        
+        # Optimisation : ne recalculer que si nécessaire
+        should_recalculate = False
+        
+        # Cas 1: Le message supprimé était du dernier auteur actif
+        if real_author_id == last_author_id:
+            should_recalculate = True
+            
+        # Cas 2: Le message supprimé était récent (moins de 24h de la dernière activité)
+        elif last_activity:
+            try:
+                last_activity_dt = datetime.fromisoformat(last_activity)
+                message_age = datetime.now() - message.created_at.replace(tzinfo=None)
+                activity_age = datetime.now() - last_activity_dt.replace(tzinfo=None)
+                
+                # Si le message supprimé était dans la même période que la dernière activité
+                if abs(message_age - activity_age) < timedelta(hours=24):
+                    should_recalculate = True
+            except (ValueError, TypeError):
+                should_recalculate = True  # En cas d'erreur, recalculer par sécurité
+        
+        if should_recalculate:
+            await self.recalculate_scene_activity(channel_id)
+            logger.info(f"🗑️ Message supprimé pertinent - Recalcul activité pour scène {channel_id}")
+        else:
+            logger.debug(f"🗑️ Message supprimé non pertinent pour scène {channel_id}, pas de recalcul")
+
+    @commands.Cog.listener() 
+    async def on_bulk_message_delete(self, messages):
+        """Surveille les suppressions en masse de messages."""
+        if not messages:
+            return
+            
+        # Regrouper par canal pour éviter les recalculs multiples
+        affected_channels = set()
+        
+        for message in messages:
+            if not message.guild or message.author.bot:
+                continue
+                
+            channel_id = str(message.channel.id)
+            if channel_id in self.active_scenes:
+                affected_channels.add(channel_id)
+        
+        # Recalculer l'activité pour tous les canaux affectés
+        for channel_id in affected_channels:
+            await self.recalculate_scene_activity(channel_id)
+            logger.info(f"🗑️ Suppressions multiples - Recalcul activité pour scène {channel_id}")
+
+    async def recalculate_scene_activity(self, channel_id: str):
+        """Recalcule la vraie dernière activité d'une scène en scannant l'historique."""
+        if channel_id not in self.active_scenes:
+            return
+            
+        scene_data = self.active_scenes[channel_id]
+        channel = self.bot.get_channel(int(channel_id))
+        
+        if not channel:
+            logger.warning(f"Canal {channel_id} introuvable pour recalcul activité")
+            return
+            
+        try:
+            # Scanner les 50 derniers messages pour trouver la vraie dernière activité
+            participants = []
+            last_activity = None
+            last_author_id = None
+            
+            async for message in channel.history(limit=50):
+                # Ignorer les bots système mais garder les webhooks RP
+                if message.author.bot and not message.webhook_id:
+                    continue
+                    
+                # Ignorer les messages système
+                if message.type != discord.MessageType.default and not message.webhook_id:
+                    continue
+                    
+                # Déterminer l'auteur réel
+                real_author_id = message.author.id
+                if message.webhook_id:
+                    detected_user = self.detect_webhook_user(message)
+                    if detected_user:
+                        real_author_id = detected_user
+                
+                # Ajouter aux participants
+                if real_author_id not in participants:
+                    participants.append(real_author_id)
+                
+                # Le premier message valide est le plus récent (dernière activité)
+                if last_activity is None:
+                    last_activity = message.created_at.isoformat()
+                    last_author_id = real_author_id
+            
+            # Mettre à jour les données de la scène
+            if last_activity:
+                scene_data['last_activity'] = last_activity
+                scene_data['last_author_id'] = last_author_id
+                scene_data['participants'] = participants
+                
+                # Sauvegarder dans Google Sheets
+                await self.update_scene_activity(channel_id, last_activity, participants, last_author_id)
+                
+                # Mettre à jour le message de statut
+                await self.update_status_message(channel_id)
+                
+                logger.info(f"✅ Activité recalculée pour {channel_id}: {len(participants)} participants, dernière activité: {last_activity}")
+            else:
+                # Aucun message trouvé, marquer comme inactive
+                scene_data['last_activity'] = scene_data.get('created_at', datetime.now().isoformat())
+                scene_data['last_author_id'] = scene_data.get('mj_id')  # Fallback sur le MJ
+                scene_data['participants'] = []
+                
+                await self.update_status_message(channel_id)
+                logger.info(f"⚠️ Aucune activité trouvée pour {channel_id}, marquée comme inactive")
+                
+        except Exception as e:
+            logger.error(f"Erreur lors du recalcul d'activité pour {channel_id}: {e}")
+
     async def notify_mj(self, scene_data: dict, message: discord.Message, real_author_id: int):
         """Envoie une notification privée au MJ responsable."""
         mj = self.bot.get_user(scene_data['mj_id'])
@@ -858,53 +997,53 @@ class SceneSurveillance(commands.Cog):
                 if not last_activity:
                     continue
                 
-            try:
-                last_activity_dt = datetime.fromisoformat(last_activity)
-            except (ValueError, TypeError):
-                continue
-            
-            # Uniformiser les timezones pour éviter l'erreur offset-naive vs offset-aware
-            if last_activity_dt.tzinfo is not None and now.tzinfo is None:
-                # last_activity_dt a une timezone, now n'en a pas → convertir last_activity_dt en naive
-                last_activity_dt = last_activity_dt.replace(tzinfo=None)
-            elif last_activity_dt.tzinfo is None and now.tzinfo is not None:
-                # now a une timezone, last_activity_dt n'en a pas → convertir now en naive  
-                now = now.replace(tzinfo=None)
+                try:
+                    last_activity_dt = datetime.fromisoformat(last_activity)
+                except (ValueError, TypeError):
+                    continue
                 
-            time_diff = now - last_activity_dt
-            
-            # Alerte après 7 jours d'inactivité
-            if time_diff >= timedelta(days=7):
-                # Vérifier si une alerte a déjà été envoyée récemment
-                last_alert = scene_data.get('last_alert_sent')
-                should_send_alert = True
+                # Uniformiser les timezones pour éviter l'erreur offset-naive vs offset-aware
+                if last_activity_dt.tzinfo is not None and now.tzinfo is None:
+                    # last_activity_dt a une timezone, now n'en a pas → convertir last_activity_dt en naive
+                    last_activity_dt = last_activity_dt.replace(tzinfo=None)
+                elif last_activity_dt.tzinfo is None and now.tzinfo is not None:
+                    # now a une timezone, last_activity_dt n'en a pas → convertir now en naive  
+                    now = now.replace(tzinfo=None)
+                    
+                time_diff = now - last_activity_dt
                 
-                if last_alert:
-                    try:
-                        last_alert_dt = datetime.fromisoformat(last_alert)
-                        # Uniformiser les timezones - CORRECTION BUG CRITIQUE
-                        if last_alert_dt.tzinfo is not None and now.tzinfo is None:
-                            last_alert_dt = last_alert_dt.replace(tzinfo=None)
-                            now_for_alert = now  # CORRIGÉ: now_for_alert était non défini
-                        elif last_alert_dt.tzinfo is None and now.tzinfo is not None:
-                            now_for_alert = now.replace(tzinfo=None)
-                        else:
-                            now_for_alert = now
-                            
-                        time_since_alert = now_for_alert - last_alert_dt
-                        # Ne envoyer qu'une alerte par jour maximum
-                        should_send_alert = time_since_alert >= timedelta(hours=23)
-                    except (ValueError, TypeError):
-                        should_send_alert = True
-                
-                if should_send_alert:
-                    success = await self.send_inactivity_alert(scene_data, time_diff.days)
-                    if success:
-                        # Mettre à jour la date de dernière alerte
-                        scene_data['last_alert_sent'] = now.isoformat()
-                        self.active_scenes[channel_id] = scene_data
-                        # Sauvegarder en Google Sheets si possible
-                        await self.update_scene_alert_date(channel_id, now.isoformat())
+                # Alerte après 7 jours d'inactivité
+                if time_diff >= timedelta(days=7):
+                    # Vérifier si une alerte a déjà été envoyée récemment
+                    last_alert = scene_data.get('last_alert_sent')
+                    should_send_alert = True
+                    
+                    if last_alert:
+                        try:
+                            last_alert_dt = datetime.fromisoformat(last_alert)
+                            # Uniformiser les timezones - CORRECTION BUG CRITIQUE
+                            if last_alert_dt.tzinfo is not None and now.tzinfo is None:
+                                last_alert_dt = last_alert_dt.replace(tzinfo=None)
+                                now_for_alert = now  # CORRIGÉ: now_for_alert était non défini
+                            elif last_alert_dt.tzinfo is None and now.tzinfo is not None:
+                                now_for_alert = now.replace(tzinfo=None)
+                            else:
+                                now_for_alert = now
+                                
+                            time_since_alert = now_for_alert - last_alert_dt
+                            # Ne envoyer qu'une alerte par jour maximum
+                            should_send_alert = time_since_alert >= timedelta(hours=23)
+                        except (ValueError, TypeError):
+                            should_send_alert = True
+                    
+                    if should_send_alert:
+                        success = await self.send_inactivity_alert(scene_data, time_diff.days)
+                        if success:
+                            # Mettre à jour la date de dernière alerte
+                            scene_data['last_alert_sent'] = now.isoformat()
+                            self.active_scenes[channel_id] = scene_data
+                            # Sauvegarder en Google Sheets si possible
+                            await self.update_scene_alert_date(channel_id, now.isoformat())
             
             logger.info("✅ Vérification inactivité terminée")
         except Exception as e:
@@ -1015,7 +1154,34 @@ class SceneSurveillance(commands.Cog):
                 inline=True
             )
         
-        await ctx.send(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @commands.command(name="recalculer_scene", help="Force le recalcul de l'activité d'une scène surveillée")
+    async def force_recalculate_scene(self, ctx: commands.Context, 
+                                    channel: Optional[Union[discord.TextChannel, discord.Thread, discord.ForumChannel]] = None):
+        """Commande pour forcer le recalcul de l'activité d'une scène."""
+        
+        if not self.has_mj_permission(ctx.author):
+            await ctx.send("❌ Seuls les MJ peuvent utiliser cette commande.")
+            return
+        
+        # Utiliser le salon actuel si non spécifié
+        target_channel = channel or ctx.channel
+        channel_id = str(target_channel.id)
+        
+        # Vérifier si la scène est surveillée
+        if channel_id not in self.active_scenes:
+            await ctx.send(f"❌ Ce salon n'est pas actuellement surveillé.")
+            return
+        
+        try:
+            # Forcer le recalcul
+            await self.recalculate_scene_activity(channel_id)
+            await ctx.send(f"✅ Activité recalculée pour {target_channel.mention}")
+            
+        except Exception as e:
+            logger.error(f"Erreur lors du recalcul forcé: {e}")
+            await ctx.send(f"❌ Erreur lors du recalcul: {e}")
 
 
 async def setup(bot):
