@@ -37,22 +37,24 @@ class StableBot(commands.Bot):
 
     async def setup_hook(self):
         """Charge les cogs avec gestion d'erreurs robuste."""
+        # Ordre prioritaire : cogs avec commandes slash d'abord
         extensions = [
-            'cogs.Cards',
+            'cogs.Cards',              # ✅ /cartes
+            'cogs.scene_surveillance', # ✅ /mj, /scenes_actives  
             'cogs.RPTracker', 
-            'cogs.scene_surveillance',
             'cogs.bump',
             'cogs.validation',
             'cogs.InactiveUserTracker',
-            # Cogs optionnels qui peuvent échouer
-            'cogs.inventaire',
-            'cogs.vocabulaire',
-            'cogs.souselement',
             'cogs.ticket',
-            'cogs.excès',
+            # Cogs optionnels qui PEUVENT échouer (Google Sheets)
+            'cogs.souselement',        # /ajouter-sous-element, /sous-éléments
+            'cogs.vocabulaire',        # /vocabulaire
+            'cogs.excès',             # /excès
+            'cogs.inventaire',
         ]
         
-        critical_cogs = ['cogs.Cards', 'cogs.RPTracker', 'cogs.scene_surveillance']
+        # Cogs avec commandes slash critiques à charger absolument
+        critical_cogs = ['cogs.Cards', 'cogs.scene_surveillance']
         loaded_count = 0
         critical_loaded = 0
         
@@ -66,28 +68,33 @@ class StableBot(commands.Bot):
             except Exception as e:
                 error_type = type(e).__name__
                 if "MalformedError" in str(e) or "No key could be detected" in str(e):
-                    logger.error(f"❌ {ext}: Google Sheets non configuré ({error_type})")
+                    logger.warning(f"⚠️ {ext}: Google Sheets non configuré - cog ignoré ({error_type})")
                 elif "ModuleNotFoundError" in str(e):
-                    logger.error(f"❌ {ext}: Dépendance manquante ({error_type})")
+                    logger.warning(f"⚠️ {ext}: Dépendance manquante - cog ignoré ({error_type})")
                 elif ext in critical_cogs:
                     logger.error(f"❌ CRITIQUE: Échec de {ext}: {error_type}")
+                    # Pour les cogs critiques, on tente quand même de continuer
+                    logger.error(f"🔍 Détails: {e}")
                 else:
-                    logger.warning(f"⚠️ Optionnel: Échec de {ext}: {error_type}")
+                    logger.warning(f"⚠️ Optionnel: {ext} ignoré ({error_type})")
                 
-                # Log complet seulement en debug pour les erreurs de config
-                if error_type not in ['MalformedError', 'ModuleNotFoundError']:
-                    logger.debug(f"🔍 Détails erreur {ext}: {e}")
+                # Log complet seulement pour les vrais problèmes critiques
+                if ext in critical_cogs and error_type not in ['MalformedError', 'ModuleNotFoundError']:
+                    logger.error(f"🔍 Traceback: {traceback.format_exc()}")
         
         logger.info(f"📊 Extensions chargées: {loaded_count}/{len(extensions)} ({critical_loaded}/{len(critical_cogs)} critiques)")
         
+        # Forcer la synchronisation des commandes pour récupérer les commandes manquantes
         try:
             # Synchronisation prioritaire sur le serveur si configuré (instantané)
             guild_id = os.getenv('GUILD_ID')
             if guild_id:
                 try:
                     guild = discord.Object(id=int(guild_id))
+                    # Copier les commandes globales vers le serveur d'abord
+                    self.tree.copy_global_to(guild=guild)
                     synced = await self.tree.sync(guild=guild)
-                    logger.info(f"✅ {len(synced)} commandes synchronisées pour serveur {guild_id} (instantané)")
+                    logger.info(f"✅ {len(synced)} commandes synchronisées pour serveur {guild_id} (avec copie globale)")
                 except Exception as ge:
                     logger.error(f"❌ Erreur sync serveur spécifique: {ge}")
                     # Fallback sur sync globale
@@ -98,6 +105,11 @@ class StableBot(commands.Bot):
                 synced = await self.tree.sync()
                 logger.info(f"✅ {len(synced)} commandes synchronisées globalement (délai 1h)")
                 logger.warning("💡 Configurez GUILD_ID dans .env pour sync instantanée!")
+            
+            # Lister les commandes synchronisées pour diagnostic
+            if synced:
+                commands_list = [cmd.name for cmd in synced]
+                logger.info(f"🔍 Commandes synchronisées: {', '.join(commands_list)}")
                     
         except Exception as e:
             logger.error(f"❌ Erreur critique sync commandes: {e}")

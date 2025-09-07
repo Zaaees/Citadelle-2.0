@@ -289,15 +289,28 @@ class SousElements(commands.Cog):
         return False, (was_archived, was_locked)
     
     def setup_google_sheets(self):
-        scope = ['https://spreadsheets.google.com/feeds',
-                 'https://www.googleapis.com/auth/spreadsheets',
-                 'https://www.googleapis.com/auth/drive']
-        credentials = Credentials.from_service_account_info(
-            eval(os.getenv('SERVICE_ACCOUNT_JSON')),
-            scopes=scope
-        )
-        self.gc = gspread.authorize(credentials)
-        self.sheet = self.gc.open_by_key(os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT')).sheet1
+        """Configuration Google Sheets avec gestion d'échecs gracieuse."""
+        try:
+            service_account_json = os.getenv('SERVICE_ACCOUNT_JSON', '{}')
+            sheet_id = os.getenv('GOOGLE_SHEET_ID_SOUSELEMENT')
+            
+            if service_account_json == '{}' or not sheet_id:
+                raise ValueError("Configuration Google Sheets manquante")
+                
+            scope = ['https://spreadsheets.google.com/feeds',
+                     'https://www.googleapis.com/auth/spreadsheets',
+                     'https://www.googleapis.com/auth/drive']
+            credentials = Credentials.from_service_account_info(
+                eval(service_account_json),
+                scopes=scope
+            )
+            self.gc = gspread.authorize(credentials)
+            self.sheet = self.gc.open_by_key(sheet_id).sheet1
+            print("✅ Google Sheets configuré pour SousElements")
+        except Exception as e:
+            print(f"⚠️ SousElements fonctionnera sans Google Sheets: {e}")
+            self.gc = None
+            self.sheet = None
 
     def setup_views(self):
         """Initialize persistent views"""

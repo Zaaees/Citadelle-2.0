@@ -119,16 +119,23 @@ class SceneSurveillance(commands.Cog):
         self.webhook_users: Dict[str, int] = {}  # webhook_name -> real_user_id
         self.mj_role_id = 1018179623886000278  # ID du rôle MJ (à adapter)
         
-        # Configuration Google Sheets
+        # Configuration Google Sheets (optionnelle)
         try:
+            service_account_json = os.getenv('SERVICE_ACCOUNT_JSON', '{}')
+            if service_account_json == '{}':
+                raise ValueError("SERVICE_ACCOUNT_JSON non configuré")
+                
             self.credentials = service_account.Credentials.from_service_account_info(
-                eval(os.getenv('SERVICE_ACCOUNT_JSON')),
+                eval(service_account_json),
                 scopes=['https://www.googleapis.com/auth/spreadsheets']
             )
             self.gc = gspread.authorize(self.credentials)
             
             # Ouvrir la feuille de calcul
             spreadsheet_id = os.getenv('GOOGLE_SHEET_ID_SURVEILLANCE', os.getenv('GOOGLE_SHEET_ID_ACTIVITE'))
+            if not spreadsheet_id:
+                raise ValueError("GOOGLE_SHEET_ID non configuré")
+                
             spreadsheet = self.gc.open_by_key(spreadsheet_id)
             
             # Essayer d'accéder à la feuille SceneSurveillance, la créer si elle n'existe pas
@@ -156,8 +163,10 @@ class SceneSurveillance(commands.Cog):
                 logger.info("✅ Feuille SceneSurveillance créée et configurée")
                 
         except Exception as e:
-            logger.error(f"Erreur initialisation Google Sheets: {e}")
+            logger.warning(f"Google Sheets non disponible: {e}")
+            logger.info("SceneSurveillance fonctionnera en mode dégradé (sans persistance)")
             self.sheet = None
+            self.gc = None
             
         # Démarrer les tâches de surveillance
         self.activity_monitor.start()

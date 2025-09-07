@@ -4,7 +4,7 @@ google-auth
 google-auth-oauthlib
 google-auth-httplib2
 google-api-python-client
-gspread==3.7.0
+gspread>=5.0.0
 pytz
 oauth2client
 numpy
