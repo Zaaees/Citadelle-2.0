@@ -108,10 +108,25 @@ class StableBot(commands.Bot):
         self.connection_attempts = 0
 
     async def on_error(self, event_method, *args, **kwargs):
-        """Gestion d'erreur simplifiée."""
-        error_msg = f"Erreur dans {event_method}"
+        """Gestion d'erreur renforcée contre les crashes silencieux."""
+        error_msg = f"❌ ERREUR CRITIQUE dans {event_method}"
         logger.error(error_msg)
-        logger.error(traceback.format_exc())
+        logger.error(f"🔍 Traceback complet: {traceback.format_exc()}")
+        
+        # Log détaillé pour debugging
+        if args:
+            logger.error(f"🔍 Arguments: {args}")
+        if kwargs:
+            logger.error(f"🔍 Keyword arguments: {kwargs}")
+        
+        # Essayer de ne pas crasher le bot
+        try:
+            if not self.is_closed():
+                logger.warning("⚠️ Bot encore connecté après erreur, continuant...")
+            else:
+                logger.critical("💀 Bot fermé après erreur critique!")
+        except Exception as e:
+            logger.critical(f"💀 Impossible de vérifier l'état du bot: {e}")
 
 class BotManagerStable:
     """Gestionnaire de bot simplifié et stable."""

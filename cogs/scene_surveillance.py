@@ -8,6 +8,7 @@ from discord.ext import commands, tasks
 from discord import app_commands
 from datetime import datetime, timedelta
 import pytz
+import traceback
 import os
 import asyncio
 import gspread
@@ -848,12 +849,14 @@ class SceneSurveillance(commands.Cog):
     @tasks.loop(hours=24)
     async def inactivity_checker(self):
         """Vérifie l'inactivité des scènes et envoie des alertes."""
-        now = datetime.now()
-        
-        for channel_id, scene_data in self.active_scenes.items():
-            last_activity = scene_data.get('last_activity')
-            if not last_activity:
-                continue
+        try:
+            logger.info("🔍 Démarrage vérification inactivité des scènes...")
+            now = datetime.now()
+            
+            for channel_id, scene_data in self.active_scenes.items():
+                last_activity = scene_data.get('last_activity')
+                if not last_activity:
+                    continue
                 
             try:
                 last_activity_dt = datetime.fromisoformat(last_activity)
@@ -879,9 +882,10 @@ class SceneSurveillance(commands.Cog):
                 if last_alert:
                     try:
                         last_alert_dt = datetime.fromisoformat(last_alert)
-                        # Uniformiser les timezones
+                        # Uniformiser les timezones - CORRECTION BUG CRITIQUE
                         if last_alert_dt.tzinfo is not None and now.tzinfo is None:
                             last_alert_dt = last_alert_dt.replace(tzinfo=None)
+                            now_for_alert = now  # CORRIGÉ: now_for_alert était non défini
                         elif last_alert_dt.tzinfo is None and now.tzinfo is not None:
                             now_for_alert = now.replace(tzinfo=None)
                         else:
@@ -901,6 +905,12 @@ class SceneSurveillance(commands.Cog):
                         self.active_scenes[channel_id] = scene_data
                         # Sauvegarder en Google Sheets si possible
                         await self.update_scene_alert_date(channel_id, now.isoformat())
+            
+            logger.info("✅ Vérification inactivité terminée")
+        except Exception as e:
+            logger.error(f"❌ ERREUR CRITIQUE dans inactivity_checker: {e}")
+            logger.error(f"🔍 Traceback: {traceback.format_exc()}")
+            # Ne pas faire planter le bot, juste logger l'erreur
 
     async def send_inactivity_alert(self, scene_data: dict, days_inactive: int) -> bool:
         """Envoie une alerte d'inactivité au MJ responsable. Retourne True si envoyée avec succès."""
