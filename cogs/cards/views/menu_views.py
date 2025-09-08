@@ -106,20 +106,22 @@ class CardsMenuView(discord.ui.View):
         )
 
         try:
-            # Vérifier si l'utilisateur peut effectuer son tirage journalier
-            if not self.cog.drawing_manager.can_perform_daily_draw(self.user.id):
+            # RÉSERVATION ATOMIQUE: Vérifier ET enregistrer le tirage en une seule opération
+            if not self.cog.drawing_manager.reserve_daily_draw(self.user.id):
                 await interaction.followup.send(
                     "🚫 Vous avez déjà effectué votre tirage journalier aujourd'hui. Revenez demain !",
                     ephemeral=True
                 )
                 return
 
-            # Effectuer le tirage journalier (qui gère déjà l'affichage)
+            # Effectuer le tirage journalier (la réservation est déjà faite)
             drawn_cards = await self.perform_draw(interaction)
 
             if not drawn_cards:
+                # ROLLBACK: Si le tirage échoue après réservation, c'est critique
+                logging.error(f"[DAILY_DRAW] ÉCHEC CRITIQUE: Tirage échoué après réservation pour {self.user.display_name}")
                 await interaction.followup.send(
-                    "❌ Une erreur est survenue lors du tirage.",
+                    "❌ Une erreur critique est survenue lors du tirage. Votre tirage journalier a été consommé mais aucune carte n'a été tirée. Contactez un administrateur.",
                     ephemeral=True
                 )
                 return
@@ -137,8 +139,10 @@ class CardsMenuView(discord.ui.View):
         """
         Effectue le tirage journalier de 3 cartes pour l'utilisateur avec affichage original.
         """
-        # NOTE: La vérification can_perform_daily_draw() a déjà été faite dans le bouton
-        # Ne pas la refaire ici pour éviter les problèmes de cache
+        # NOTE: La réservation atomique a déjà été faite par reserve_daily_draw()
+        # Le tirage est garanti d'être valide et déjà enregistré
+        
+        logging.info(f"[DAILY_DRAW] Début du tirage pour {self.user.display_name} (ID: {self.user.id})")
 
         # Effectuer le tirage journalier de 3 cartes
         drawn_cards = self.cog.drawing_manager.draw_cards(3)
@@ -196,8 +200,8 @@ class CardsMenuView(discord.ui.View):
         else:
             logging.error(f"[DAILY_DRAW] ❌ Logging manager non disponible pour {self.user.display_name}")
 
-        # 3) Enregistrer le tirage journalier (ceci invalide le cache et marque l'utilisateur pour vérification)
-        self.cog.drawing_manager.record_daily_draw(self.user.id)
+        # 3) Le tirage journalier est déjà enregistré par reserve_daily_draw()
+        # NOTE: Plus besoin d'appeler record_daily_draw() car reserve_daily_draw() l'a déjà fait
 
         # 4) Traiter toutes les vérifications d'upgrade en attente
         await self.cog.process_all_pending_upgrade_checks(interaction, 1361993326215172218)
