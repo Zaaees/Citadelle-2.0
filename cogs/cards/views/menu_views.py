@@ -457,7 +457,13 @@ class CardsMenuView(discord.ui.View):
             embed = discord.Embed(title="🏆 Top 5 des collectionneurs", color=0x4E5D94)
             for idx, (uid, count) in enumerate(leaderboard, start=1):
                 user = self.cog.bot.get_user(uid)
-                name = user.display_name if user else str(uid)
+                if not user:
+                    try:
+                        user = await self.cog.bot.fetch_user(uid)
+                    except (discord.NotFound, discord.HTTPException):
+                        user = None
+                
+                name = user.display_name if user else f"Utilisateur {uid}"
                 excluding_full_count = all_excluding_full_counts.get(uid, 0)
                 embed.add_field(
                     name=f"#{idx} {name}",
