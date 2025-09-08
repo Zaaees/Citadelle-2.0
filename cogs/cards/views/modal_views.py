@@ -137,17 +137,34 @@ class InitiateTradeModal(discord.ui.Modal, title="Initier un échange"):
             
             # Essayer par nom d'utilisateur dans le serveur
             if not target_user and interaction.guild:
+                # D'abord, s'assurer que les membres sont chargés
+                if not interaction.guild.chunked:
+                    await interaction.guild.chunk(cache=True)
+                
+                # Recherche par display_name et name
                 target_user = discord.utils.find(
                     lambda m: m.display_name.lower() == target_input.lower() or 
                              m.name.lower() == target_input.lower(),
                     interaction.guild.members
                 )
+                
+                # Si toujours pas trouvé, essayer une recherche partielle/flexible
+                if not target_user:
+                    target_user = discord.utils.find(
+                        lambda m: target_input.lower() in m.display_name.lower() or 
+                                 target_input.lower() in m.name.lower(),
+                        interaction.guild.members
+                    )
             
             if not target_user:
-                await interaction.followup.send(
-                    f"❌ Utilisateur non trouvé : **{target_input}**",
-                    ephemeral=True
-                )
+                error_msg = f"❌ Utilisateur non trouvé : **{target_input}**\n\n"
+                error_msg += "💡 **Formats acceptés :**\n"
+                error_msg += "• ID Discord : `123456789`\n"
+                error_msg += "• Mention : `<@123456789>`\n"
+                error_msg += "• Pseudo sur le serveur : `MonPseudo`\n"
+                error_msg += "• Nom d'utilisateur Discord : `username`"
+                
+                await interaction.followup.send(error_msg, ephemeral=True)
                 return
             
             # Vérifier que ce n'est pas soi-même
