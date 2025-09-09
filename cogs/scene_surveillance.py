@@ -450,8 +450,9 @@ class SceneSurveillance(commands.Cog):
             name="🎬 Surveillance de Scènes",
             value="`!surveiller_scene [canal]` - Démarre la surveillance automatique d'une scène RP\n"
                   "`!scenes_actives` - Liste les scènes actuellement surveillées\n"
+                  "`!sync_scenes` - Force la synchronisation de toutes les scènes (mise à jour immédiate)\n"
                   "`!reattribuer_scene @nouveau_mj [canal]` - Réattribue une scène à un autre MJ\n"
-                  "📡 *Scanner automatique toutes les 15 min pour détecter l'activité réelle*",
+                  "📡 *Scanner automatique toutes les 5 min pour détecter l'activité réelle*",
             inline=False
         )
         
@@ -1121,6 +1122,88 @@ class SceneSurveillance(commands.Cog):
             )
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @commands.command(name="sync_scenes", help="Force la synchronisation de toutes les scènes surveillées (MJ uniquement)")
+    async def sync_all_scenes(self, ctx: commands.Context):
+        """Force la synchronisation de toutes les scènes surveillées."""
+        
+        if not self.has_mj_permission(ctx.author):
+            await ctx.send("❌ Seuls les MJ peuvent utiliser cette commande.")
+            return
+        
+        if not self.active_scenes:
+            await ctx.send("📭 Aucune scène n'est actuellement surveillée.")
+            return
+        
+        # Message de début
+        progress_msg = await ctx.send(f"🔄 Début de la synchronisation de {len(self.active_scenes)} scène(s)...")
+        
+        synced_count = 0
+        error_count = 0
+        
+        try:
+            for i, channel_id in enumerate(list(self.active_scenes.keys()), 1):
+                try:
+                    # Scanner l'activité du canal
+                    logger.info(f"🔄 Synchronisation scène {i}/{len(self.active_scenes)}: {channel_id}")
+                    await self.scan_channel_activity(channel_id)
+                    
+                    # Mettre à jour le message de statut
+                    await self.update_status_message(channel_id)
+                    
+                    synced_count += 1
+                    
+                    # Mettre à jour le message de progression toutes les 3 scènes
+                    if i % 3 == 0 or i == len(self.active_scenes):
+                        try:
+                            await progress_msg.edit(content=f"🔄 Synchronisation en cours... {i}/{len(self.active_scenes)} scènes traitées")
+                        except discord.NotFound:
+                            # Le message a été supprimé, continuer sans mise à jour
+                            pass
+                    
+                    # Respecter les limites Discord - pause de 2 secondes entre chaque scène
+                    if i < len(self.active_scenes):  # Pas de pause après la dernière
+                        await asyncio.sleep(2)
+                        
+                except Exception as e:
+                    logger.error(f"Erreur lors de la sync de la scène {channel_id}: {e}")
+                    error_count += 1
+                    # Continuer avec les autres scènes même si une échoue
+                    continue
+            
+            # Message de fin
+            embed = discord.Embed(
+                title="✅ Synchronisation Terminée",
+                color=discord.Color.green(),
+                timestamp=datetime.now()
+            )
+            embed.add_field(name="📊 Résultats", value=f"✅ Réussies: {synced_count}\n❌ Erreurs: {error_count}", inline=True)
+            embed.add_field(name="⏱️ Durée", value=f"~{len(self.active_scenes) * 2} secondes", inline=True)
+            
+            if error_count > 0:
+                embed.add_field(name="⚠️ Note", value="Consultez les logs pour plus de détails sur les erreurs.", inline=False)
+            
+            try:
+                await progress_msg.edit(content="", embed=embed)
+            except discord.NotFound:
+                await ctx.send(embed=embed)
+                
+            logger.info(f"✅ Synchronisation terminée: {synced_count} réussies, {error_count} erreurs")
+            
+        except Exception as e:
+            error_embed = discord.Embed(
+                title="❌ Erreur de Synchronisation",
+                description=f"Une erreur critique s'est produite: {str(e)[:1000]}",
+                color=discord.Color.red(),
+                timestamp=datetime.now()
+            )
+            
+            try:
+                await progress_msg.edit(content="", embed=error_embed)
+            except discord.NotFound:
+                await ctx.send(embed=error_embed)
+                
+            logger.error(f"❌ Erreur critique lors de la synchronisation: {e}")
 
     @commands.command(name="reattribuer_scene", help="Réattribue une scène surveillée à un autre MJ")
     async def reassign_scene(self, ctx: commands.Context, 
