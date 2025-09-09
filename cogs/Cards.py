@@ -1965,57 +1965,6 @@ class Cards(commands.Cog):
             logger.error(f"[CLEAR_CACHE] Erreur: {e}")
             await ctx.send(f"❌ Erreur lors du nettoyage du cache: {e}")
 
-    @commands.command(name="clear_daily_cache")
-    @commands.has_permissions(administrator=True)
-    async def clear_daily_cache(self, ctx: commands.Context, member: discord.Member = None):
-        """
-        Nettoie le cache du tirage journalier.
-        Usage : !clear_daily_cache [@joueur]
-        """
-        try:
-            if member:
-                self.drawing_manager.clear_daily_cache(member.id)
-                await ctx.send(f"✅ Cache du tirage journalier nettoyé pour {member.mention}")
-            else:
-                self.drawing_manager.clear_daily_cache()
-                await ctx.send("✅ Cache du tirage journalier entièrement nettoyé")
-
-        except Exception as e:
-            logger.error(f"[CLEAR_CACHE] Erreur: {e}")
-            await ctx.send(f"❌ Erreur lors du nettoyage du cache: {e}")
-
-    @commands.command(name="fix_duplicate_commands")
-    @commands.has_permissions(administrator=True)
-    async def fix_duplicate_commands(self, ctx: commands.Context):
-        """
-        Nettoie et re-synchronise les commandes slash pour éliminer les doublons.
-        Usage : !fix_duplicate_commands
-        """
-        try:
-            await ctx.send("🔄 Nettoyage et re-synchronisation des commandes en cours...")
-            
-            # Nettoyer toutes les commandes slash du serveur
-            if ctx.guild:
-                # Synchronisation locale au serveur
-                ctx.bot.tree.clear_commands(guild=ctx.guild)
-                await ctx.bot.tree.sync(guild=ctx.guild)
-                await ctx.send("✅ Commandes locales nettoyées et re-synchronisées")
-                
-                # Optionnellement nettoyer les commandes globales aussi
-                ctx.bot.tree.clear_commands()
-                await ctx.bot.tree.sync()
-                await ctx.send("✅ Commandes globales nettoyées et re-synchronisées")
-            else:
-                # Synchronisation globale seulement
-                ctx.bot.tree.clear_commands()
-                await ctx.bot.tree.sync()
-                await ctx.send("✅ Commandes globales nettoyées et re-synchronisées")
-            
-            await ctx.send("🎯 **Résolution des doublons terminée !** Les commandes devraient être uniques maintenant (délai de 1h pour la prise d'effet globale).")
-
-        except Exception as e:
-            logger.error(f"[FIX_COMMANDS] Erreur: {e}")
-            await ctx.send(f"❌ Erreur lors de la correction des commandes: {e}")
 
     @commands.command(name="logs_cartes")
     @commands.has_permissions(administrator=True)

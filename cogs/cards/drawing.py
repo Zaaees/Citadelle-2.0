@@ -112,17 +112,17 @@ class DrawingManager:
         
         return selected
     
-    def can_perform_daily_draw(self, user_id: int) -> bool:
+    def can_perform_daily_draw(self, user_id: int, check_only: bool = True) -> bool:
         """
         Vérifie si un utilisateur peut effectuer son tirage journalier.
-        Optimisé avec cache pour réduire les appels Google Sheets.
-        Cache auto-nettoyé à minuit pour éviter les bugs de réinitialisation.
+        Version unifiée qui peut aussi réserver le tirage si check_only=False.
 
         Args:
             user_id: ID de l'utilisateur
+            check_only: Si True, vérifie seulement. Si False, réserve aussi le tirage.
 
         Returns:
-            bool: True si le tirage est autorisé
+            bool: True si le tirage est autorisé (et réservé si check_only=False)
         """
         try:
             paris_tz = pytz.timezone("Europe/Paris")
@@ -130,89 +130,28 @@ class DrawingManager:
             today = now_paris.strftime("%Y-%m-%d")
             user_id_str = str(user_id)
 
-            # Auto-nettoyage du cache pour le nouveau jour
-            self._clean_daily_cache_if_needed(now_paris)
-
-            # Utiliser le cache pour éviter les appels répétés
-            cache_key = f"daily_draw_{user_id}_{today}"
-            if hasattr(self, '_daily_draw_cache'):
-                if cache_key in self._daily_draw_cache:
-                    cached_result = self._daily_draw_cache[cache_key]
-                    logging.debug(f"[DRAWING] Cache hit pour {user_id}: {cached_result}")
-                    return cached_result
-            else:
-                self._daily_draw_cache = {}
-                self._daily_cache_date = today
-
-            # Vérifier dans la feuille des tirages journaliers
-            all_rows = self.storage.sheet_daily_draw.get_all_values()
-            row_idx = next((i for i, r in enumerate(all_rows) if r and r[0] == user_id_str), None)
-
-            can_draw = True
-            if row_idx is not None and len(all_rows[row_idx]) > 1 and all_rows[row_idx][1] == today:
-                can_draw = False  # Déjà tiré aujourd'hui
-                logging.debug(f"[DRAWING] Utilisateur {user_id} a déjà tiré aujourd'hui ({today})")
-            else:
-                logging.debug(f"[DRAWING] Utilisateur {user_id} peut tirer aujourd'hui ({today})")
-
-            # Mettre en cache le résultat
-            self._daily_draw_cache[cache_key] = can_draw
-            return can_draw
-
-        except Exception as e:
-            logging.error(f"[DRAWING] Erreur lors de la vérification du tirage journalier: {e}")
-            return False
-    
-    def reserve_daily_draw(self, user_id: int) -> bool:
-        """
-        Réserve atomiquement le tirage journalier d'un utilisateur.
-        Cette méthode vérifie ET enregistre en une seule opération pour éviter les race conditions.
-        Auto-nettoyage du cache pour éviter les bugs de réinitialisation.
-
-        Args:
-            user_id: ID de l'utilisateur
-
-        Returns:
-            bool: True si la réservation a réussi (utilisateur peut tirer)
-        """
-        try:
-            paris_tz = pytz.timezone("Europe/Paris")
-            now_paris = datetime.now(paris_tz)
-            today = now_paris.strftime("%Y-%m-%d")
-            user_id_str = str(user_id)
-
-            # Auto-nettoyage du cache pour le nouveau jour
-            self._clean_daily_cache_if_needed(now_paris)
-
-            # Vérifier dans la feuille des tirages journaliers
+            # Vérifier dans la feuille des tirages journaliers (pas de cache pour éviter l'incohérence)
             all_rows = self.storage.sheet_daily_draw.get_all_values()
             row_idx = next((i for i, r in enumerate(all_rows) if r and r[0] == user_id_str), None)
 
             # Si l'utilisateur a déjà tiré aujourd'hui, refuser
             if row_idx is not None and len(all_rows[row_idx]) > 1 and all_rows[row_idx][1] == today:
-                logging.warning(f"[DRAWING] Utilisateur {user_id} a déjà tiré aujourd'hui ({today})")
-                # Mettre à jour le cache pour éviter de futures vérifications inutiles
-                if hasattr(self, '_daily_draw_cache'):
-                    cache_key = f"daily_draw_{user_id}_{today}"
-                    self._daily_draw_cache[cache_key] = False
+                logging.debug(f"[DRAWING] Utilisateur {user_id} a déjà tiré aujourd'hui ({today})")
                 return False
 
-            # RÉSERVER immédiatement le tirage en l'enregistrant
+            logging.debug(f"[DRAWING] Utilisateur {user_id} peut tirer aujourd'hui ({today})")
+
+            # Si c'est juste une vérification, retourner True
+            if check_only:
+                return True
+
+            # Sinon, RÉSERVER immédiatement le tirage en l'enregistrant
             if row_idx is not None:
                 # Mettre à jour la ligne existante
                 self.storage.sheet_daily_draw.update(f"B{row_idx + 1}", today)
             else:
                 # Ajouter une nouvelle ligne
                 self.storage.sheet_daily_draw.append_row([user_id_str, today])
-
-            # Invalider le cache pour cet utilisateur
-            if hasattr(self, '_daily_draw_cache'):
-                cache_key = f"daily_draw_{user_id}_{today}"
-                self._daily_draw_cache[cache_key] = False
-                # Aussi invalider toutes les entrées de cache pour cet utilisateur
-                keys_to_remove = [k for k in self._daily_draw_cache.keys() if k.startswith(f"daily_draw_{user_id}_")]
-                for k in keys_to_remove:
-                    del self._daily_draw_cache[k]
 
             # Marquer que cet utilisateur a besoin d'une vérification d'upgrade via le cog principal
             if hasattr(self.storage, '_cog_ref'):
@@ -222,8 +161,21 @@ class DrawingManager:
             return True
 
         except Exception as e:
-            logging.error(f"[DRAWING] ÉCHEC CRITIQUE de la réservation du tirage journalier pour {user_id}: {e}")
+            logging.error(f"[DRAWING] Erreur lors de la vérification/réservation du tirage journalier: {e}")
             return False
+    
+    def reserve_daily_draw(self, user_id: int) -> bool:
+        """
+        Réserve atomiquement le tirage journalier d'un utilisateur.
+        Utilise maintenant la méthode unifiée can_perform_daily_draw.
+
+        Args:
+            user_id: ID de l'utilisateur
+
+        Returns:
+            bool: True si la réservation a réussi (utilisateur peut tirer)
+        """
+        return self.can_perform_daily_draw(user_id, check_only=False)
 
     def record_daily_draw(self, user_id: int) -> bool:
         """
@@ -360,48 +312,6 @@ class DrawingManager:
             logging.error(f"[DRAWING] Erreur lors de l'enregistrement du tirage sacrificiel: {e}")
             return False
 
-    def _clean_daily_cache_if_needed(self, now_paris: datetime):
-        """
-        Nettoie automatiquement le cache des tirages journaliers si on change de jour.
-        
-        Args:
-            now_paris: Datetime actuel en timezone Paris
-        """
-        today = now_paris.strftime("%Y-%m-%d")
-        
-        # Si on n'a pas de cache ou que la date a changé, nettoyer
-        if not hasattr(self, '_daily_cache_date') or self._daily_cache_date != today:
-            if hasattr(self, '_daily_draw_cache'):
-                old_count = len(self._daily_draw_cache)
-                self._daily_draw_cache.clear()
-                logging.info(f"[DRAWING] Cache journalier nettoyé pour le nouveau jour ({today}). {old_count} entrées supprimées.")
-            else:
-                self._daily_draw_cache = {}
-            
-            self._daily_cache_date = today
-
-    def clear_daily_cache(self, user_id: int = None):
-        """
-        Nettoie manuellement le cache du tirage journalier.
-
-        Args:
-            user_id: Si spécifié, nettoie seulement le cache de cet utilisateur.
-                    Sinon, nettoie tout le cache.
-        """
-        if not hasattr(self, '_daily_draw_cache'):
-            return
-
-        if user_id is not None:
-            # Nettoyer seulement pour cet utilisateur
-            keys_to_remove = [k for k in self._daily_draw_cache.keys()
-                             if k.startswith(f"daily_draw_{user_id}_")]
-            for k in keys_to_remove:
-                del self._daily_draw_cache[k]
-            logging.info(f"[DRAWING] Cache journalier nettoyé pour l'utilisateur {user_id}")
-        else:
-            # Nettoyer tout le cache
-            self._daily_draw_cache.clear()
-            logging.info("[DRAWING] Cache journalier entièrement nettoyé")
 
     def clear_sacrificial_cache(self, user_id: int = None):
         """
