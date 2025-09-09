@@ -116,7 +116,6 @@ class SceneSurveillance(commands.Cog):
         self.bot = bot
         self.paris_tz = pytz.timezone('Europe/Paris')
         self.active_scenes: Dict[str, dict] = {}  # channel_id -> scene_data
-        self.webhook_users: Dict[str, int] = {}  # webhook_name -> real_user_id
         self.mj_role_id = 1018179623886000278  # ID du rôle MJ (à adapter)
         
         # Configuration Google Sheets (optionnelle)
@@ -292,84 +291,6 @@ class SceneSurveillance(commands.Cog):
         except Exception as e:
             logger.error(f"Erreur mise à jour activité: {e}")
 
-    def detect_webhook_user(self, message: discord.Message) -> Optional[int]:
-        """Détecte l'utilisateur réel derrière un message de webhook/bot RP."""
-        # Patterns courants pour les bots RP (Tupperbox, PluralKit, Carl-bot, etc.)
-        if message.webhook_id:
-            # Pour Tupperbox et similaires, chercher dans le nom/contenu
-            webhook_name = message.author.display_name.lower()
-            
-            # Recherche de patterns dans le cache
-            if webhook_name in self.webhook_users:
-                return self.webhook_users[webhook_name]
-                
-            # Patterns pour différents bots RP
-            patterns_to_check = []
-            
-            # Recherche par patterns dans le contenu ou footer
-            if hasattr(message, 'embeds') and message.embeds:
-                for embed in message.embeds:
-                    if embed.footer and embed.footer.text:
-                        patterns_to_check.append(embed.footer.text)
-                    if embed.author and embed.author.name:
-                        patterns_to_check.append(embed.author.name)
-            
-            # Ajouter le nom du webhook aux patterns à vérifier
-            patterns_to_check.append(message.author.display_name)
-            
-            # Patterns de détection pour différents bots RP
-            for pattern_text in patterns_to_check:
-                # Tupperbox: "Sent by Username"
-                tupperbox_match = re.search(r'Sent by (\w+)', pattern_text)
-                if tupperbox_match:
-                    username = tupperbox_match.group(1)
-                    user_id = self._find_user_by_name(message.guild, username)
-                    if user_id:
-                        self.webhook_users[webhook_name] = user_id
-                        return user_id
-                
-                # PluralKit: "username#1234" dans footer ou nom
-                pluralkit_match = re.search(r'(\w+)#(\d{4})', pattern_text)
-                if pluralkit_match:
-                    username, discriminator = pluralkit_match.groups()
-                    user_id = self._find_user_by_tag(message.guild, username, discriminator)
-                    if user_id:
-                        self.webhook_users[webhook_name] = user_id
-                        return user_id
-                
-                # Carl-bot et autres: chercher par mention <@user_id>
-                mention_match = re.search(r'<@!?(\d+)>', pattern_text)
-                if mention_match:
-                    user_id = int(mention_match.group(1))
-                    # Vérifier que l'utilisateur existe dans le serveur
-                    if message.guild.get_member(user_id):
-                        self.webhook_users[webhook_name] = user_id
-                        return user_id
-            
-            # Si aucun pattern trouvé, essayer de deviner par le nom du webhook
-            user_id = self._find_user_by_name(message.guild, message.author.display_name)
-            if user_id:
-                self.webhook_users[webhook_name] = user_id
-                return user_id
-                                    
-        return None
-    
-    def _find_user_by_name(self, guild: discord.Guild, username: str) -> Optional[int]:
-        """Trouve un utilisateur par nom d'affichage ou nom d'utilisateur."""
-        username_lower = username.lower()
-        for member in guild.members:
-            if (member.display_name.lower() == username_lower or 
-                member.name.lower() == username_lower):
-                return member.id
-        return None
-    
-    def _find_user_by_tag(self, guild: discord.Guild, username: str, discriminator: str) -> Optional[int]:
-        """Trouve un utilisateur par tag complet (username#discriminator)."""
-        for member in guild.members:
-            if (member.name.lower() == username.lower() and 
-                member.discriminator == discriminator):
-                return member.id
-        return None
 
     async def create_scene_embed(self, channel_id: str) -> discord.Embed:
         """Crée un embed élégant pour une scène surveillée."""
@@ -429,7 +350,18 @@ class SceneSurveillance(commands.Cog):
         if participants:
             participant_mentions = []
             for p_id in participants[:10]:  # Limiter à 10 pour éviter les messages trop longs
-                participant_mentions.append(f"<@{p_id}>")
+                # Essayer de récupérer l'utilisateur/membre
+                user = self.bot.get_user(p_id)
+                if user:
+                    # Si c'est un utilisateur normal, utiliser mention
+                    if not user.bot:
+                        participant_mentions.append(user.mention)
+                    else:
+                        # Si c'est un bot (webhook), afficher le nom
+                        participant_mentions.append(f"**{user.display_name}**")
+                else:
+                    # Si on ne trouve pas l'utilisateur, utiliser l'ID
+                    participant_mentions.append(f"<@{p_id}>")
             
             participants_text = ", ".join(participant_mentions)
             if len(participants) > 10:
@@ -665,8 +597,8 @@ class SceneSurveillance(commands.Cog):
                     if message.author.bot and not message.webhook_id:
                         continue  # Ignorer les bots non-webhook
                     
-                    # Détecter l'utilisateur réel (webhook ou utilisateur normal)
-                    real_user_id = self.detect_webhook_user(message) or message.author.id
+                    # Pour les webhooks (Tupperbot, etc.), on utilise directement l'ID de l'auteur du webhook
+                    real_user_id = message.author.id
                     
                     # Ajouter aux participants s'il n'y est pas déjà
                     if real_user_id not in participants:
@@ -767,11 +699,8 @@ class SceneSurveillance(commands.Cog):
         scene_data = self.active_scenes[channel_id]
         
         # Déterminer l'auteur réel (gestion webhooks)
+        # Pour les webhooks (Tupperbot, etc.), on utilise directement l'ID de l'auteur du webhook
         real_author_id = message.author.id
-        if message.webhook_id:
-            detected_user = self.detect_webhook_user(message)
-            if detected_user:
-                real_author_id = detected_user
         
         # Ignorer les messages du système et des bots (sauf webhooks RP)
         if message.type != discord.MessageType.default and not message.webhook_id:
@@ -950,11 +879,8 @@ class SceneSurveillance(commands.Cog):
                     continue
                     
                 # Déterminer l'auteur réel
+                # Pour les webhooks (Tupperbot, etc.), on utilise directement l'ID de l'auteur du webhook
                 real_author_id = message.author.id
-                if message.webhook_id:
-                    detected_user = self.detect_webhook_user(message)
-                    if detected_user:
-                        real_author_id = detected_user
                 
                 # Ajouter aux participants
                 if real_author_id not in current_participants:
