@@ -257,38 +257,49 @@ class SceneSurveillance(commands.Cog):
         try:
             channel_id = str(scene_data['channel_id'])
             
+            # Vérifier les en-têtes existants
+            headers = self.sheet.row_values(1)
+            if not headers or 'channel_id' not in headers:
+                # Créer les en-têtes si nécessaire
+                expected_headers = ['channel_id', 'mj_id', 'status_message_id', 'status_channel_id', 
+                                  'created_at', 'last_activity', 'participants', 'last_author_id', 'status']
+                self.sheet.update('A1:I1', [expected_headers])
+                headers = expected_headers
+                logger.info("✅ En-têtes créés dans Google Sheets")
+            
             # Chercher si la scène existe déjà
             try:
                 cell = self.sheet.find(channel_id)
-                row = cell.row
+                row_number = cell.row
+                logger.debug(f"🔄 Mise à jour scène existante ligne {row_number}")
             except gspread.CellNotFound:
-                # Nouvelle scène, ajouter une nouvelle ligne
-                row = len(self.sheet.get_all_values()) + 1
+                # Nouvelle scène, trouver la prochaine ligne vide
+                all_values = self.sheet.get_all_values()
+                row_number = len(all_values) + 1
+                logger.debug(f"➕ Nouvelle scène, ligne {row_number}")
                 
-            # Préparer les données (convertir les ID en strings pour éviter la notation scientifique)
+            # Préparer les données selon l'ordre des en-têtes
             row_data = [
-                channel_id,
-                str(scene_data['mj_id']),  # Convertir en string
-                str(scene_data.get('status_message_id', '')),  # Convertir en string
-                str(scene_data.get('status_channel_id', '')),  # Convertir en string
-                scene_data['created_at'],
-                scene_data.get('last_activity', ''),
-                json.dumps(scene_data.get('participants', [])),
-                str(scene_data.get('last_author_id', '')),  # Convertir en string
-                scene_data['status']
+                channel_id,  # channel_id
+                str(scene_data['mj_id']),  # mj_id
+                str(scene_data.get('status_message_id', '')),  # status_message_id
+                str(scene_data.get('status_channel_id', '')),  # status_channel_id
+                scene_data.get('created_at', ''),  # created_at
+                scene_data.get('last_activity', ''),  # last_activity
+                json.dumps(scene_data.get('participants', [])),  # participants
+                str(scene_data.get('last_author_id', '')),  # last_author_id
+                scene_data.get('status', 'active')  # status
             ]
             
-            # Headers pour référence
-            if row == 1:
-                headers = ['channel_id', 'mj_id', 'status_message_id', 'status_channel_id', 
-                          'created_at', 'last_activity', 'participants', 'last_author_id', 'status']
-                self.sheet.insert_row(headers, 1)
-                row = 2
-                
-            self.sheet.insert_row(row_data, row)
+            # Utiliser update au lieu d'insert pour éviter de décaler les données
+            range_name = f"A{row_number}:I{row_number}"
+            self.sheet.update(range_name, [row_data])
+            logger.info(f"✅ Scène sauvegardée ligne {row_number}: {channel_id}")
             
         except Exception as e:
             logger.error(f"Erreur sauvegarde Google Sheets: {e}")
+            import traceback
+            logger.error(f"📋 Traceback: {traceback.format_exc()}")
 
     async def update_scene_mj(self, channel_id: str, new_mj_id: int):
         """Met à jour le MJ responsable d'une scène."""
@@ -297,8 +308,12 @@ class SceneSurveillance(commands.Cog):
             return
             
         try:
+            # Trouver la ligne et utiliser l'index dynamique
             cell = self.sheet.find(channel_id)
-            self.sheet.update_cell(cell.row, 2, str(new_mj_id))  # Colonne MJ - convertir en string
+            headers = self.sheet.row_values(1)
+            mj_col = headers.index('mj_id') + 1 if 'mj_id' in headers else 2
+            self.sheet.update_cell(cell.row, mj_col, str(new_mj_id))
+            logger.info(f"✅ MJ mis à jour pour {channel_id}: {new_mj_id}")
         except Exception as e:
             logger.error(f"Erreur mise à jour MJ: {e}")
 
@@ -311,10 +326,24 @@ class SceneSurveillance(commands.Cog):
             
         try:
             cell = self.sheet.find(channel_id)
+            headers = self.sheet.row_values(1)
             row = cell.row
-            self.sheet.update_cell(row, 6, last_activity)  # last_activity
-            self.sheet.update_cell(row, 7, json.dumps(participants))  # participants
-            self.sheet.update_cell(row, 8, str(last_author_id))  # last_author_id - convertir en string
+            
+            # Utiliser les index dynamiques basés sur les en-têtes
+            activity_col = headers.index('last_activity') + 1 if 'last_activity' in headers else 6
+            participants_col = headers.index('participants') + 1 if 'participants' in headers else 7
+            author_col = headers.index('last_author_id') + 1 if 'last_author_id' in headers else 8
+            
+            # Mise à jour en batch pour être plus efficace
+            updates = [
+                {'range': f'{chr(64+activity_col)}{row}', 'values': [[last_activity]]},
+                {'range': f'{chr(64+participants_col)}{row}', 'values': [[json.dumps(participants)]]},
+                {'range': f'{chr(64+author_col)}{row}', 'values': [[str(last_author_id)]]}
+            ]
+            
+            self.sheet.batch_update(updates)
+            logger.debug(f"✅ Activité mise à jour pour {channel_id}")
+            
         except Exception as e:
             logger.error(f"Erreur mise à jour activité: {e}")
 
@@ -477,6 +506,7 @@ class SceneSurveillance(commands.Cog):
             name="🎬 Surveillance de Scènes",
             value="`!surveiller_scene [canal]` - Démarre la surveillance automatique d'une scène RP\n"
                   "`!scenes_actives` - Liste les scènes actuellement surveillées\n"
+                  "`!debug_sheets` - Diagnostique la structure Google Sheets (debug)\n"
                   "`!reload_scenes` - Recharge les scènes depuis Google Sheets (diagnostic détaillé)\n"
                   "`!sync_scenes` - Force la synchronisation de toutes les scènes (mise à jour immédiate)\n"
                   "`!reattribuer_scene @nouveau_mj [canal]` - Réattribue une scène à un autre MJ\n"
@@ -725,6 +755,9 @@ class SceneSurveillance(commands.Cog):
         if channel_id not in self.active_scenes:
             return
             
+        logger.info(f"🎭 Message détecté dans scène surveillée {channel_id} par {message.author.display_name} (ID: {message.author.id})")
+        logger.info(f"🔍 Type message: {message.type}, Webhook: {message.webhook_id}, Bot: {message.author.bot}")
+        
         scene_data = self.active_scenes[channel_id]
         
         # Déterminer l'auteur réel (gestion webhooks)
@@ -733,27 +766,47 @@ class SceneSurveillance(commands.Cog):
         
         # Ignorer les messages du système et des bots (sauf webhooks RP)
         if message.type != discord.MessageType.default and not message.webhook_id:
+            logger.debug(f"⏭️ Message système ignoré: type {message.type}")
             return
+        
+        logger.info(f"✅ Traitement message de {message.author.display_name} ({real_author_id})")
+        logger.info(f"🔗 Webhook ID: {message.webhook_id}, Contenu: {message.content[:100]}...")
             
         # Mettre à jour les données de la scène
         now = datetime.now().isoformat()
         participants = scene_data.get('participants', [])
+        old_participants = participants.copy()
         
         if real_author_id not in participants:
             participants.append(real_author_id)
+            logger.info(f"➕ Nouveau participant ajouté: {message.author.display_name} ({real_author_id})")
+        else:
+            logger.debug(f"✓ Participant déjà présent: {message.author.display_name}")
             
         scene_data['last_activity'] = now
         scene_data['participants'] = participants
         scene_data['last_author_id'] = real_author_id
         
+        logger.info(f"📊 Scène mise à jour: {len(participants)} participants total, dernière activité: {now}")
+        
         # Mettre à jour Google Sheets
-        await self.update_scene_activity(channel_id, now, participants, real_author_id)
+        try:
+            await self.update_scene_activity(channel_id, now, participants, real_author_id)
+        except Exception as e:
+            logger.error(f"❌ Erreur maj Google Sheets: {e}")
         
         # Notifier le MJ responsable
-        await self.notify_mj(scene_data, message, real_author_id)
+        try:
+            await self.notify_mj(scene_data, message, real_author_id)
+        except Exception as e:
+            logger.error(f"❌ Erreur notification MJ: {e}")
         
         # Mettre à jour le message de statut
-        await self.update_status_message(channel_id)
+        try:
+            await self.update_status_message(channel_id)
+            logger.info(f"✅ Message de statut mis à jour pour {channel_id}")
+        except Exception as e:
+            logger.error(f"❌ Erreur maj message statut: {e}")
 
     # Les événements on_message_delete sont remplacés par le scanner périodique
     # qui détecte automatiquement tous les changements d'activité
@@ -1150,6 +1203,69 @@ class SceneSurveillance(commands.Cog):
             )
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @commands.command(name="debug_sheets", help="Diagnostique la structure Google Sheets (MJ uniquement)")
+    async def debug_sheets_structure(self, ctx: commands.Context):
+        """Diagnostique la structure réelle de Google Sheets."""
+        
+        if not self.has_mj_permission(ctx.author):
+            await ctx.send("❌ Seuls les MJ peuvent utiliser cette commande.")
+            return
+        
+        if not self.sheet:
+            await ctx.send("❌ Google Sheets non disponible. Vérifiez la configuration.")
+            return
+        
+        try:
+            # Récupérer les en-têtes
+            headers = self.sheet.row_values(1)
+            
+            # Récupérer les 5 premières lignes de données
+            all_values = self.sheet.get_all_values()
+            
+            embed = discord.Embed(
+                title="🔍 Diagnostic Google Sheets",
+                color=discord.Color.blue(),
+                timestamp=datetime.now()
+            )
+            
+            # Afficher les en-têtes
+            headers_text = "\n".join([f"{i+1}. `{header}`" for i, header in enumerate(headers)])
+            embed.add_field(name="📋 En-têtes", value=headers_text[:1000], inline=False)
+            
+            # Afficher quelques lignes de données
+            if len(all_values) > 1:
+                sample_data = []
+                for row_idx in range(1, min(4, len(all_values))):  # 3 premières lignes de données
+                    row_data = all_values[row_idx]
+                    row_info = f"**Ligne {row_idx+1}:**\n"
+                    for col_idx, value in enumerate(row_data[:len(headers)]):
+                        header = headers[col_idx] if col_idx < len(headers) else f"Col{col_idx+1}"
+                        row_info += f"  {header}: `{str(value)[:50]}`\n"
+                    sample_data.append(row_info)
+                
+                sample_text = "\n".join(sample_data)
+                embed.add_field(name="📊 Données d'exemple", value=sample_text[:1000], inline=False)
+            
+            embed.add_field(
+                name="📈 Statistiques", 
+                value=f"Colonnes: {len(headers)}\nLignes: {len(all_values)-1}\nFeuille: {self.sheet.title}", 
+                inline=True
+            )
+            
+            await ctx.send(embed=embed)
+            
+            # Log détaillé
+            logger.info(f"🔍 Structure Google Sheets:")
+            logger.info(f"📋 En-têtes: {headers}")
+            for row_idx in range(1, min(6, len(all_values))):
+                logger.info(f"📊 Ligne {row_idx+1}: {all_values[row_idx]}")
+                
+        except Exception as e:
+            await ctx.send(f"❌ Erreur lors du diagnostic: {e}")
+            logger.error(f"❌ Erreur diagnostic sheets: {e}")
+            import traceback
+            logger.error(f"📋 Traceback: {traceback.format_exc()}")
 
     @commands.command(name="reload_scenes", help="Recharge les scènes depuis Google Sheets (MJ uniquement)")
     async def reload_scenes(self, ctx: commands.Context):
