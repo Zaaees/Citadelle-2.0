@@ -39,14 +39,22 @@ class Exces(commands.Cog):
         # Sheet inventaire : lecture des personnages/utilisateurs
         inv_sheet_id = os.getenv('GOOGLE_SHEET_ID_INVENTAIRE')
         if not inv_sheet_id:
-            raise RuntimeError("L'ENV GOOGLE_SHEET_ID_INVENTAIRE n'est pas défini.")
-        self.inv_sheet = gc.open_by_key(inv_sheet_id).sheet1
-
+            print("ERREUR: Variable d'environnement GOOGLE_SHEET_ID_INVENTAIRE manquante pour le cog excès")
+            raise RuntimeError("Configuration Google Sheets manquante: GOOGLE_SHEET_ID_INVENTAIRE")
+        
         # Sheet excès : lecture/écriture du nombre d'excès par personnage
         exces_sheet_id = os.getenv('GOOGLE_SHEET_ID_EXCES')
         if not exces_sheet_id:
-            raise RuntimeError("L'ENV GOOGLE_SHEET_ID_EXCES n'est pas défini.")
-        self.exces_sheet = gc.open_by_key(exces_sheet_id).sheet1
+            print("ERREUR: Variable d'environnement GOOGLE_SHEET_ID_EXCES manquante pour le cog excès")
+            raise RuntimeError("Configuration Google Sheets manquante: GOOGLE_SHEET_ID_EXCES")
+        
+        try:
+            self.inv_sheet = gc.open_by_key(inv_sheet_id).sheet1
+            self.exces_sheet = gc.open_by_key(exces_sheet_id).sheet1
+            print("✅ Sheets Google configurés avec succès pour le cog excès")
+        except Exception as e:
+            print(f"ERREUR: Impossible d'accéder aux Google Sheets pour le cog excès: {e}")
+            raise RuntimeError(f"Accès Google Sheets impossible: {e}")
 
     @app_commands.command(name='excès', description="Vérifier si un personnage subit un excès permanent")
     async def exces(self, interaction: discord.Interaction, nom_du_personnage: str):
@@ -115,4 +123,11 @@ class Exces(commands.Cog):
             await interaction.response.send_message(embed=embed, ephemeral=True)
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(Exces(bot))
+    try:
+        await bot.add_cog(Exces(bot))
+        print("✅ Cog Exces loaded successfully")
+    except Exception as e:
+        print(f"❌ Error loading Exces cog: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise e  # Re-lever l'exception pour que le main.py la voit

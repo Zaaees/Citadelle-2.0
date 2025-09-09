@@ -67,20 +67,25 @@ class StableBot(commands.Bot):
                 logger.info(f"✅ Extension {ext} chargée")
             except Exception as e:
                 error_type = type(e).__name__
-                if "MalformedError" in str(e) or "No key could be detected" in str(e):
+                error_str = str(e)
+                
+                # Log l'erreur complète pour debugging
+                logger.error(f"🔍 Erreur détaillée lors du chargement de {ext}:")
+                logger.error(f"   Type: {error_type}")
+                logger.error(f"   Message: {error_str}")
+                
+                if "MalformedError" in error_str or "No key could be detected" in error_str:
                     logger.warning(f"⚠️ {ext}: Google Sheets non configuré - cog ignoré ({error_type})")
-                elif "ModuleNotFoundError" in str(e):
+                elif "ModuleNotFoundError" in error_str:
                     logger.warning(f"⚠️ {ext}: Dépendance manquante - cog ignoré ({error_type})")
                 elif ext in critical_cogs:
                     logger.error(f"❌ CRITIQUE: Échec de {ext}: {error_type}")
-                    # Pour les cogs critiques, on tente quand même de continuer
                     logger.error(f"🔍 Détails: {e}")
+                    logger.error(f"🔍 Traceback: {traceback.format_exc()}")
                 else:
                     logger.warning(f"⚠️ Optionnel: {ext} ignoré ({error_type})")
-                
-                # Log complet seulement pour les vrais problèmes critiques
-                if ext in critical_cogs and error_type not in ['MalformedError', 'ModuleNotFoundError']:
-                    logger.error(f"🔍 Traceback: {traceback.format_exc()}")
+                    # Afficher quand même le traceback pour les cogs optionnels pour debug
+                    logger.warning(f"🔍 Traceback pour debug: {traceback.format_exc()}")
         
         logger.info(f"📊 Extensions chargées: {loaded_count}/{len(extensions)} ({critical_loaded}/{len(critical_cogs)} critiques)")
         
