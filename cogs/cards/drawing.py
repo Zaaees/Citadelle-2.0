@@ -130,64 +130,33 @@ class DrawingManager:
             today = now_paris.strftime("%Y-%m-%d")
             user_id_str = str(user_id)
 
-            # LOGS DEBUG DÉTAILLÉS
-            logging.info(f"[DRAWING DEBUG] ========== Vérification tirage pour {user_id} ==========")
-            logging.info(f"[DRAWING DEBUG] Heure Paris: {now_paris}")
-            logging.info(f"[DRAWING DEBUG] Date aujourd'hui: {today}")
-            logging.info(f"[DRAWING DEBUG] Mode: {'CHECK_ONLY' if check_only else 'RESERVE_MODE'}")
-
             # Vérifier dans la feuille des tirages journaliers (pas de cache pour éviter l'incohérence)
             all_rows = self.storage.sheet_daily_draw.get_all_values()
-            
-            # DIAGNOSTIC COMPLET : Chercher TOUTES les occurrences de cet utilisateur
-            user_rows = [(i, row) for i, row in enumerate(all_rows) if row and row[0] == user_id_str]
-            logging.info(f"[DRAWING DEBUG] TOUTES les lignes pour {user_id}: {user_rows}")
-            
-            # Prendre la première occurrence (comme avant)
             row_idx = next((i for i, r in enumerate(all_rows) if r and r[0] == user_id_str), None)
-
-            if row_idx is not None:
-                user_row = all_rows[row_idx]
-                logging.info(f"[DRAWING DEBUG] Ligne utilisateur principale: {user_row} à l'index {row_idx}")
-                if len(user_row) > 1:
-                    last_draw_date = user_row[1]
-                    logging.info(f"[DRAWING DEBUG] Dernier tirage: '{last_draw_date}' vs aujourd'hui: '{today}'")
-                    logging.info(f"[DRAWING DEBUG] Égalité: {last_draw_date == today}")
-                    logging.info(f"[DRAWING DEBUG] Type last_draw_date: {type(last_draw_date)}, len: {len(last_draw_date) if last_draw_date else 0}")
-                    logging.info(f"[DRAWING DEBUG] Type today: {type(today)}, len: {len(today)}")
-                else:
-                    logging.info(f"[DRAWING DEBUG] Ligne utilisateur sans date de tirage")
-            else:
-                logging.info(f"[DRAWING DEBUG] Aucune ligne trouvée pour l'utilisateur {user_id}")
 
             # Si l'utilisateur a déjà tiré aujourd'hui, refuser
             if row_idx is not None and len(all_rows[row_idx]) > 1 and all_rows[row_idx][1] == today:
-                logging.info(f"[DRAWING DEBUG] RÉSULTAT: REFUSÉ - Déjà tiré aujourd'hui")
+                logging.debug(f"[DRAWING] Utilisateur {user_id} a déjà tiré aujourd'hui ({today})")
                 return False
 
-            logging.info(f"[DRAWING DEBUG] RÉSULTAT: AUTORISÉ - Peut tirer aujourd'hui")
+            logging.debug(f"[DRAWING] Utilisateur {user_id} peut tirer aujourd'hui ({today})")
 
             # Si c'est juste une vérification, retourner True
             if check_only:
-                logging.info(f"[DRAWING DEBUG] Mode vérification seulement - return True")
                 return True
 
             # Sinon, RÉSERVER immédiatement le tirage en l'enregistrant
-            logging.info(f"[DRAWING DEBUG] RÉSERVATION EN COURS...")
             if row_idx is not None:
-                # Mettre à jour la ligne existante
-                logging.info(f"[DRAWING DEBUG] Mise à jour ligne existante: B{row_idx + 1} = {today}")
-                self.storage.sheet_daily_draw.update(f"B{row_idx + 1}", today)
+                # Mettre à jour la ligne existante (syntaxe correcte gspread)
+                self.storage.sheet_daily_draw.update_cell(row_idx + 1, 2, today)
             else:
                 # Ajouter une nouvelle ligne
-                logging.info(f"[DRAWING DEBUG] Ajout nouvelle ligne: [{user_id_str}, {today}]")
                 self.storage.sheet_daily_draw.append_row([user_id_str, today])
 
             # Marquer que cet utilisateur a besoin d'une vérification d'upgrade via le cog principal
             if hasattr(self.storage, '_cog_ref'):
                 self.storage._cog_ref._mark_user_for_upgrade_check(user_id)
 
-            logging.info(f"[DRAWING DEBUG] RÉSERVATION TERMINÉE AVEC SUCCÈS")
             logging.info(f"[DRAWING] Tirage journalier RÉSERVÉ avec succès pour l'utilisateur {user_id}")
             return True
 
