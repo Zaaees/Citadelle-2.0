@@ -6,7 +6,8 @@ import json
 from dotenv import load_dotenv
 import gspread
 from google.oauth2.service_account import Credentials as ServiceAccountCredentials
-from gspread.exceptions import CellNotFound
+# CellNotFound n'existe plus dans les versions récentes de gspread
+# from gspread.exceptions import CellNotFound
 import datetime
 import time
 import traceback
@@ -292,10 +293,11 @@ class Inventory(commands.Cog):
                         desc_change = "retirée" if removed_count == 1 else "retirées"
                         description = f"**{removed_count}** médaille{'s' if removed_count != 1 else ''} {desc_change}. {nom} a été supprimé de la liste car son total est de 0 ou moins."
                         embed = discord.Embed(title=nom, description=description, color=0x6d5380)
-                    except CellNotFound:
+                    except Exception as e:
+                        # CellNotFound n'existe plus, on gère avec une exception générale
                         embed = discord.Embed(
                             title="Erreur",
-                            description=f"Impossible de trouver {nom} dans la feuille pour suppression.",
+                            description=f"Impossible de trouver {nom} dans la feuille pour suppression. Erreur: {str(e)}",
                             color=0x6d5380
                         )
                 else:

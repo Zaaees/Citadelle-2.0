@@ -81,10 +81,12 @@ class StableBot(commands.Bot):
                 elif ext in critical_cogs:
                     logger.error(f"❌ CRITIQUE: Échec de {ext}: {error_type}")
                     logger.error(f"🔍 Détails: {e}")
+                    import traceback
                     logger.error(f"🔍 Traceback: {traceback.format_exc()}")
                 else:
                     logger.warning(f"⚠️ Optionnel: {ext} ignoré ({error_type})")
                     # Afficher quand même le traceback pour les cogs optionnels pour debug
+                    import traceback
                     logger.warning(f"🔍 Traceback pour debug: {traceback.format_exc()}")
         
         logger.info(f"📊 Extensions chargées: {loaded_count}/{len(extensions)} ({critical_loaded}/{len(critical_cogs)} critiques)")
