@@ -409,12 +409,14 @@ class SceneSurveillance(commands.Cog):
                 # Essayer de récupérer l'utilisateur/membre
                 user = self.bot.get_user(p_id)
                 if user:
-                    # Si c'est un utilisateur normal, utiliser mention
-                    if not user.bot:
-                        participant_mentions.append(user.mention)
+                    # Afficher le nom d'affichage pour les bots (tupperbots = personnages RP)
+                    if user.bot:
+                        # Pour les bots (tupperbots), utiliser le nom d'affichage comme nom de personnage
+                        display_name = getattr(user, 'display_name', user.name)
+                        participant_mentions.append(f"🎭 **{display_name}**")
                     else:
-                        # Si c'est un bot (webhook), afficher le nom
-                        participant_mentions.append(f"**{user.display_name}**")
+                        # Pour les utilisateurs normaux, utiliser mention
+                        participant_mentions.append(user.mention)
                 else:
                     # Si on ne trouve pas l'utilisateur, utiliser l'ID
                     participant_mentions.append(f"<@{p_id}>")
@@ -654,10 +656,12 @@ class SceneSurveillance(commands.Cog):
                 # Récupérer les 50 derniers messages pour analyser l'activité
                 first_message = True
                 async for message in target_channel.history(limit=50):
-                    if message.author.bot and not message.webhook_id:
-                        continue  # Ignorer les bots non-webhook
+                    # Accepter tous les messages (bots inclus) dans les salons surveillés
+                    # Ignorer seulement les messages système Discord
+                    if message.type != discord.MessageType.default:
+                        continue
                     
-                    # Pour les webhooks (Tupperbot, etc.), on utilise directement l'ID de l'auteur du webhook
+                    # Tous les auteurs sont maintenant considérés comme valides
                     real_user_id = message.author.id
                     
                     # Ajouter aux participants s'il n'y est pas déjà
@@ -748,9 +752,8 @@ class SceneSurveillance(commands.Cog):
         if not message.guild:
             return
             
-        # Ignorer les bots SAUF les webhooks RP (qui sont des bots techniques mais représentent des joueurs)
-        if message.author.bot and not message.webhook_id:
-            return
+        # Dans les salons surveillés, tous les messages sont considérés comme RP (y compris tupperbots)
+        # On ne filtre plus les bots puisque Tupperbot est le seul bot actif dans ces salons
             
         channel_id = str(message.channel.id)
         if channel_id not in self.active_scenes:
@@ -761,13 +764,12 @@ class SceneSurveillance(commands.Cog):
         
         scene_data = self.active_scenes[channel_id]
         
-        # Déterminer l'auteur réel (gestion webhooks)
-        # Pour les webhooks (Tupperbot, etc.), on utilise directement l'ID de l'auteur du webhook
+        # Déterminer l'auteur réel (tous les messages sont maintenant acceptés)
         real_author_id = message.author.id
         
-        # Ignorer les messages du système et des bots (sauf webhooks RP)
-        if message.type != discord.MessageType.default and not message.webhook_id:
-            logger.debug(f"⏭️ Message système ignoré: type {message.type}")
+        # Ignorer seulement les messages système Discord (pas les bots)
+        if message.type != discord.MessageType.default:
+            logger.debug(f"⏭️ Message système Discord ignoré: type {message.type}")
             return
         
         logger.info(f"✅ Traitement message de {message.author.display_name} ({real_author_id})")
@@ -953,16 +955,12 @@ class SceneSurveillance(commands.Cog):
             logger.debug(f"🔍 Scan historique canal {channel.name}...")
             
             async for message in channel.history(limit=100):
-                # Ignorer les bots système mais garder les webhooks RP
-                if message.author.bot and not message.webhook_id:
+                # Accepter tous les messages (bots inclus) dans les salons surveillés
+                # Ignorer seulement les messages système Discord
+                if message.type != discord.MessageType.default:
                     continue
                     
-                # Ignorer les messages système (sauf pour les webhooks qui peuvent avoir des types spéciaux)
-                if message.type != discord.MessageType.default and not message.webhook_id:
-                    continue
-                    
-                # Déterminer l'auteur réel
-                # Pour les webhooks (Tupperbot, etc.), on utilise directement l'ID de l'auteur du webhook
+                # Tous les auteurs sont maintenant considérés comme valides
                 real_author_id = message.author.id
                 
                 # Ajouter aux participants
