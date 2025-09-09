@@ -196,29 +196,56 @@ class SceneSurveillance(commands.Cog):
             
         try:
             records = self.sheet.get_all_records()
+            logger.info(f"📊 Nombre de records trouvés dans Google Sheets: {len(records)}")
             scenes_loaded = 0
+            
             for record in records:
                 if record.get('status') == 'active' and record.get('channel_id'):
                     try:
-                        channel_id = str(record['channel_id'])
-                        self.active_scenes[channel_id] = {
-                            'channel_id': int(channel_id),
-                            'mj_id': int(record.get('mj_id', 0)),
-                            'status_message_id': int(record.get('status_message_id', 0)),
-                            'status_channel_id': int(record.get('status_channel_id', 0)),
+                        channel_id_str = str(record['channel_id']).strip()
+                        
+                        # Vérifier que le canal existe encore
+                        channel = self.bot.get_channel(int(channel_id_str))
+                        if not channel:
+                            logger.warning(f"⚠️ Canal {channel_id_str} introuvable lors du chargement")
+                            continue
+                        
+                        # Parser les participants avec gestion d'erreur robuste
+                        participants_raw = record.get('participants', '[]')
+                        try:
+                            if isinstance(participants_raw, str):
+                                participants = json.loads(participants_raw)
+                            else:
+                                participants = participants_raw if isinstance(participants_raw, list) else []
+                        except json.JSONDecodeError:
+                            logger.warning(f"⚠️ Erreur parsing participants pour {channel_id_str}, utilisation liste vide")
+                            participants = []
+                        
+                        self.active_scenes[channel_id_str] = {
+                            'channel_id': int(channel_id_str),
+                            'mj_id': int(str(record.get('mj_id', 0)).strip() or 0),
+                            'status_message_id': int(str(record.get('status_message_id', 0)).strip() or 0),
+                            'status_channel_id': int(str(record.get('status_channel_id', 0)).strip() or 0),
                             'created_at': record.get('created_at', ''),
                             'last_activity': record.get('last_activity', ''),
-                            'participants': json.loads(record.get('participants', '[]')),
-                            'last_author_id': int(record.get('last_author_id', 0)),
-                            'status': record.get('status', 'active')
+                            'participants': participants,
+                            'last_author_id': int(str(record.get('last_author_id', 0)).strip() or 0),
+                            'status': 'active'
                         }
                         scenes_loaded += 1
-                    except (ValueError, json.JSONDecodeError) as e:
+                        logger.info(f"✅ Scène chargée: {channel.name} ({channel_id_str})")
+                        
+                    except Exception as e:
                         logger.warning(f"Erreur parsing scène {record.get('channel_id')}: {e}")
                         continue
+                        
             logger.info(f"✅ {scenes_loaded} scènes actives chargées depuis Google Sheets")
+            
         except Exception as e:
             logger.error(f"Erreur lors du chargement des scènes: {e}")
+            logger.error(f"📋 Détails: {str(e)}")
+            import traceback
+            logger.error(f"📋 Traceback: {traceback.format_exc()}")
             logger.info("Le système fonctionnera en mode dégradé (sans persistance)")
 
     async def save_scene_to_sheets(self, scene_data: dict):
@@ -450,6 +477,7 @@ class SceneSurveillance(commands.Cog):
             name="🎬 Surveillance de Scènes",
             value="`!surveiller_scene [canal]` - Démarre la surveillance automatique d'une scène RP\n"
                   "`!scenes_actives` - Liste les scènes actuellement surveillées\n"
+                  "`!reload_scenes` - Recharge les scènes depuis Google Sheets (diagnostic détaillé)\n"
                   "`!sync_scenes` - Force la synchronisation de toutes les scènes (mise à jour immédiate)\n"
                   "`!reattribuer_scene @nouveau_mj [canal]` - Réattribue une scène à un autre MJ\n"
                   "📡 *Scanner automatique toutes les 5 min pour détecter l'activité réelle*",
@@ -1122,6 +1150,146 @@ class SceneSurveillance(commands.Cog):
             )
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @commands.command(name="reload_scenes", help="Recharge les scènes depuis Google Sheets (MJ uniquement)")
+    async def reload_scenes(self, ctx: commands.Context):
+        """Recharge les scènes actives depuis Google Sheets avec diagnostic détaillé."""
+        
+        if not self.has_mj_permission(ctx.author):
+            await ctx.send("❌ Seuls les MJ peuvent utiliser cette commande.")
+            return
+        
+        if not self.sheet:
+            await ctx.send("❌ Google Sheets non disponible. Vérifiez la configuration.")
+            return
+        
+        # Message de début
+        progress_msg = await ctx.send("🔄 Rechargement des scènes depuis Google Sheets...")
+        
+        try:
+            # Sauvegarder l'ancien état
+            old_count = len(self.active_scenes)
+            
+            # Vider les scènes actuelles
+            self.active_scenes.clear()
+            
+            # Recharger depuis Google Sheets avec diagnostic
+            records = self.sheet.get_all_records()
+            logger.info(f"📊 Nombre de records trouvés dans Google Sheets: {len(records)}")
+            
+            scenes_loaded = 0
+            scenes_skipped = 0
+            errors = []
+            
+            for i, record in enumerate(records):
+                try:
+                    # Diagnostic détaillé de chaque record
+                    status = record.get('status', '')
+                    channel_id = record.get('channel_id', '')
+                    
+                    logger.info(f"🔍 Record {i+1}: channel_id={channel_id}, status={status}")
+                    
+                    if status == 'active' and channel_id:
+                        channel_id_str = str(channel_id).strip()
+                        
+                        # Vérifier que le canal existe encore
+                        channel = self.bot.get_channel(int(channel_id_str))
+                        if not channel:
+                            logger.warning(f"⚠️ Canal {channel_id_str} introuvable, scène ignorée")
+                            scenes_skipped += 1
+                            continue
+                        
+                        # Parser les participants avec gestion d'erreur
+                        participants_raw = record.get('participants', '[]')
+                        try:
+                            if isinstance(participants_raw, str):
+                                participants = json.loads(participants_raw)
+                            else:
+                                participants = participants_raw if isinstance(participants_raw, list) else []
+                        except json.JSONDecodeError:
+                            logger.warning(f"⚠️ Erreur parsing participants pour {channel_id_str}")
+                            participants = []
+                        
+                        self.active_scenes[channel_id_str] = {
+                            'channel_id': int(channel_id_str),
+                            'mj_id': int(str(record.get('mj_id', 0)).strip() or 0),
+                            'status_message_id': int(str(record.get('status_message_id', 0)).strip() or 0),
+                            'status_channel_id': int(str(record.get('status_channel_id', 0)).strip() or 0),
+                            'created_at': record.get('created_at', ''),
+                            'last_activity': record.get('last_activity', ''),
+                            'participants': participants,
+                            'last_author_id': int(str(record.get('last_author_id', 0)).strip() or 0),
+                            'status': 'active'
+                        }
+                        scenes_loaded += 1
+                        logger.info(f"✅ Scène chargée: {channel.name} ({channel_id_str})")
+                    else:
+                        scenes_skipped += 1
+                        logger.debug(f"⏭️ Record ignoré: status={status}, channel_id={channel_id}")
+                        
+                except Exception as e:
+                    error_msg = f"Erreur record {i+1} (channel_id={record.get('channel_id', 'N/A')}): {e}"
+                    errors.append(error_msg)
+                    logger.error(f"❌ {error_msg}")
+                    continue
+            
+            # Résultats
+            embed = discord.Embed(
+                title="📊 Rechargement des Scènes",
+                color=discord.Color.blue(),
+                timestamp=datetime.now()
+            )
+            
+            embed.add_field(
+                name="📈 Résultats",
+                value=f"🆕 Scènes chargées: {scenes_loaded}\n"
+                      f"⏭️ Records ignorés: {scenes_skipped}\n"
+                      f"❌ Erreurs: {len(errors)}\n"
+                      f"📊 Total records: {len(records)}",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="🔄 Changement",
+                value=f"Avant: {old_count} scènes\n"
+                      f"Après: {len(self.active_scenes)} scènes",
+                inline=True
+            )
+            
+            if errors:
+                error_text = "\n".join(errors[:3])  # Limiter à 3 erreurs
+                if len(errors) > 3:
+                    error_text += f"\n... et {len(errors) - 3} autres"
+                embed.add_field(name="❌ Erreurs", value=f"```{error_text[:1000]}```", inline=False)
+            
+            if scenes_loaded > 0:
+                # Lister quelques scènes chargées
+                scene_names = []
+                for channel_id in list(self.active_scenes.keys())[:5]:
+                    channel = self.bot.get_channel(int(channel_id))
+                    scene_names.append(channel.name if channel else f"Canal #{channel_id}")
+                
+                scenes_text = "\n".join(scene_names)
+                if len(self.active_scenes) > 5:
+                    scenes_text += f"\n... et {len(self.active_scenes) - 5} autres"
+                    
+                embed.add_field(name="🎭 Scènes Chargées", value=scenes_text, inline=False)
+            
+            await progress_msg.edit(content="", embed=embed)
+            logger.info(f"✅ Rechargement terminé: {scenes_loaded} scènes chargées")
+            
+        except Exception as e:
+            error_embed = discord.Embed(
+                title="❌ Erreur de Rechargement",
+                description=f"Erreur critique: {str(e)[:1000]}",
+                color=discord.Color.red(),
+                timestamp=datetime.now()
+            )
+            
+            await progress_msg.edit(content="", embed=error_embed)
+            logger.error(f"❌ Erreur critique lors du rechargement: {e}")
+            import traceback
+            logger.error(f"📋 Traceback: {traceback.format_exc()}")
 
     @commands.command(name="sync_scenes", help="Force la synchronisation de toutes les scènes surveillées (MJ uniquement)")
     async def sync_all_scenes(self, ctx: commands.Context):
