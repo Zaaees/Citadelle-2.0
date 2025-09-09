@@ -507,6 +507,7 @@ class SceneSurveillance(commands.Cog):
             value="`!surveiller_scene [canal]` - Démarre la surveillance automatique d'une scène RP\n"
                   "`!scenes_actives` - Liste les scènes actuellement surveillées\n"
                   "`!debug_sheets` - Diagnostique la structure Google Sheets (debug)\n"
+                  "`!cleanup_sheets` - ⚠️ Nettoie les données corrompues Google Sheets\n"
                   "`!reload_scenes` - Recharge les scènes depuis Google Sheets (diagnostic détaillé)\n"
                   "`!sync_scenes` - Force la synchronisation de toutes les scènes (mise à jour immédiate)\n"
                   "`!reattribuer_scene @nouveau_mj [canal]` - Réattribue une scène à un autre MJ\n"
@@ -1203,6 +1204,173 @@ class SceneSurveillance(commands.Cog):
             )
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @commands.command(name="cleanup_sheets", help="Nettoie les données corrompues dans Google Sheets (MJ uniquement)")
+    async def cleanup_corrupted_sheets(self, ctx: commands.Context):
+        """Nettoie les données corrompues dans Google Sheets."""
+        
+        if not self.has_mj_permission(ctx.author):
+            await ctx.send("❌ Seuls les MJ peuvent utiliser cette commande.")
+            return
+        
+        if not self.sheet:
+            await ctx.send("❌ Google Sheets non disponible.")
+            return
+        
+        # Demander confirmation
+        embed = discord.Embed(
+            title="⚠️ Nettoyage Google Sheets",
+            description="Cette commande va **supprimer** toutes les lignes corrompues du Google Sheets.\n\n"
+                       "**Actions :**\n"
+                       "• Identifier les lignes avec des données invalides\n"
+                       "• Supprimer les lignes corrompues\n"
+                       "• Recréer les en-têtes propres\n"
+                       "• **Les scènes devront être relancées manuellement**",
+            color=discord.Color.orange(),
+            timestamp=datetime.now()
+        )
+        embed.add_field(name="⚠️ Attention", value="Cette action est **irréversible** !", inline=False)
+        
+        # Boutons de confirmation
+        view = discord.ui.View(timeout=60)
+        
+        async def confirm_callback(interaction):
+            if interaction.user.id != ctx.author.id:
+                await interaction.response.send_message("❌ Seul l'auteur de la commande peut confirmer.", ephemeral=True)
+                return
+            await interaction.response.defer()
+            await self.perform_cleanup(ctx, interaction)
+        
+        async def cancel_callback(interaction):
+            if interaction.user.id != ctx.author.id:
+                await interaction.response.send_message("❌ Seul l'auteur de la commande peut annuler.", ephemeral=True)
+                return
+            embed_cancel = discord.Embed(title="❌ Nettoyage Annulé", color=discord.Color.red())
+            await interaction.response.edit_message(embed=embed_cancel, view=None)
+        
+        confirm_btn = discord.ui.Button(label="✅ Confirmer", style=discord.ButtonStyle.danger)
+        cancel_btn = discord.ui.Button(label="❌ Annuler", style=discord.ButtonStyle.secondary)
+        
+        confirm_btn.callback = confirm_callback
+        cancel_btn.callback = cancel_callback
+        
+        view.add_item(confirm_btn)
+        view.add_item(cancel_btn)
+        
+        await ctx.send(embed=embed, view=view)
+    
+    async def perform_cleanup(self, ctx, interaction):
+        """Effectue le nettoyage des données corrompues."""
+        try:
+            progress_embed = discord.Embed(
+                title="🧹 Nettoyage en cours...",
+                description="Analyse des données corrompues...",
+                color=discord.Color.blue()
+            )
+            await interaction.edit_original_response(embed=progress_embed, view=None)
+            
+            # Obtenir toutes les données
+            all_values = self.sheet.get_all_values()
+            logger.info(f"🔍 Analyse de {len(all_values)} lignes dans Google Sheets")
+            
+            # Identifier les lignes corrompues
+            corrupted_rows = []
+            valid_rows = []
+            
+            # En-têtes attendus
+            expected_headers = ['channel_id', 'mj_id', 'status_message_id', 'status_channel_id', 
+                              'created_at', 'last_activity', 'participants', 'last_author_id', 'status']
+            
+            for row_idx, row_data in enumerate(all_values):
+                if row_idx == 0:  # En-têtes
+                    continue
+                    
+                if len(row_data) < 4:  # Ligne trop courte
+                    corrupted_rows.append(row_idx + 1)
+                    continue
+                
+                # Vérifier si channel_id ressemble à un ID Discord (nombre)
+                channel_id = row_data[0].strip() if row_data[0] else ""
+                if not channel_id.isdigit() or len(channel_id) < 15:
+                    corrupted_rows.append(row_idx + 1)
+                    continue
+                    
+                # Vérifier si le canal existe encore
+                try:
+                    channel = self.bot.get_channel(int(channel_id))
+                    if not channel:
+                        logger.info(f"⚠️ Canal {channel_id} n'existe plus")
+                        corrupted_rows.append(row_idx + 1)
+                        continue
+                except ValueError:
+                    corrupted_rows.append(row_idx + 1)
+                    continue
+                
+                # Ligne semble valide
+                valid_rows.append(row_data)
+            
+            # Mettre à jour le progress
+            progress_embed.description = f"Trouvé {len(corrupted_rows)} lignes corrompues sur {len(all_values)-1} lignes de données."
+            await interaction.edit_original_response(embed=progress_embed)
+            
+            # Vider complètement la feuille
+            logger.info("🗑️ Vidage complet de la feuille...")
+            self.sheet.clear()
+            
+            # Recréer les en-têtes
+            logger.info("📋 Recréation des en-têtes...")
+            self.sheet.update('A1:I1', [expected_headers])
+            
+            # Réinsérer les données valides
+            if valid_rows:
+                logger.info(f"📝 Réinsertion de {len(valid_rows)} lignes valides...")
+                range_name = f"A2:I{len(valid_rows)+1}"
+                self.sheet.update(range_name, valid_rows)
+            
+            # Vider le cache des scènes actives pour forcer le rechargement
+            self.active_scenes.clear()
+            
+            # Résultat final
+            result_embed = discord.Embed(
+                title="✅ Nettoyage Terminé",
+                color=discord.Color.green(),
+                timestamp=datetime.now()
+            )
+            
+            result_embed.add_field(
+                name="📊 Résultats",
+                value=f"🗑️ Lignes supprimées: {len(corrupted_rows)}\n"
+                      f"✅ Lignes conservées: {len(valid_rows)}\n"
+                      f"📋 En-têtes: Recréés",
+                inline=True
+            )
+            
+            if corrupted_rows and len(corrupted_rows) <= 10:
+                rows_text = ", ".join([str(r) for r in corrupted_rows])
+                result_embed.add_field(name="🗑️ Lignes supprimées", value=f"Lignes: {rows_text}", inline=False)
+            
+            result_embed.add_field(
+                name="🔄 Prochaines étapes",
+                value="1. Utilisez `!reload_scenes` pour recharger les scènes valides\n"
+                      "2. Relancez manuellement les scènes supprimées avec `!surveiller_scene`\n"
+                      "3. Vérifiez avec `!scenes_actives`",
+                inline=False
+            )
+            
+            await interaction.edit_original_response(embed=result_embed)
+            logger.info(f"✅ Nettoyage terminé: {len(corrupted_rows)} supprimées, {len(valid_rows)} conservées")
+            
+        except Exception as e:
+            error_embed = discord.Embed(
+                title="❌ Erreur lors du nettoyage",
+                description=f"Une erreur s'est produite: {str(e)[:1000]}",
+                color=discord.Color.red(),
+                timestamp=datetime.now()
+            )
+            await interaction.edit_original_response(embed=error_embed, view=None)
+            logger.error(f"❌ Erreur nettoyage: {e}")
+            import traceback
+            logger.error(f"📋 Traceback: {traceback.format_exc()}")
 
     @commands.command(name="debug_sheets", help="Diagnostique la structure Google Sheets (MJ uniquement)")
     async def debug_sheets_structure(self, ctx: commands.Context):
