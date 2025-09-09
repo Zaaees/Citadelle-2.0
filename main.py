@@ -91,17 +91,19 @@ class StableBot(commands.Bot):
         
         logger.info(f"📊 Extensions chargées: {loaded_count}/{len(extensions)} ({critical_loaded}/{len(critical_cogs)} critiques)")
         
-        # Forcer la synchronisation des commandes pour récupérer les commandes manquantes
+        # Synchronisation propre des commandes sans doublons
         try:
-            # Synchronisation prioritaire sur le serveur si configuré (instantané)
             guild_id = os.getenv('GUILD_ID')
             if guild_id:
                 try:
                     guild = discord.Object(id=int(guild_id))
-                    # Copier les commandes globales vers le serveur d'abord
-                    self.tree.copy_global_to(guild=guild)
+                    # Nettoyer d'abord les commandes du serveur pour éviter les doublons
+                    logger.info("🧹 Nettoyage des commandes du serveur...")
+                    self.tree.clear_commands(guild=guild)
+                    
+                    # Synchronisation propre sur le serveur (instantané)
                     synced = await self.tree.sync(guild=guild)
-                    logger.info(f"✅ {len(synced)} commandes synchronisées pour serveur {guild_id} (avec copie globale)")
+                    logger.info(f"✅ {len(synced)} commandes synchronisées PROPREMENT pour serveur {guild_id}")
                 except Exception as ge:
                     logger.error(f"❌ Erreur sync serveur spécifique: {ge}")
                     # Fallback sur sync globale

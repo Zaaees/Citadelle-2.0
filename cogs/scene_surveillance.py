@@ -517,14 +517,15 @@ class SceneSurveillance(commands.Cog):
             return
         
         try:
-            # D'abord, copier les commandes globales vers ce serveur
-            await ctx.send("🔄 Copie des commandes globales vers ce serveur...")
-            self.bot.tree.copy_global_to(guild=ctx.guild)
+            # Nettoyer d'abord les commandes du serveur pour éviter les doublons
+            await ctx.send("🧹 Nettoyage des commandes du serveur...")
+            self.bot.tree.clear_commands(guild=ctx.guild)
             
-            # Puis sync pour ce serveur spécifiquement
+            # Synchronisation propre pour ce serveur spécifiquement
+            await ctx.send("🔄 Synchronisation propre des commandes...")
             synced = await self.bot.tree.sync(guild=ctx.guild)
-            await ctx.send(f"✅ {len(synced)} commandes synchronisées pour ce serveur !")
-            logger.info(f"🔄 Sync forcée par {ctx.author}: {len(synced)} commandes (avec copie globale)")
+            await ctx.send(f"✅ {len(synced)} commandes synchronisées PROPREMENT pour ce serveur !")
+            logger.info(f"🔄 Sync forcée PROPRE par {ctx.author}: {len(synced)} commandes (sans doublons)")
         except Exception as e:
             await ctx.send(f"❌ Erreur lors de la synchronisation: {e}")
             logger.error(f"❌ Erreur sync forcée: {e}")
