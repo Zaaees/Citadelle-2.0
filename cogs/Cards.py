@@ -1632,6 +1632,100 @@ class Cards(commands.Cog):
 
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
+    @app_commands.command(name="galerie", description="Affiche votre galerie de cartes ou celle d'un autre utilisateur")
+    @app_commands.describe(utilisateur="L'utilisateur dont vous voulez voir la galerie (optionnel)")
+    async def galerie_slash(self, interaction: discord.Interaction, utilisateur: discord.Member = None):
+        """Commande slash pour afficher la galerie de cartes."""
+        if utilisateur is None:
+            utilisateur = interaction.user
+
+        await interaction.response.defer()
+
+        try:
+            # Utiliser la méthode de galerie complète
+            gallery_embeds = self.generate_gallery_embeds(utilisateur)
+
+            if not gallery_embeds:
+                await interaction.followup.send(f"❌ {utilisateur.display_name} n'a aucune carte dans sa collection.")
+                return
+
+            # Créer la vue de galerie pour utilisateurs normaux
+            from .cards.views.gallery_views import GalleryView
+            gallery_view = GalleryView(self, utilisateur)
+            await interaction.followup.send(embeds=gallery_embeds, view=gallery_view)
+
+        except Exception as e:
+            logger.error(f"[GALLERY_SLASH] Erreur: {e}")
+            await interaction.followup.send("❌ Une erreur est survenue lors de l'affichage de la galerie.")
+
+    @app_commands.command(name="stats", description="Affiche vos statistiques de cartes ou celles d'un autre utilisateur")
+    @app_commands.describe(utilisateur="L'utilisateur dont vous voulez voir les stats (optionnel)")
+    async def stats_slash(self, interaction: discord.Interaction, utilisateur: discord.Member = None):
+        """Commande slash pour afficher les statistiques de cartes."""
+        if utilisateur is None:
+            utilisateur = interaction.user
+
+        await interaction.response.defer()
+
+        try:
+            # Calcul des statistiques de l'utilisateur
+            user_cards = self.get_user_cards(utilisateur.id)
+            drawn_count = len(user_cards)
+
+            if drawn_count == 0:
+                await interaction.followup.send(f"❌ {utilisateur.display_name} n'a aucune carte dans sa collection.")
+                return
+
+            # Statistiques de cartes uniques (optimisé avec une seule itération)
+            unique_cards = set()
+            category_counts = {}
+            rarity_counts = {}
+
+            for card_name, category in user_cards:
+                unique_cards.add((card_name, category))
+                category_counts[category] = category_counts.get(category, 0) + 1
+                
+                # Compter les raretés en fonction de la catégorie
+                if category == "Full Art":
+                    rarity_counts["Full Art"] = rarity_counts.get("Full Art", 0) + 1
+                elif category == "Special":
+                    rarity_counts["Special"] = rarity_counts.get("Special", 0) + 1
+                else:
+                    rarity_counts["Normal"] = rarity_counts.get("Normal", 0) + 1
+
+            unique_count = len(unique_cards)
+
+            embed = discord.Embed(
+                title=f"📊 Statistiques de {utilisateur.display_name}",
+                color=0x3498db
+            )
+
+            embed.add_field(
+                name="📈 Statistiques générales",
+                value=f"**Cartes tirées:** {drawn_count}\n**Cartes uniques:** {unique_count}",
+                inline=False
+            )
+
+            # Statistiques par catégorie
+            if category_counts:
+                category_text = ""
+                for category, count in sorted(category_counts.items()):
+                    category_text += f"**{category}:** {count}\n"
+                embed.add_field(name="📋 Par catégorie", value=category_text, inline=True)
+
+            # Statistiques par rareté
+            if rarity_counts:
+                rarity_text = ""
+                for rarity, count in sorted(rarity_counts.items()):
+                    rarity_text += f"**{rarity}:** {count}\n"
+                embed.add_field(name="✨ Par rareté", value=rarity_text, inline=True)
+
+            await interaction.followup.send(embed=embed)
+
+        except Exception as e:
+            logger.error(f"[STATS_SLASH] Erreur: {e}")
+            await interaction.followup.send("❌ Une erreur est survenue lors du calcul des statistiques.")
+
 
 
 # Commande /tirage_journalier supprimée - intégrée dans le bouton "Tirer une carte" du menu /cartes
