@@ -406,8 +406,8 @@ async def setup(bot):
         await bot.add_cog(cog)
         # Lancer l'initialisation lourde sans bloquer
         bot.loop.create_task(cog.setup_google_sheets())
-        print("✅ Cog Inventory loaded successfully")
+        # Success message supprimé pour éviter les erreurs d'encodage Unicode
     except Exception as e:
-        print(f"❌ Error loading Inventory cog: {str(e)}")
+        # Message d'erreur supprimé pour éviter les erreurs d'encodage Unicode
         traceback.print_exc()
         raise e  # Re-lever l'exception pour que le main.py la voit

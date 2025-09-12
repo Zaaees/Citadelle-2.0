@@ -26,7 +26,8 @@
       "mcp__render__get_metrics",
       "mcp__render__update_environment_variables",
       "Bash(!debug_commands)",
-      "mcp__render__create_web_service"
+      "mcp__render__create_web_service",
+      "Bash(git pull:*)"
     ],
     "deny": [],
     "ask": []

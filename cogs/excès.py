@@ -125,9 +125,9 @@ class Exces(commands.Cog):
 async def setup(bot: commands.Bot):
     try:
         await bot.add_cog(Exces(bot))
-        print("✅ Cog Exces loaded successfully")
+        # Success message supprimé pour éviter les erreurs d'encodage Unicode
     except Exception as e:
-        print(f"❌ Error loading Exces cog: {str(e)}")
+        # Message d'erreur supprimé pour éviter les erreurs d'encodage Unicode
         import traceback
         traceback.print_exc()
         raise e  # Re-lever l'exception pour que le main.py la voit

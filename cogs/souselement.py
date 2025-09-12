@@ -306,9 +306,9 @@ class SousElements(commands.Cog):
             )
             self.gc = gspread.authorize(credentials)
             self.sheet = self.gc.open_by_key(sheet_id).sheet1
-            print("✅ Google Sheets configuré pour SousElements")
+            # Success message supprimé pour éviter les erreurs d'encodage Unicode
         except Exception as e:
-            print(f"⚠️ SousElements fonctionnera sans Google Sheets: {e}")
+            # Message d'avertissement supprimé pour éviter les erreurs d'encodage Unicode
             self.gc = None
             self.sheet = None
 
