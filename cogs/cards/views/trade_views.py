@@ -605,7 +605,11 @@ class ExchangeBoardView(discord.ui.View):
                     owner_name = user_obj.display_name if user_obj else str(owner_id)
                 description = f"ID {o['id']} - Proposé par {owner_name}"
                 if o.get("comment"):
-                    description += f" | {o['comment']}"
+                    comment = o['comment'][:50] + "..." if len(o['comment']) > 50 else o['comment']
+                    description += f" | {comment}"
+                # Limiter la description à 100 caractères max
+                if len(description) > 100:
+                    description = description[:97] + "..."
                 page.append(
                     discord.SelectOption(
                         label=f"{o['name'].removesuffix('.png')} ({o['cat']})",

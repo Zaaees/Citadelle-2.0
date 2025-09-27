@@ -133,3 +133,46 @@ google.auth.exceptions.MalformedError: No key could be detected.
 google.auth.exceptions.MalformedError: No key could be detected.
 
 2025-09-12 19:53:54,555 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 74033d3dcfb860bca7233a5a73a179f5).
+2025-09-12 19:55:44,898 - discord.client - INFO - logging in using static token
+2025-09-12 19:55:45,548 - cards - ERROR - [CARDS] Traceback: Traceback (most recent call last):
+  File "F:\Users\freed\Desktop\Citadelle-2.0\cogs\Cards.py", line 59, in __init__
+    creds = Credentials.from_service_account_info(creds_info, scopes=[
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\site-packages\google\oauth2\service_account.py", line 243, in from_service_account_info
+    signer = _service_account_info.from_dict(
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\site-packages\google\auth\_service_account_info.py", line 57, in from_dict
+    signer = crypt.RSASigner.from_service_account_info(data)
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\site-packages\google\auth\crypt\base.py", line 109, in from_service_account_info
+    return cls.from_string(
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\site-packages\google\auth\crypt\_python_rsa.py", line 173, in from_string
+    raise exceptions.MalformedError("No key could be detected.")
+google.auth.exceptions.MalformedError: No key could be detected.
+
+2025-09-12 19:55:45,810 - cards - INFO - [CARDS] Cog Cards chargé avec succès
+2025-09-12 19:55:45,841 - cogs.scene_surveillance - WARNING - Google Sheets non disponible: No key could be detected.
+2025-09-12 19:55:45,841 - cogs.scene_surveillance - INFO - SceneSurveillance fonctionnera en mode dégradé (sans persistance)
+2025-09-12 19:55:45,860 - bot - ERROR -    Type: ExtensionFailed
+2025-09-12 19:55:45,860 - bot - ERROR -    Message: Extension 'cogs.vocabulaire' raised an error: ValueError: No key could be detected.
+2025-09-12 19:55:45,864 - bot - ERROR -    Type: ExtensionFailed
+2025-09-12 19:55:45,864 - bot - ERROR -    Message: Extension 'cogs.excès' raised an error: MalformedError: No key could be detected.
+2025-09-12 19:55:45,876 - bump_cog - ERROR - Traceback: Traceback (most recent call last):
+  File "F:\Users\freed\Desktop\Citadelle-2.0\cogs\bump.py", line 74, in _async_setup
+    self.sheet = await asyncio.wait_for(
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\asyncio\tasks.py", line 445, in wait_for
+    return fut.result()
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\asyncio\threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\concurrent\futures\thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "F:\Users\freed\Desktop\Citadelle-2.0\cogs\bump.py", line 65, in _build_service
+    credentials = service_account.Credentials.from_service_account_info(
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\site-packages\google\oauth2\service_account.py", line 243, in from_service_account_info
+    signer = _service_account_info.from_dict(
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\site-packages\google\auth\_service_account_info.py", line 57, in from_dict
+    signer = crypt.RSASigner.from_service_account_info(data)
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\site-packages\google\auth\crypt\base.py", line 109, in from_service_account_info
+    return cls.from_string(
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python310\lib\site-packages\google\auth\crypt\_python_rsa.py", line 173, in from_string
+    raise exceptions.MalformedError("No key could be detected.")
+google.auth.exceptions.MalformedError: No key could be detected.
+
+2025-09-12 19:55:46,845 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 913cd5b5b7b4bb3de3758cbeaf954ae2).
