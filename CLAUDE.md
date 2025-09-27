@@ -15,6 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Development Setup
 - `pip install -r requirements.txt` - Install dependencies
 - The bot uses Python 3.11+ and Discord.py 2.3.0+
+- Key dependencies: `gspread>=5.0.0`, `psutil>=5.8.0`, `aiohttp`, `matplotlib`
 
 ### Testing
 Currently, this project does not have a formal test suite. The bot includes some internal testing commands:
@@ -90,7 +91,7 @@ Located in `cogs/` directory:
 
 **Core Cogs:**
 - `Cards.py` - Main card collection system (refactored modular architecture)
-- `scene_surveillance.py` - **NEW** Automatic RP scene monitoring system
+- `scene_surveillance.py` - Automatic RP scene monitoring system
 - `RPTracker.py` - Roleplay activity tracking with Google Sheets integration
 - `InactiveUserTracker.py` - User activity monitoring
 - `bump.py` - Server bump functionality
@@ -100,7 +101,7 @@ Located in `cogs/` directory:
 - Other utility cogs: `vocabulaire.py`, `souselement.py`, `excès.py`
 
 **Scene Surveillance System (`cogs/scene_surveillance.py`):**
-The newest addition to the bot - a comprehensive RP scene monitoring system:
+A comprehensive RP scene monitoring system with intelligent participant detection:
 
 ```
 SceneSurveillance Features:
@@ -176,6 +177,7 @@ The bot uses a sophisticated threading system to prevent blocking:
 - Environment variables for all sensitive configuration
 
 ### Deployment
-- Designed for Render.com deployment with health checks
-- Uses persistent disk storage for data directory
-- Includes startup scripts and environment validation
+- Designed for Render.com deployment with health checks (`render.yaml`)
+- Uses persistent disk storage for data directory (1GB mounted at `/opt/render/project/data`)
+- Includes startup scripts (`start.sh`) with environment validation
+- Auto-deployment enabled on GitHub pushes
