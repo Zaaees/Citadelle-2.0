@@ -31,5 +31,6 @@
     ],
     "deny": [],
     "ask": []
-  }
+  },
+  "outputStyle": "Learning"
 }

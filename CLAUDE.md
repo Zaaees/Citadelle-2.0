@@ -21,6 +21,28 @@ Currently, this project does not have a formal test suite. The bot includes some
 - `!test_names` - Tests name extraction functionality in surveillance scenes
 - Built-in validation and error handling throughout the codebase
 
+### GitHub CLI Setup
+GitHub CLI is installed and authenticated for user `Zaaees`. Use these commands for efficient GitHub management:
+
+```bash
+# Pull Request Management
+gh pr list                    # List all open PRs
+gh pr view [number]          # View PR details
+gh pr checkout [number]      # Checkout PR locally for testing
+gh pr review [number] --approve  # Approve a PR
+gh pr merge [number]         # Merge a PR
+
+# Code Review Workflow
+gh pr diff [number]          # See changes in a PR
+gh pr review [number] --comment --body "Your comment"
+gh pr review [number] --request-changes --body "Changes needed"
+
+# Repository Operations
+gh repo view                 # View repository info
+gh issue list               # List issues
+gh issue create            # Create new issue
+```
+
 ### Auto-Update GitHub (Local → GitHub → Render)
 ```bash
 # Automatic commit and push with generated message
