@@ -166,8 +166,10 @@ class SceneSurveillance(commands.Cog):
             logger.info("SceneSurveillance fonctionnera en mode dégradé (sans persistance)")
             self.sheet = None
             self.gc = None
-            
-        # Démarrer les tâches de surveillance
+
+    async def cog_load(self):
+        """Démarre les tâches après l'initialisation complète du cog."""
+        logger.info("🚀 Démarrage des tâches de surveillance...")
         self.activity_monitor.start()
         self.inactivity_checker.start()
 
@@ -920,7 +922,7 @@ class SceneSurveillance(commands.Cog):
     async def activity_monitor(self):
         """Tâche de surveillance périodique qui scanne l'historique réel des canaux."""
         logger.info(f"🔄 Scanner périodique de {len(self.active_scenes)} scènes surveillées...")
-        
+
         for channel_id in list(self.active_scenes.keys()):
             try:
                 # Scanner l'historique réel du canal pour détecter les changements
@@ -931,8 +933,14 @@ class SceneSurveillance(commands.Cog):
                 await asyncio.sleep(1)
             except Exception as e:
                 logger.error(f"Erreur lors du scan de la scène {channel_id}: {e}")
-                
+
         logger.info("✅ Scanner périodique terminé")
+
+    @activity_monitor.before_loop
+    async def before_activity_monitor(self):
+        """Attend que le bot soit prêt avant de démarrer le scanner."""
+        await self.bot.wait_until_ready()
+        logger.info("✅ Bot prêt, démarrage du scanner d'activité...")
 
     async def scan_channel_activity(self, channel_id: str):
         """Scanne l'historique réel d'un canal pour détecter l'activité actuelle."""
@@ -1088,6 +1096,12 @@ class SceneSurveillance(commands.Cog):
             logger.error(f"❌ ERREUR CRITIQUE dans inactivity_checker: {e}")
             logger.error(f"🔍 Traceback: {traceback.format_exc()}")
             # Ne pas faire planter le bot, juste logger l'erreur
+
+    @inactivity_checker.before_loop
+    async def before_inactivity_checker(self):
+        """Attend que le bot soit prêt avant de démarrer le vérificateur."""
+        await self.bot.wait_until_ready()
+        logger.info("✅ Bot prêt, démarrage du vérificateur d'inactivité...")
 
     async def send_inactivity_alert(self, scene_data: dict, days_inactive: int) -> bool:
         """Envoie une alerte d'inactivité au MJ responsable. Retourne True si envoyée avec succès."""

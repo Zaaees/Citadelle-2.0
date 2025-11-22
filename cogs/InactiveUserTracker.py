@@ -24,6 +24,19 @@ class InactiveUserTracker(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def check_inactive_users(self, ctx, max_days: Optional[int] = None, limit_days: Optional[int] = 180):
         """Vérifie les membres inactifs avec le rôle spécifié."""
+        # Validation des entrées utilisateur
+        if max_days is not None and (max_days <= 0 or max_days > 3650):
+            await ctx.send("❌ Erreur: `max_days` doit être entre 1 et 3650 jours.")
+            return
+
+        if limit_days <= 0 or limit_days > 3650:
+            await ctx.send("❌ Erreur: `limit_days` doit être entre 1 et 3650 jours.")
+            return
+
+        if max_days is not None and limit_days is not None and max_days > limit_days:
+            await ctx.send("❌ Erreur: `max_days` ne peut pas être supérieur à `limit_days`.")
+            return
+
         if self.is_searching:
             await ctx.send("Une recherche est déjà en cours. Veuillez attendre qu'elle se termine.")
             return
@@ -168,8 +181,9 @@ class InactiveUserTracker(commands.Cog):
                 try:
                     if hasattr(channel, "permissions_for") and not channel.permissions_for(ctx.guild.me).read_message_history:
                         permissions_check = False
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Erreur lors de la vérification des permissions pour {channel.id}: {e}")
+                    permissions_check = False
 
                 if not permissions_check:
                     continue

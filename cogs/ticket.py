@@ -150,8 +150,8 @@ class Ticket(commands.Cog):
                 print(f"Erreur lors de l'exécution de la commande: {str(e)}")
                 try:
                     await ctx.send("Une erreur est survenue lors du traitement.")
-                except:
-                    pass
+                except Exception as send_error:
+                    logging.error(f"Impossible d'envoyer le message d'erreur: {send_error}")
 
 async def setup(bot):
     await bot.add_cog(Ticket(bot))
