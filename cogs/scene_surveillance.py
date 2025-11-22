@@ -193,9 +193,9 @@ class SceneSurveillance(commands.Cog):
         if not self.sheet:
             logger.warning("Aucune feuille Google Sheets disponible pour charger les scènes")
             return
-            
+
         try:
-            records = self.sheet.get_all_records()
+            records = await asyncio.to_thread(self.sheet.get_all_records)
             logger.info(f"📊 Nombre de records trouvés dans Google Sheets: {len(records)}")
             scenes_loaded = 0
             
@@ -256,28 +256,28 @@ class SceneSurveillance(commands.Cog):
             
         try:
             channel_id = str(scene_data['channel_id'])
-            
-            # Vérifier les en-têtes existants
-            headers = self.sheet.row_values(1)
+
+            # Vérifier les en-têtes existants (async)
+            headers = await asyncio.to_thread(self.sheet.row_values, 1)
             if not headers or 'channel_id' not in headers:
                 # Créer les en-têtes si nécessaire
-                expected_headers = ['channel_id', 'mj_id', 'status_message_id', 'status_channel_id', 
+                expected_headers = ['channel_id', 'mj_id', 'status_message_id', 'status_channel_id',
                                   'created_at', 'last_activity', 'participants', 'last_author_id', 'status']
-                self.sheet.update('A1:I1', [expected_headers])
+                await asyncio.to_thread(self.sheet.update, 'A1:I1', [expected_headers])
                 headers = expected_headers
                 logger.info("✅ En-têtes créés dans Google Sheets")
-            
-            # Chercher si la scène existe déjà
+
+            # Chercher si la scène existe déjà (async)
             try:
-                cell = self.sheet.find(channel_id)
+                cell = await asyncio.to_thread(self.sheet.find, channel_id)
                 row_number = cell.row
                 logger.debug(f"🔄 Mise à jour scène existante ligne {row_number}")
             except gspread.CellNotFound:
-                # Nouvelle scène, trouver la prochaine ligne vide
-                all_values = self.sheet.get_all_values()
+                # Nouvelle scène, trouver la prochaine ligne vide (async)
+                all_values = await asyncio.to_thread(self.sheet.get_all_values)
                 row_number = len(all_values) + 1
                 logger.debug(f"➕ Nouvelle scène, ligne {row_number}")
-                
+
             # Préparer les données selon l'ordre des en-têtes
             row_data = [
                 channel_id,  # channel_id
@@ -290,10 +290,10 @@ class SceneSurveillance(commands.Cog):
                 str(scene_data.get('last_author_id', '')),  # last_author_id
                 scene_data.get('status', 'active')  # status
             ]
-            
-            # Utiliser update au lieu d'insert pour éviter de décaler les données
+
+            # Utiliser update au lieu d'insert pour éviter de décaler les données (async)
             range_name = f"A{row_number}:I{row_number}"
-            self.sheet.update(range_name, [row_data])
+            await asyncio.to_thread(self.sheet.update, range_name, [row_data])
             logger.info(f"✅ Scène sauvegardée ligne {row_number}: {channel_id}")
             
         except Exception as e:
@@ -308,11 +308,11 @@ class SceneSurveillance(commands.Cog):
             return
             
         try:
-            # Trouver la ligne et utiliser l'index dynamique
-            cell = self.sheet.find(channel_id)
-            headers = self.sheet.row_values(1)
+            # Trouver la ligne et utiliser l'index dynamique (async)
+            cell = await asyncio.to_thread(self.sheet.find, channel_id)
+            headers = await asyncio.to_thread(self.sheet.row_values, 1)
             mj_col = headers.index('mj_id') + 1 if 'mj_id' in headers else 2
-            self.sheet.update_cell(cell.row, mj_col, str(new_mj_id))
+            await asyncio.to_thread(self.sheet.update_cell, cell.row, mj_col, str(new_mj_id))
             logger.info(f"✅ MJ mis à jour pour {channel_id}: {new_mj_id}")
         except Exception as e:
             logger.error(f"Erreur mise à jour MJ: {e}")
@@ -325,23 +325,23 @@ class SceneSurveillance(commands.Cog):
             return
             
         try:
-            cell = self.sheet.find(channel_id)
-            headers = self.sheet.row_values(1)
+            cell = await asyncio.to_thread(self.sheet.find, channel_id)
+            headers = await asyncio.to_thread(self.sheet.row_values, 1)
             row = cell.row
-            
+
             # Utiliser les index dynamiques basés sur les en-têtes
             activity_col = headers.index('last_activity') + 1 if 'last_activity' in headers else 6
             participants_col = headers.index('participants') + 1 if 'participants' in headers else 7
             author_col = headers.index('last_author_id') + 1 if 'last_author_id' in headers else 8
-            
-            # Mise à jour en batch pour être plus efficace
+
+            # Mise à jour en batch pour être plus efficace (async)
             updates = [
                 {'range': f'{chr(64+activity_col)}{row}', 'values': [[last_activity]]},
                 {'range': f'{chr(64+participants_col)}{row}', 'values': [[json.dumps(participants)]]},
                 {'range': f'{chr(64+author_col)}{row}', 'values': [[str(last_author_id)]]}
             ]
-            
-            self.sheet.batch_update(updates)
+
+            await asyncio.to_thread(self.sheet.batch_update, updates)
             logger.debug(f"✅ Activité mise à jour pour {channel_id}")
             
         except Exception as e:
@@ -735,11 +735,11 @@ class SceneSurveillance(commands.Cog):
     async def stop_scene_surveillance(self, channel_id: str):
         """Arrête la surveillance d'une scène."""
         if channel_id in self.active_scenes:
-            # Mettre à jour le statut dans Google Sheets
+            # Mettre à jour le statut dans Google Sheets (async)
             if self.sheet:
                 try:
-                    cell = self.sheet.find(channel_id)
-                    self.sheet.update_cell(cell.row, 9, 'closed')  # Status
+                    cell = await asyncio.to_thread(self.sheet.find, channel_id)
+                    await asyncio.to_thread(self.sheet.update_cell, cell.row, 9, 'closed')  # Status
                 except:
                     pass
                     
@@ -1135,11 +1135,11 @@ class SceneSurveillance(commands.Cog):
             return
             
         try:
-            # Trouver la ligne de la scène et mettre à jour la colonne de dernière alerte
+            # Trouver la ligne de la scène et mettre à jour la colonne de dernière alerte (async)
             # (On assumera qu'une nouvelle colonne sera ajoutée au Google Sheets pour cela)
-            cell = self.sheet.find(channel_id)
+            cell = await asyncio.to_thread(self.sheet.find, channel_id)
             # Colonne 8 pour last_alert_sent (à ajuster selon votre structure)
-            self.sheet.update_cell(cell.row, 8, alert_date)
+            await asyncio.to_thread(self.sheet.update_cell, cell.row, 8, alert_date)
         except Exception as e:
             logger.error(f"Erreur mise à jour date alerte: {e}")
 
@@ -1267,9 +1267,9 @@ class SceneSurveillance(commands.Cog):
                 color=discord.Color.blue()
             )
             await interaction.edit_original_response(embed=progress_embed, view=None)
-            
-            # Obtenir toutes les données
-            all_values = self.sheet.get_all_values()
+
+            # Obtenir toutes les données (async)
+            all_values = await asyncio.to_thread(self.sheet.get_all_values)
             logger.info(f"🔍 Analyse de {len(all_values)} lignes dans Google Sheets")
             
             # Identifier les lignes corrompues
@@ -1312,19 +1312,19 @@ class SceneSurveillance(commands.Cog):
             progress_embed.description = f"Trouvé {len(corrupted_rows)} lignes corrompues sur {len(all_values)-1} lignes de données."
             await interaction.edit_original_response(embed=progress_embed)
             
-            # Vider complètement la feuille
+            # Vider complètement la feuille (async)
             logger.info("🗑️ Vidage complet de la feuille...")
-            self.sheet.clear()
-            
-            # Recréer les en-têtes
+            await asyncio.to_thread(self.sheet.clear)
+
+            # Recréer les en-têtes (async)
             logger.info("📋 Recréation des en-têtes...")
-            self.sheet.update('A1:I1', [expected_headers])
-            
-            # Réinsérer les données valides
+            await asyncio.to_thread(self.sheet.update, 'A1:I1', [expected_headers])
+
+            # Réinsérer les données valides (async)
             if valid_rows:
                 logger.info(f"📝 Réinsertion de {len(valid_rows)} lignes valides...")
                 range_name = f"A2:I{len(valid_rows)+1}"
-                self.sheet.update(range_name, valid_rows)
+                await asyncio.to_thread(self.sheet.update, range_name, valid_rows)
             
             # Vider le cache des scènes actives pour forcer le rechargement
             self.active_scenes.clear()
@@ -1384,11 +1384,11 @@ class SceneSurveillance(commands.Cog):
             return
         
         try:
-            # Récupérer les en-têtes
-            headers = self.sheet.row_values(1)
-            
-            # Récupérer les 5 premières lignes de données
-            all_values = self.sheet.get_all_values()
+            # Récupérer les en-têtes (async)
+            headers = await asyncio.to_thread(self.sheet.row_values, 1)
+
+            # Récupérer les 5 premières lignes de données (async)
+            all_values = await asyncio.to_thread(self.sheet.get_all_values)
             
             embed = discord.Embed(
                 title="🔍 Diagnostic Google Sheets",
@@ -1455,9 +1455,9 @@ class SceneSurveillance(commands.Cog):
             
             # Vider les scènes actuelles
             self.active_scenes.clear()
-            
-            # Recharger depuis Google Sheets avec diagnostic
-            records = self.sheet.get_all_records()
+
+            # Recharger depuis Google Sheets avec diagnostic (async)
+            records = await asyncio.to_thread(self.sheet.get_all_records)
             logger.info(f"📊 Nombre de records trouvés dans Google Sheets: {len(records)}")
             
             scenes_loaded = 0
