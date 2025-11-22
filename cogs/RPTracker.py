@@ -6,7 +6,6 @@ import os
 import asyncio
 import gspread
 from google.oauth2 import service_account
-import asyncio
 import json
 
 class RPTracker(commands.Cog):

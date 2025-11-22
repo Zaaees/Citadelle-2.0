@@ -238,11 +238,15 @@ class BotManagerStable:
                 time.sleep(600)  # 10 minutes
                 try:
                     if self.bot and self.bot.is_ready() and not self.bot.is_closed():
-                        # Ping silencieux pour maintenir la connexion
-                        asyncio.run_coroutine_threadsafe(
-                            self.bot.change_presence(), self.bot.loop
-                        )
-                        logger.debug("💓 Heartbeat keepalive envoyé")
+                        # Vérifier que le loop existe et n'est pas fermé
+                        if self.bot.loop and not self.bot.loop.is_closed():
+                            # Ping silencieux pour maintenir la connexion
+                            asyncio.run_coroutine_threadsafe(
+                                self.bot.change_presence(), self.bot.loop
+                            )
+                            logger.debug("💓 Heartbeat keepalive envoyé")
+                        else:
+                            logger.warning("⚠️ Bot loop is closed, skipping heartbeat")
                 except Exception as e:
                     logger.debug(f"⚠️ Heartbeat failed: {e}")
         

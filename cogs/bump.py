@@ -403,7 +403,7 @@ class Bump(commands.Cog):
                 if self.last_reminder < self.last_bump:
                     channel = self.bot.get_channel(self.channel_id)
                     if channel:
-                        await channel.send("⚠️ Ça fait 24h ! Bump le serveur enculé")
+                        await channel.send("⚠️ Ça fait 24h ! N'oubliez pas de bump le serveur")
                         self.last_reminder = now
                         await self.save_last_reminder()
                         self.logger.info("24-hour reminder sent successfully")
@@ -480,9 +480,6 @@ class Bump(commands.Cog):
     async def before_check_bump(self):
         """Préparation avant démarrage de la task - pas de blocage pour éviter les deadlocks."""
         self.logger.info("🏁 Préparation de la tâche check_bump (pas de blocage)")
-
-    async def cog_unload(self):
-        self.check_bump.cancel()
 
 async def setup(bot):
     """Setup du cog avec initialisation sécurisée et timeout."""

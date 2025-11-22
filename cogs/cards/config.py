@@ -28,7 +28,8 @@ ALL_CATEGORIES = [
 ]
 
 # Configuration du cache (en secondes)
-CACHE_VALIDITY_DURATION = 5
+# Augmenté de 5s à 60s pour éviter rate limiting Google Sheets API
+CACHE_VALIDITY_DURATION = 60
 
 # Configuration des échanges
 WEEKLY_EXCHANGE_LIMIT = 3
