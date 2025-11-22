@@ -31,6 +31,12 @@ ALL_CATEGORIES = [
 # Augmenté de 5s à 60s pour éviter rate limiting Google Sheets API
 CACHE_VALIDITY_DURATION = 60
 
+# Configuration du rate limiting Google Sheets API
+# Google Sheets quota: 100 requests per 100 seconds per user
+# Délai minimum entre les appels API (en secondes)
+API_RATE_LIMIT_DELAY = 0.5  # 500ms entre chaque appel
+MAX_RETRIES_ON_QUOTA_ERROR = 3  # Nombre de tentatives en cas d'erreur de quota
+
 # Configuration des échanges
 WEEKLY_EXCHANGE_LIMIT = 3
 DAILY_SACRIFICIAL_CARDS_COUNT = 5

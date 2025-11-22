@@ -9,15 +9,19 @@ import logging
 from typing import List, Dict, Any, Optional
 import gspread
 
-from .config import CACHE_VALIDITY_DURATION
+from .config import CACHE_VALIDITY_DURATION, API_RATE_LIMIT_DELAY, MAX_RETRIES_ON_QUOTA_ERROR
 
 
 class CardsStorage:
     """Gestionnaire de stockage et cache pour les cartes."""
-    
+
     def __init__(self, gspread_client: gspread.Client, spreadsheet_id: str):
         self.gspread_client = gspread_client
         self.spreadsheet = gspread_client.open_by_key(spreadsheet_id)
+
+        # Rate limiting
+        self._last_api_call_time = 0
+        self._rate_limit_lock = threading.Lock()
 
         # Feuilles de calcul
         self.sheet_cards = self.spreadsheet.sheet1
@@ -56,7 +60,20 @@ class CardsStorage:
         self._discoveries_lock = threading.RLock()
         # Verrou spécifique pour le tableau d'échanges
         self._board_lock = threading.RLock()
-    
+
+    def _rate_limit(self):
+        """Applique le rate limiting pour respecter les quotas Google Sheets API."""
+        with self._rate_limit_lock:
+            current_time = time.time()
+            time_since_last_call = current_time - self._last_api_call_time
+
+            if time_since_last_call < API_RATE_LIMIT_DELAY:
+                sleep_time = API_RATE_LIMIT_DELAY - time_since_last_call
+                logging.debug(f"[STORAGE] Rate limiting: attente de {sleep_time:.2f}s")
+                time.sleep(sleep_time)
+
+            self._last_api_call_time = time.time()
+
     def _init_worksheets(self):
         """Initialise les feuilles de calcul nécessaires."""
         # Feuille de lancement

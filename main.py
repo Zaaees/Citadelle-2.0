@@ -267,9 +267,23 @@ class BotManagerStable:
                 
                 # Nettoyage préventif avant redémarrage
                 if attempt > 0:
+                    logger.info("🧹 Nettoyage des ressources avant redémarrage...")
+                    # Fermer proprement le bot précédent
+                    if self.bot and not self.bot.is_closed():
+                        try:
+                            asyncio.run(self.bot.close())
+                            logger.info("✅ Bot précédent fermé proprement")
+                        except Exception as close_error:
+                            logger.warning(f"⚠️ Erreur lors de la fermeture du bot: {close_error}")
+
+                    # Nettoyer le cache et les connexions
                     import gc
                     gc.collect()
-                    logger.info("🧹 Nettoyage mémoire effectué")
+                    logger.info("✅ Garbage collection effectué")
+
+                    # Recréer une instance fraîche du bot
+                    self.bot = self.create_bot()
+                    logger.info("✅ Nouvelle instance du bot créée")
                 
                 # Marquer comme sain avant démarrage
                 update_bot_health(healthy=True)
