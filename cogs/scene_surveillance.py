@@ -123,9 +123,9 @@ class SceneSurveillance(commands.Cog):
             service_account_json = os.getenv('SERVICE_ACCOUNT_JSON', '{}')
             if service_account_json == '{}':
                 raise ValueError("SERVICE_ACCOUNT_JSON non configuré")
-                
+
             self.credentials = service_account.Credentials.from_service_account_info(
-                eval(service_account_json),
+                json.loads(service_account_json),
                 scopes=['https://www.googleapis.com/auth/spreadsheets']
             )
             self.gc = gspread.authorize(self.credentials)
@@ -1054,18 +1054,19 @@ class SceneSurveillance(commands.Cog):
                     # Vérifier si une alerte a déjà été envoyée récemment
                     last_alert = scene_data.get('last_alert_sent')
                     should_send_alert = True
-                    
+
+                    # Initialiser now_for_alert AVANT le bloc conditionnel pour éviter NameError
+                    now_for_alert = now
+
                     if last_alert:
                         try:
                             last_alert_dt = datetime.fromisoformat(last_alert)
-                            # Uniformiser les timezones - CORRECTION BUG CRITIQUE
+                            # Uniformiser les timezones
                             if last_alert_dt.tzinfo is not None and now.tzinfo is None:
                                 last_alert_dt = last_alert_dt.replace(tzinfo=None)
-                                now_for_alert = now  # CORRIGÉ: now_for_alert était non défini
                             elif last_alert_dt.tzinfo is None and now.tzinfo is not None:
                                 now_for_alert = now.replace(tzinfo=None)
-                            else:
-                                now_for_alert = now
+                            # else: now_for_alert est déjà initialisé
                                 
                             time_since_alert = now_for_alert - last_alert_dt
                             # Ne envoyer qu'une alerte par jour maximum

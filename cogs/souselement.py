@@ -301,7 +301,7 @@ class SousElements(commands.Cog):
                      'https://www.googleapis.com/auth/spreadsheets',
                      'https://www.googleapis.com/auth/drive']
             credentials = Credentials.from_service_account_info(
-                eval(service_account_json),
+                json.loads(service_account_json),
                 scopes=scope
             )
             self.gc = gspread.authorize(credentials)
@@ -468,7 +468,7 @@ class SousElements(commands.Cog):
             # Trouver la ligne du sous-élément
             for idx, row in enumerate(all_data[1:], start=2):
                 if row[0] == subelement_name and row[1] == element:
-                    users = eval(row[7]) if len(row) > 7 and row[7] else []
+                    users = json.loads(row[7]) if len(row) > 7 and row[7] else []
                     if adding:
                         if (user_id, character_name) not in users:
                             users.append((user_id, character_name))
@@ -664,7 +664,7 @@ class SousElements(commands.Cog):
                         emotional_desc = row[4]
                         discovered_by_id = int(row[5]) if row[5] != '0' else 0
                         discovered_by_char = row[6]
-                        used_by = eval(row[7]) if row[7] else []
+                        used_by = json.loads(row[7]) if row[7] else []
                         message_id = int(row[8]) if row[8] else None
                         
                         if not message_id:

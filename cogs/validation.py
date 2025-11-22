@@ -38,8 +38,8 @@ class ValidationView(discord.ui.View):
         try:
             cell = self.sheet.find(channel_id)
             row_data = self.sheet.row_values(cell.row)
-            validated_by = eval(row_data[1]) if row_data[1] else []
-            corrections = eval(row_data[2]) if row_data[2] else {}
+            validated_by = json.loads(row_data[1]) if row_data[1] else []
+            corrections = json.loads(row_data[2]) if row_data[2] else {}
 
             if interaction.user.id in validated_by:
                 validated_by.remove(interaction.user.id)
@@ -74,7 +74,7 @@ class ValidationView(discord.ui.View):
         try:
             cell = self.sheet.find(channel_id)
             row_data = self.sheet.row_values(cell.row)
-            corrections = eval(row_data[2]) if row_data[2] else {}
+            corrections = json.loads(row_data[2]) if row_data[2] else {}
             existing_correction = corrections.get(interaction.user.id, "")
             
             modal = CorrectionModal(self.cog.sheet, existing_correction)
@@ -124,9 +124,9 @@ class ValidationView(discord.ui.View):
             channel_id = str(interaction.channel_id)
             cell = self.sheet.find(channel_id)
             row_data = self.sheet.row_values(cell.row)
-            
-            validated_by = eval(row_data[1]) if row_data[1] else []
-            corrections = eval(row_data[2]) if row_data[2] else {}
+
+            validated_by = json.loads(row_data[1]) if row_data[1] else []
+            corrections = json.loads(row_data[2]) if row_data[2] else {}
 
             # Message principal
             main_embed = discord.Embed(
@@ -197,15 +197,15 @@ class CorrectionModal(discord.ui.Modal, title="Points à corriger"):
             channel_id = str(interaction.channel.id)
             cell = self.sheet.find(channel_id)
             row_data = self.sheet.row_values(cell.row)
-            corrections = eval(row_data[2]) if row_data[2] else {}
+            corrections = json.loads(row_data[2]) if row_data[2] else {}
             old_correction = corrections.get(interaction.user.id, None)
-            
+
             should_notify = old_correction != self.correction.value  # Modifier la condition pour toujours notifier lors d'une modification
-            
+
             corrections[interaction.user.id] = self.correction.value
             self.sheet.update_cell(cell.row, 3, str(corrections))
 
-            validated_by = eval(row_data[1]) if row_data[1] else []
+            validated_by = json.loads(row_data[1]) if row_data[1] else []
             if interaction.user.id in validated_by:
                 validated_by.remove(interaction.user.id)
                 self.sheet.update_cell(cell.row, 2, str(validated_by))
@@ -254,7 +254,7 @@ class Validation(commands.Cog):
             ]
             
             creds = Credentials.from_service_account_info(
-                eval(os.getenv('SERVICE_ACCOUNT_JSON')),
+                json.loads(os.getenv('SERVICE_ACCOUNT_JSON')),
                 scopes=scopes
             )
             self._client = gspread.authorize(creds)
