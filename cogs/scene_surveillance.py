@@ -111,12 +111,20 @@ class SceneSurveillanceView(discord.ui.View):
 
 class SceneSurveillance(commands.Cog):
     """Système de surveillance automatique pour les scènes de jeu de rôle."""
-    
+
+    # Constantes de configuration
+    ACTIVITY_CHECK_INTERVAL_MINUTES = 5
+    INACTIVITY_CHECK_INTERVAL_HOURS = 24
+    INACTIVITY_ALERT_THRESHOLD_DAYS = 7
+    RATE_LIMIT_DELAY_SECONDS = 1
+    STARTUP_DELAY_SECONDS = 60
+
     def __init__(self, bot):
         self.bot = bot
         self.paris_tz = pytz.timezone('Europe/Paris')
         self.active_scenes: Dict[str, dict] = {}  # channel_id -> scene_data
-        self.mj_role_id = 1018179623886000278  # ID du rôle MJ (à adapter)
+        # Configuration via variable d'environnement avec valeur par défaut
+        self.mj_role_id = int(os.getenv('MJ_ROLE_ID', '1018179623886000278'))
         
         # Configuration Google Sheets (optionnelle)
         try:
@@ -918,7 +926,7 @@ class SceneSurveillance(commands.Cog):
         except Exception as e:
             logger.error(f"Erreur mise à jour message statut: {e}")
 
-    @tasks.loop(minutes=5)
+    @tasks.loop(minutes=5)  # Intervalle défini par ACTIVITY_CHECK_INTERVAL_MINUTES
     async def activity_monitor(self):
         """Tâche de surveillance périodique qui scanne l'historique réel des canaux."""
         logger.info(f"🔄 Scanner périodique de {len(self.active_scenes)} scènes surveillées...")
@@ -930,7 +938,7 @@ class SceneSurveillance(commands.Cog):
                 # Mettre à jour le message de statut
                 await self.update_status_message(channel_id)
                 # Petit délai pour éviter le rate limiting
-                await asyncio.sleep(1)
+                await asyncio.sleep(self.RATE_LIMIT_DELAY_SECONDS)
             except Exception as e:
                 logger.error(f"Erreur lors du scan de la scène {channel_id}: {e}")
 
@@ -1030,7 +1038,7 @@ class SceneSurveillance(commands.Cog):
         except Exception as e:
             logger.error(f"Erreur lors du scan d'activité pour {channel_id}: {e}")
 
-    @tasks.loop(hours=24)
+    @tasks.loop(hours=24)  # Intervalle défini par INACTIVITY_CHECK_INTERVAL_HOURS
     async def inactivity_checker(self):
         """Vérifie l'inactivité des scènes et envoie des alertes."""
         try:
@@ -1057,8 +1065,8 @@ class SceneSurveillance(commands.Cog):
                     
                 time_diff = now - last_activity_dt
                 
-                # Alerte après 7 jours d'inactivité
-                if time_diff >= timedelta(days=7):
+                # Alerte après X jours d'inactivité (configurable via constante)
+                if time_diff >= timedelta(days=self.INACTIVITY_ALERT_THRESHOLD_DAYS):
                     # Vérifier si une alerte a déjà été envoyée récemment
                     last_alert = scene_data.get('last_alert_sent')
                     should_send_alert = True
@@ -1160,7 +1168,7 @@ class SceneSurveillance(commands.Cog):
     @activity_monitor.before_loop
     async def before_activity_monitor(self):
         await self.bot.wait_until_ready()
-        await asyncio.sleep(60)  # Attendre 1 minute après le démarrage
+        await asyncio.sleep(self.STARTUP_DELAY_SECONDS)  # Attendre après le démarrage
         await self.load_active_scenes()  # Charger les scènes existantes
         
         # Faire un scan initial complet pour détecter les changements pendant que le bot était hors ligne

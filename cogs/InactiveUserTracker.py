@@ -4,20 +4,22 @@ import datetime
 import asyncio
 from typing import Dict, List, Optional
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
 class InactiveUserTracker(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.target_role_id = 1018442041241374762
-        self.category_ids = [
-            1240553817393594439,
-            1175022020749168662,
-            1020820787583799358,
-            1017797004019105842
-        ]
-        self.priority_channel_id = 1124836464904118482
+        # Configuration via variables d'environnement avec valeurs par défaut
+        self.target_role_id = int(os.getenv('INACTIVE_TRACKER_ROLE_ID', '1018442041241374762'))
+
+        # Catégories à surveiller (séparées par des virgules dans la variable d'environnement)
+        category_ids_str = os.getenv('INACTIVE_TRACKER_CATEGORY_IDS',
+                                     '1240553817393594439,1175022020749168662,1020820787583799358,1017797004019105842')
+        self.category_ids = [int(id.strip()) for id in category_ids_str.split(',') if id.strip()]
+
+        self.priority_channel_id = int(os.getenv('INACTIVE_TRACKER_PRIORITY_CHANNEL_ID', '1124836464904118482'))
         self.is_searching = False
 
     @commands.command(name='verifier_inactifs')
