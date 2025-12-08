@@ -2,7 +2,6 @@ import os
 import time
 import logging
 from datetime import datetime, timedelta
-from server import get_last_heartbeat, get_request_count
 
 logger = logging.getLogger('bot')
 
