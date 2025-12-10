@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply font-sans antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-dark-800 rounded-lg shadow-lg p-6 border border-dark-700;
+  }
+
+  .btn {
+    @apply font-medium px-4 py-2 rounded-lg transition-all duration-200;
+  }
+
+  .btn-primary {
+    @apply bg-primary hover:bg-primary-600 text-white shadow-lg hover:shadow-xl transform hover:-translate-y-0.5;
+  }
+
+  .btn-secondary {
+    @apply bg-secondary hover:bg-secondary-600 text-white shadow-lg hover:shadow-xl transform hover:-translate-y-0.5;
+  }
+
+  .btn-accent {
+    @apply bg-accent hover:bg-accent-600 text-white shadow-lg hover:shadow-xl transform hover:-translate-y-0.5;
+  }
+
+  .btn-discord {
+    @apply bg-[#5865F2] hover:bg-[#4752C4] text-white shadow-lg hover:shadow-xl transform hover:-translate-y-0.5;
+  }
+}
+
+/* Animations personnalisées */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-20px);
+  }
+}
+
+@keyframes glow {
+  0% {
+    box-shadow: 0 0 5px rgba(139, 92, 246, 0.5);
+  }
+  100% {
+    box-shadow: 0 0 20px rgba(139, 92, 246, 1);
+  }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+.animate-glow {
+  animation: glow 2s ease-in-out infinite alternate;
+}
