@@ -36,6 +36,7 @@ interface UserStats {
   completion_percentage: number
   total_available_cards: number
   cards_by_rarity: Record<string, number>
+  available_by_category: Record<string, number>
   bonus_available: number
   can_daily_draw: boolean
   can_sacrificial_draw: boolean
@@ -197,8 +198,9 @@ export default function Profile() {
             <div className="space-y-3">
               {ALL_CATEGORIES.map((category) => {
                 const count = stats?.cards_by_rarity?.[category] || 0
-                const totalAvailable = stats?.total_available_cards || 1
-                const percentage = totalAvailable > 0 ? (count / totalAvailable) * 100 : 0
+                const availableInCategory = stats?.available_by_category?.[category] || 0
+                // Pourcentage = cartes possedees / cartes disponibles dans cette categorie
+                const percentage = availableInCategory > 0 ? (count / availableInCategory) * 100 : 0
                 const colors = CATEGORY_COLORS[category]
 
                 return (
@@ -208,13 +210,13 @@ export default function Profile() {
                         {category}
                       </span>
                       <span className="text-sm text-gray-400">
-                        {count} carte{count > 1 ? 's' : ''}
+                        {count}/{availableInCategory} ({percentage.toFixed(0)}%)
                       </span>
                     </div>
                     <div className="h-2 bg-dark-700 rounded-full overflow-hidden">
                       <div
                         className={`h-full bg-gradient-to-r ${colors?.bg || 'from-gray-500 to-gray-600'} transition-all duration-500`}
-                        style={{ width: `${Math.min(percentage * 10, 100)}%` }}
+                        style={{ width: `${Math.min(percentage, 100)}%` }}
                       />
                     </div>
                   </div>

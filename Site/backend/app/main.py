@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 import logging
 
 from .core.config import settings
-from .api import auth, cards, draw, trade, user
+from .api import auth, cards, draw, trade, user, vault
 
 # Configuration du logging
 logging.basicConfig(
@@ -42,6 +42,7 @@ app.include_router(cards.router, prefix="/api/cards", tags=["Cards"])
 app.include_router(draw.router, prefix="/api/draw", tags=["Drawing"])
 app.include_router(trade.router, prefix="/api/trade", tags=["Trading"])
 app.include_router(user.router, prefix="/api/user", tags=["User"])
+app.include_router(vault.router, prefix="/api/vault", tags=["Vault"])
 
 
 @app.on_event("startup")

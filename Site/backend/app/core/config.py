@@ -63,6 +63,17 @@ class Settings(BaseSettings):
     FOLDER_BLACKHOLE_ID: str
     FOLDER_AUTRE_ID: str
 
+    # Google Drive Folders (cartes Full par catégorie) - optionnels
+    FOLDER_ELEVES_FULL_ID: str = ""
+    FOLDER_PROFESSEURS_FULL_ID: str = ""
+    FOLDER_ARCHITECTES_FULL_ID: str = ""
+    FOLDER_MAITRE_FULL_ID: str = ""
+    FOLDER_FONDATEUR_FULL_ID: str = ""
+    FOLDER_HISTORIQUE_FULL_ID: str = ""
+    FOLDER_SECRETE_FULL_ID: str = ""
+    FOLDER_BLACKHOLE_FULL_ID: str = ""
+    FOLDER_AUTRE_FULL_ID: str = ""
+
     @property
     def SERVICE_ACCOUNT_INFO(self) -> dict:
         """Parse le JSON du service account."""

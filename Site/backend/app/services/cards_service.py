@@ -135,6 +135,19 @@ class CardSystemService:
                 "Secrète": settings.FOLDER_SECRETE_ID
             }
 
+            # Dossiers des cartes Full (optionnels)
+            FULL_FOLDER_IDS = {
+                "Historique": settings.FOLDER_HISTORIQUE_FULL_ID,
+                "Fondateur": settings.FOLDER_FONDATEUR_FULL_ID,
+                "Black Hole": settings.FOLDER_BLACKHOLE_FULL_ID,
+                "Maître": settings.FOLDER_MAITRE_FULL_ID,
+                "Architectes": settings.FOLDER_ARCHITECTES_FULL_ID,
+                "Professeurs": settings.FOLDER_PROFESSEURS_FULL_ID,
+                "Autre": settings.FOLDER_AUTRE_FULL_ID,
+                "Élèves": settings.FOLDER_ELEVES_FULL_ID,
+                "Secrète": settings.FOLDER_SECRETE_FULL_ID
+            }
+
             cards_by_category = {cat: [] for cat in ALL_CATEGORIES}
             upgrade_cards_by_category = {cat: [] for cat in ALL_CATEGORIES}
 
@@ -169,8 +182,36 @@ class CardSystemService:
                         for f in files
                     ]
 
-                    # TODO: Charger aussi les cartes Full si nécessaire
-                    upgrade_cards_by_category[category] = []
+                    # Charger les cartes Full si le dossier est configuré
+                    full_folder_id = FULL_FOLDER_IDS.get(category)
+                    if full_folder_id:
+                        try:
+                            full_results = self.drive_service.files().list(
+                                q=f"'{full_folder_id}' in parents",
+                                fields="files(id, name, mimeType)"
+                            ).execute()
+
+                            full_files = [
+                                f for f in full_results.get('files', [])
+                                if f.get('mimeType', '').startswith('image/')
+                                and f['name'].lower().endswith('.png')
+                            ]
+
+                            upgrade_cards_by_category[category] = [
+                                {
+                                    "name": f['name'].removesuffix('.png'),
+                                    "category": category,
+                                    "file_id": f['id'],
+                                    "is_full": True
+                                }
+                                for f in full_files
+                            ]
+                            logger.info(f"✅ {len(full_files)} cartes Full chargées pour {category}")
+                        except Exception as e:
+                            logger.warning(f"⚠️ Erreur lors du chargement des cartes Full pour {category}: {e}")
+                            upgrade_cards_by_category[category] = []
+                    else:
+                        upgrade_cards_by_category[category] = []
 
                 except Exception as e:
                     logger.error(f"❌ Erreur lors du chargement de {category}: {e}")
@@ -357,14 +398,20 @@ class CardSystemService:
             unique_cards = 0
 
             for (category, name), count in card_counts.items():
-                # Chercher la carte pour obtenir file_id et is_full
+                # Determiner si c'est une carte Full (basé sur le nom)
+                is_full = "(Full)" in name
+
+                # Chercher la carte pour obtenir file_id
                 card_info = None
-                for card in self.cards_by_category.get(category, []):
-                    if card["name"] == name and not card.get("is_full", False):
-                        card_info = card
-                        break
-                if not card_info:
+                if is_full:
+                    # Chercher dans les cartes Full
                     for card in self.upgrade_cards_by_category.get(category, []):
+                        if card["name"] == name:
+                            card_info = card
+                            break
+                else:
+                    # Chercher dans les cartes normales
+                    for card in self.cards_by_category.get(category, []):
                         if card["name"] == name:
                             card_info = card
                             break
@@ -375,7 +422,7 @@ class CardSystemService:
                     "count": count,
                     "acquired_date": "",  # Non disponible dans ce format
                     "file_id": card_info.get("file_id") if card_info else None,
-                    "is_full": card_info.get("is_full", False) if card_info else False
+                    "is_full": is_full
                 })
                 total_cards += count
                 unique_cards += 1
@@ -621,13 +668,22 @@ class CardSystemService:
                 for cat in ALL_CATEGORIES
             )
 
+            # Calculer le nombre de cartes disponibles PAR categorie
+            available_by_category = {}
+            for cat in ALL_CATEGORIES:
+                available_by_category[cat] = len(self.cards_by_category.get(cat, []))
+
+            # Recalculer le pourcentage de completion correctement
+            real_completion = (collection_data["unique_cards"] / total_available * 100) if total_available > 0 else 0.0
+
             return {
                 "total_cards": collection_data["total_cards"],
                 "unique_cards": collection_data["unique_cards"],
                 "full_cards": full_cards_count,
-                "completion_percentage": collection_data["completion_percentage"],
+                "completion_percentage": round(real_completion, 2),
                 "total_available_cards": total_available,
                 "cards_by_rarity": cards_by_rarity,
+                "available_by_category": available_by_category,
                 "bonus_available": bonus_count,
                 "can_daily_draw": can_daily,
                 "can_sacrificial_draw": can_sacrificial,
