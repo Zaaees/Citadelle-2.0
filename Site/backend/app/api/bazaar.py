@@ -193,6 +193,51 @@ def _transfer_card(from_user_id: int, to_user_id: int, category: str, name: str)
         return False
 
 
+@router.get("/debug")
+async def debug_bazaar(
+    current_user: dict = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """
+    Endpoint de debug pour comprendre pourquoi la recherche ne trouve pas de cartes.
+    """
+    try:
+        discovered_cards = await asyncio.to_thread(_get_discovered_cards)
+        all_owned = await asyncio.to_thread(_get_all_owned_cards)
+
+        # Exemples de cartes decouvertes
+        discovered_sample = list(discovered_cards)[:10]
+
+        # Exemples de cartes possedees
+        owned_sample = [(k, v) for k, v in list(all_owned.items())[:10]]
+
+        # Verifier les correspondances
+        matches = []
+        non_matches_owned = []
+
+        for (cat, name), owners in list(all_owned.items())[:20]:
+            if (cat, name) in discovered_cards:
+                matches.append({"category": cat, "name": name, "owners_count": len(owners)})
+            else:
+                non_matches_owned.append({"category": cat, "name": name, "owners_count": len(owners)})
+
+        return {
+            "discovered_count": len(discovered_cards),
+            "owned_count": len(all_owned),
+            "matches_count": len(matches),
+            "discovered_sample": [{"category": c, "name": n} for c, n in discovered_sample],
+            "owned_sample": [{"category": k[0], "name": k[1], "owners": v} for k, v in owned_sample],
+            "matches": matches[:10],
+            "non_matches_owned": non_matches_owned[:10],
+            "current_user_id": current_user["user_id"]
+        }
+
+    except Exception as e:
+        logger.error(f"Erreur debug: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {"error": str(e), "traceback": traceback.format_exc()}
+
+
 @router.get("/search", response_model=BazaarSearchResult)
 async def search_bazaar(
     query: Optional[str] = Query(None, description="Recherche textuelle"),
@@ -213,26 +258,35 @@ async def search_bazaar(
 
         # Recuperer les cartes decouvertes
         discovered_cards = await asyncio.to_thread(_get_discovered_cards)
+        logger.info(f"[BAZAAR] Cartes decouvertes: {len(discovered_cards)}")
 
         # Recuperer toutes les cartes possedees
         all_owned = await asyncio.to_thread(_get_all_owned_cards)
+        logger.info(f"[BAZAAR] Cartes possedees: {len(all_owned)}")
 
         # Filtrer et construire les resultats
         results = []
+        skipped_not_discovered = 0
+        skipped_no_owners = 0
+        skipped_category = 0
+        skipped_query = 0
 
         for (cat, name), owners in all_owned.items():
             # Verifier si la carte est decouverte
             if (cat, name) not in discovered_cards:
+                skipped_not_discovered += 1
                 continue
 
             # Filtre par categorie
             if category and cat != category:
+                skipped_category += 1
                 continue
 
             # Filtre par recherche textuelle
             if query:
                 query_lower = query.lower()
                 if query_lower not in name.lower() and query_lower not in cat.lower():
+                    skipped_query += 1
                     continue
 
             # Calculer la disponibilite
@@ -281,6 +335,10 @@ async def search_bazaar(
                     owners=available_owners,
                     total_available=total_available
                 ))
+            else:
+                skipped_no_owners += 1
+
+        logger.info(f"[BAZAAR] Resultats: {len(results)}, non-decouverts: {skipped_not_discovered}, sans proprio dispo: {skipped_no_owners}")
 
         # Pagination
         total = len(results)
