@@ -87,7 +87,7 @@ export default function Trade() {
   const [myCardToOffer, setMyCardToOffer] = useState<MyCard | null>(null)
 
   // Recherche dans le Bazaar
-  const { data: searchResults, isLoading: searchLoading, refetch: refetchSearch } = useQuery({
+  const { data: searchResults, isLoading: searchLoading, error: searchError, refetch: refetchSearch } = useQuery({
     queryKey: ['bazaar', 'search', searchQuery, selectedCategory, includeNonDuplicates],
     queryFn: async () => {
       const params = new URLSearchParams()
@@ -96,7 +96,9 @@ export default function Trade() {
       if (includeNonDuplicates) params.append('include_non_duplicates', 'true')
       params.append('per_page', '50')
 
+      console.log('[BAZAAR] Searching with params:', params.toString())
       const response = await api.get<BazaarSearchResult>(`/api/bazaar/search?${params}`)
+      console.log('[BAZAAR] Search results:', response.data)
       return response.data
     },
     staleTime: 30000,
@@ -371,7 +373,22 @@ export default function Trade() {
                 </span>
               </div>
 
-              {searchLoading ? (
+              {searchError ? (
+                <div className="text-center py-12">
+                  <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+                  <p className="text-red-400">Erreur lors de la recherche</p>
+                  <p className="text-sm text-gray-500 mt-2">
+                    {(searchError as any)?.message || 'Erreur inconnue'}
+                  </p>
+                  <button
+                    onClick={() => refetchSearch()}
+                    className="btn btn-secondary mt-4"
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Reessayer
+                  </button>
+                </div>
+              ) : searchLoading ? (
                 <div className="flex justify-center py-12">
                   <Loader2 className="w-8 h-8 text-primary animate-spin" />
                 </div>
