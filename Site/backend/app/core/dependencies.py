@@ -49,8 +49,11 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # user_id est stocké comme string dans le JWT pour éviter la perte de précision
+    # mais les services internes attendent un int - on fournit les deux
     return {
-        "user_id": user_id,
+        "user_id": int(user_id),  # int pour les services internes
+        "user_id_str": str(user_id),  # string pour les réponses API (évite perte de précision JS)
         "username": username,
         "discriminator": payload.get("discriminator", "0"),
         "avatar": payload.get("avatar"),

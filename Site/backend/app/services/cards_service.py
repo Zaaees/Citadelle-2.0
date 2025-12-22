@@ -21,10 +21,14 @@ from cogs.cards.drawing import DrawingManager
 from cogs.cards.trading import TradingManager
 from cogs.cards.vault import VaultManager
 from cogs.cards.config import ALL_CATEGORIES, RARITY_WEIGHTS, DAILY_SACRIFICIAL_CARDS_COUNT
+from cogs.cards.utils import normalize_name
 
 from ..core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Seuil de conversion (5 cartes normales → 1 Full) pour toutes les catégories
+UPGRADE_THRESHOLD = 5
 
 
 class CardSystemService:
@@ -311,8 +315,15 @@ class CardSystemService:
                                 continue
 
                         if not user_found:
-                            # Utilisateur pas trouvé, l'ajouter
-                            row.append(f"{user_id}:1")
+                            # Utilisateur pas trouvé, trouver la première cellule vide ou ajouter à la fin
+                            inserted = False
+                            for j in range(2, len(row)):
+                                if not row[j] or row[j].strip() == "":
+                                    row[j] = f"{user_id}:1"
+                                    inserted = True
+                                    break
+                            if not inserted:
+                                row.append(f"{user_id}:1")
                             self.storage.sheet_cards.update(f"A{i+1}", [row])
                             self.storage.refresh_cards_cache()
                             logger.info(f"✅ Nouvelle carte {category}/{name} ajoutée pour {user_id}")
@@ -377,6 +388,68 @@ class CardSystemService:
             logger.error(traceback.format_exc())
             return False
 
+
+    # ----------------------------------------------------------------
+    # Système de conversion Full (5 cartes normales → 1 Full)
+    # ----------------------------------------------------------------
+
+    def check_and_upgrade_cards(self, user_id: int) -> List[Dict[str, Any]]:
+        upgraded_cards = []
+        try:
+            user_cards = self._get_user_cards_internal(user_id)
+            from collections import Counter
+            card_counts = Counter(user_cards)
+            for (category, name), count in card_counts.items():
+                if "(Full)" in name:
+                    continue
+                if count >= UPGRADE_THRESHOLD:
+                    full_name = f"{name} (Full)"
+                    if self._user_has_card(user_id, category, full_name):
+                        continue
+                    full_card_info = self._find_full_card(category, name)
+                    if not full_card_info:
+                        continue
+                    removed = 0
+                    for _ in range(UPGRADE_THRESHOLD):
+                        if self._remove_card_from_user(user_id, category, name):
+                            removed += 1
+                        else:
+                            for _ in range(removed):
+                                self._add_card_to_user(user_id, category, name)
+                            break
+                    else:
+                        if self._add_card_to_user(user_id, category, full_name):
+                            logger.info(f"UPGRADE: {user_id} a obtenu {full_name}")
+                            upgraded_cards.append({
+                                "category": category,
+                                "name": full_name,
+                                "file_id": full_card_info.get("file_id"),
+                                "sacrificed_count": UPGRADE_THRESHOLD,
+                                "original_name": name
+                            })
+                        else:
+                            for _ in range(UPGRADE_THRESHOLD):
+                                self._add_card_to_user(user_id, category, name)
+            return upgraded_cards
+        except Exception as e:
+            logger.error(f"Erreur upgrades: {e}")
+            return []
+
+    def _find_full_card(self, category: str, base_name: str) -> Optional[Dict[str, Any]]:
+        full_name = f"{base_name} (Full)"
+        for card in self.upgrade_cards_by_category.get(category, []):
+            card_name = card["name"].removesuffix(".png")
+            if normalize_name(card_name) == normalize_name(full_name):
+                return card
+        for search_cat, full_cards in self.upgrade_cards_by_category.items():
+            if search_cat == category:
+                continue
+            for card in full_cards:
+                card_name = card["name"].removesuffix(".png")
+                if normalize_name(card_name) == normalize_name(full_name):
+                    return card
+        return None
+
     async def get_user_collection(self, user_id: int) -> Dict[str, Any]:
         """
         Récupère la collection complète d'un utilisateur.
@@ -395,7 +468,8 @@ class CardSystemService:
 
             user_cards = []
             total_cards = 0
-            unique_cards = 0
+            unique_cards = 0  # Cartes normales uniques (exclut les Full)
+            unique_full_cards = 0  # Cartes Full uniques
 
             for (category, name), count in card_counts.items():
                 # Determiner si c'est une carte Full (basé sur le nom)
@@ -425,22 +499,26 @@ class CardSystemService:
                     "is_full": is_full
                 })
                 total_cards += count
-                unique_cards += 1
 
-            # Calculer le pourcentage de complétion
+                # Compter séparément les cartes normales et Full
+                if is_full:
+                    unique_full_cards += 1
+                else:
+                    unique_cards += 1
+
+            # Calculer le pourcentage de complétion basé uniquement sur les cartes NORMALES
             total_available_cards = sum(
                 len(self.cards_by_category.get(cat, []))
                 for cat in ALL_CATEGORIES
             )
 
             completion_percentage = (unique_cards / total_available_cards * 100) if total_available_cards > 0 else 0.0
-            # Plafonner à 100% maximum (peut dépasser si cartes Full comptées séparément ou doublons)
-            completion_percentage = min(completion_percentage, 100.0)
 
             return {
                 "cards": user_cards,
                 "total_cards": total_cards,
-                "unique_cards": unique_cards,
+                "unique_cards": unique_cards,  # Cartes normales uniquement
+                "unique_full_cards": unique_full_cards,  # Cartes Full séparées
                 "completion_percentage": round(completion_percentage, 2)
             }
 
@@ -634,19 +712,19 @@ class CardSystemService:
             # Collection
             collection_data = await self.get_user_collection(user_id)
 
-            # Stats par categorie
+            # Stats par categorie (exclure les Full pour avoir le bon ratio)
             cards_by_rarity = {}
             for cat in ALL_CATEGORIES:
                 cards_by_rarity[cat] = sum(
                     1 for card in collection_data["cards"]
-                    if card["category"] == cat
+                    if card["category"] == cat and not card.get("is_full", False)
                 )
 
-            # Cartes Full
-            full_cards_count = sum(
+            # Cartes Full (utiliser la valeur déjà calculée si disponible)
+            full_cards_count = collection_data.get("unique_full_cards", sum(
                 1 for card in collection_data["cards"]
                 if card.get("is_full", False)
-            )
+            ))
 
             # Bonus disponibles
             bonus_count = self.get_user_bonus_count(user_id)

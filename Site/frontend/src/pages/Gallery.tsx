@@ -1,97 +1,90 @@
-import { useState, useMemo } from 'react'
-import { Filter, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react'
-import { useCards, useCategoriesInfo, useUserCollection } from '../hooks/useCards'
-import CardGrid from '../components/cards/CardGrid'
-import { ALL_CATEGORIES, CATEGORY_COLORS, type CardCategory } from '../types/card'
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { Sparkles, ChevronDown, ChevronUp, Package, Loader2 } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
+import api from '../services/api'
+import { ALL_CATEGORIES, CATEGORY_COLORS, FULL_CATEGORY_COLOR } from '../types/card'
 
-const CARDS_PER_PAGE = 24
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+interface CollectionCard {
+  category: string
+  name: string
+  count: number
+  is_full: boolean
+  file_id: string | null
+}
+
+interface UserCollection {
+  cards: CollectionCard[]
+  total_cards: number
+  unique_cards: number
+  completion_percentage: number
+}
 
 export default function Gallery() {
-  const [selectedCategory, setSelectedCategory] = useState<CardCategory | undefined>(undefined)
-  const [currentPage, setCurrentPage] = useState(1)
-  const { data: cards, isLoading, error } = useCards(selectedCategory)
-  const { data: categoriesInfo } = useCategoriesInfo()
-  const { data: userCollection } = useUserCollection()
   const { isAuthenticated } = useAuthStore()
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({})
 
-  // Filtrer pour n'afficher que les cartes possedees par l'utilisateur
-  const ownedCards = useMemo(() => {
-    // Si non authentifie, retourner tableau vide (pas de cartes a afficher)
-    if (!isAuthenticated) {
-      return []
+  // Récupérer la collection complète de l'utilisateur
+  const { data: collection, isLoading, error } = useQuery({
+    queryKey: ['user', 'collection'],
+    queryFn: async () => {
+      const response = await api.get<UserCollection>('/api/user/collection')
+      return response.data
+    },
+    enabled: isAuthenticated,
+    retry: 1
+  })
+
+  // Grouper les cartes par catégorie
+  const cardsByCategory = collection?.cards?.reduce((acc, card) => {
+    if (!acc[card.category]) {
+      acc[card.category] = []
     }
+    acc[card.category].push(card)
+    return acc
+  }, {} as Record<string, CollectionCard[]>) || {}
 
-    // Si pas de cartes disponibles, retourner tableau vide
-    if (!cards) {
-      return []
-    }
+  // Compter les cartes Full
+  const fullCards = collection?.cards?.filter(c => c.is_full) || []
 
-    // Si la collection n'est pas encore chargee ou est vide, retourner tableau vide
-    if (!userCollection?.cards?.length) {
-      return []
-    }
-
-    // Creer un Set des cartes possedees pour une recherche rapide (avec normalisation)
-    const ownedCardKeys = new Set(
-      userCollection.cards.map(c => {
-        const key = `${c.category.trim()}:${c.name.trim()}`
-        return key
-      })
-    )
-
-    // Filtrer les cartes pour ne garder que celles possedees
-    const filtered = cards.filter(card => {
-      const key = `${card.category.trim()}:${card.name.trim()}`
-      return ownedCardKeys.has(key)
-    })
-
-    return filtered
-  }, [cards, userCollection, isAuthenticated])
-
-  // Statistiques basées sur la collection de l'utilisateur
-  const totalCards = ownedCards?.length || 0
-  const fullCards = ownedCards?.filter((c) => c.is_full).length || 0
-  const totalQuantity = userCollection?.total_cards || 0
-
-  // Pagination
-  const paginatedCards = useMemo(() => {
-    if (!ownedCards) return []
-    const startIndex = (currentPage - 1) * CARDS_PER_PAGE
-    const endIndex = startIndex + CARDS_PER_PAGE
-    return ownedCards.slice(startIndex, endIndex)
-  }, [ownedCards, currentPage])
-
-  const totalPages = Math.ceil((ownedCards?.length || 0) / CARDS_PER_PAGE)
-
-  // Réinitialiser la page quand on change de catégorie
-  const handleCategoryChange = (category: CardCategory | undefined) => {
-    setSelectedCategory(category)
-    setCurrentPage(1)
+  // Toggle une catégorie
+  const toggleCategory = (category: string) => {
+    setExpandedCategories(prev => ({
+      ...prev,
+      [category]: !prev[category]
+    }))
   }
 
-  // Créer l'objet userCardCounts pour le CardGrid
-  const userCardCounts = useMemo(() => {
-    console.log('[Gallery] Computing userCardCounts', {
-      isAuthenticated,
-      userCollection,
-      hasCards: userCollection?.cards?.length
-    })
+  // URL de l'image de carte
+  const getCardImageUrl = (fileId: string | null) => {
+    if (!fileId) return null
+    return `${API_URL}/api/cards/image/${fileId}`
+  }
 
-    if (!isAuthenticated || !userCollection?.cards) {
-      console.log('[Gallery] No userCardCounts (not authenticated or no cards)')
-      return undefined
-    }
+  // Non authentifié
+  if (!isAuthenticated) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="card text-center py-12">
+          <Package className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+          <p className="text-gray-400">Connectez-vous pour voir votre collection</p>
+        </div>
+      </div>
+    )
+  }
 
-    const counts: Record<string, number> = {}
-    userCollection.cards.forEach((card) => {
-      const key = `${card.category}:${card.name}`
-      counts[key] = card.count // Fixed: use 'count' instead of 'quantity' to match backend
-    })
-
-    console.log('[Gallery] userCardCounts computed:', counts)
-    return counts
-  }, [isAuthenticated, userCollection])
+  // Erreur
+  if (error) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="card text-center py-12">
+          <p className="text-red-400">Erreur lors du chargement de la collection</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -103,137 +96,210 @@ export default function Gallery() {
           </div>
           <div>
             <h1 className="text-3xl font-display font-bold text-white">Ma Collection</h1>
-            <p className="text-gray-400">Visualisez toutes les cartes que vous possedez</p>
+            <p className="text-gray-400">Visualisez toutes les cartes que vous possédez</p>
           </div>
         </div>
 
-        {/* Stats */}
+        {/* Stats rapides */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div className="card text-center">
-            <p className="text-2xl font-bold text-primary">{totalCards}</p>
+            <p className="text-2xl font-bold text-primary">{collection?.total_cards || 0}</p>
             <p className="text-sm text-gray-400">Cartes totales</p>
+            <p className="text-xs text-gray-500">(avec doublons)</p>
           </div>
           <div className="card text-center">
-            <p className="text-2xl font-bold text-secondary">{fullCards}</p>
+            <p className="text-2xl font-bold text-secondary">{collection?.unique_cards || 0}</p>
+            <p className="text-sm text-gray-400">Cartes uniques</p>
+          </div>
+          <div className="card text-center">
+            <p className="text-2xl font-bold text-yellow-400">{fullCards.length}</p>
             <p className="text-sm text-gray-400">Cartes Full</p>
           </div>
           <div className="card text-center">
-            <p className="text-2xl font-bold text-yellow-500">{ALL_CATEGORIES.length}</p>
-            <p className="text-sm text-gray-400">Catégories</p>
-          </div>
-          <div className="card text-center">
-            <p className="text-2xl font-bold text-green-500">{totalCards - fullCards}</p>
-            <p className="text-sm text-gray-400">Cartes normales</p>
-          </div>
-        </div>
-
-        {/* Filtres */}
-        <div className="card">
-          <div className="flex items-center gap-2 mb-4">
-            <Filter className="w-5 h-5 text-primary" />
-            <h2 className="text-lg font-semibold text-white">Filtrer par catégorie</h2>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            {/* Bouton "Toutes" */}
-            <button
-              onClick={() => handleCategoryChange(undefined)}
-              className={`
-                px-4 py-2 rounded-lg font-medium transition-all
-                ${
-                  selectedCategory === undefined
-                    ? 'bg-gradient-to-r from-primary to-secondary text-white border-2 border-primary'
-                    : 'bg-dark-700 text-gray-300 border-2 border-dark-600 hover:border-primary hover:text-white'
-                }
-              `}
-            >
-              Toutes ({totalCards})
-            </button>
-
-            {/* Boutons de catégories */}
-            {ALL_CATEGORIES.map((category) => {
-              const colors = CATEGORY_COLORS[category]
-              const categoryData = categoriesInfo?.find((c) => c.category === category)
-              const count = categoryData?.total_cards || '?'
-              const isSelected = selectedCategory === category
-
-              return (
-                <button
-                  key={category}
-                  onClick={() => handleCategoryChange(category)}
-                  className={`
-                    px-4 py-2 rounded-lg font-medium transition-all
-                    border-2 ${colors.border}
-                    ${
-                      isSelected
-                        ? `bg-gradient-to-r ${colors.bg} text-white`
-                        : `bg-dark-700 ${colors.text} hover:bg-gradient-to-r ${colors.bg} hover:text-white`
-                    }
-                  `}
-                >
-                  {category} ({count})
-                </button>
-              )
-            })}
+            <p className="text-2xl font-bold text-green-500">{(collection?.completion_percentage || 0).toFixed(1)}%</p>
+            <p className="text-sm text-gray-400">Complétion</p>
           </div>
         </div>
       </div>
 
-      {/* Grille de cartes */}
-      <CardGrid
-        cards={paginatedCards}
-        loading={isLoading}
-        error={error}
-        userCardCounts={userCardCounts}
-      />
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="card mt-8">
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-              className={`
-                flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all
-                ${
-                  currentPage === 1
-                    ? 'bg-dark-700 text-gray-500 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-primary to-secondary text-white hover:shadow-lg hover:shadow-primary/50'
-                }
-              `}
-            >
-              <ChevronLeft className="w-5 h-5" />
-              Précédent
-            </button>
-
-            <div className="flex items-center gap-2">
-              <span className="text-gray-400">
-                Page <span className="text-white font-bold">{currentPage}</span> sur{' '}
-                <span className="text-white font-bold">{totalPages}</span>
-              </span>
-              <span className="text-gray-500">•</span>
-              <span className="text-gray-400">
-                {paginatedCards.length} cartes affichées sur {totalCards}
-              </span>
-            </div>
-
-            <button
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-              className={`
-                flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all
-                ${
-                  currentPage === totalPages
-                    ? 'bg-dark-700 text-gray-500 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-primary to-secondary text-white hover:shadow-lg hover:shadow-primary/50'
-                }
-              `}
-            >
-              Suivant
-              <ChevronRight className="w-5 h-5" />
-            </button>
+      {/* Liste par catégories */}
+      {isLoading ? (
+        <div className="card">
+          <div className="flex justify-center py-12">
+            <Loader2 className="w-8 h-8 text-primary animate-spin" />
           </div>
+        </div>
+      ) : collection?.cards && collection.cards.length > 0 ? (
+        <div className="space-y-4">
+          {/* Catégories normales */}
+          {ALL_CATEGORIES.map((category) => {
+            const categoryCards = cardsByCategory[category] || []
+            if (categoryCards.length === 0) return null
+
+            const colors = CATEGORY_COLORS[category]
+            const isExpanded = expandedCategories[category] || false
+            const totalInCategory = categoryCards.reduce((sum, c) => sum + c.count, 0)
+
+            return (
+              <div key={category} className="border border-dark-600 rounded-lg overflow-hidden">
+                {/* En-tête de la catégorie (cliquable) */}
+                <button
+                  onClick={() => toggleCategory(category)}
+                  className="w-full px-4 py-3 flex items-center justify-between bg-dark-700 hover:bg-dark-600 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className={`font-bold ${colors?.text || 'text-gray-300'}`}>
+                      {category}
+                    </span>
+                    <span className="text-sm text-gray-400">
+                      {categoryCards.length} carte{categoryCards.length > 1 ? 's' : ''} unique{categoryCards.length > 1 ? 's' : ''}
+                      {totalInCategory > categoryCards.length && (
+                        <span className="text-gray-500"> ({totalInCategory} avec doublons)</span>
+                      )}
+                    </span>
+                  </div>
+                  {isExpanded ? (
+                    <ChevronUp className="w-5 h-5 text-gray-400" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5 text-gray-400" />
+                  )}
+                </button>
+
+                {/* Liste des cartes (affichée si expandue) */}
+                {isExpanded && (
+                  <div className="p-4 bg-dark-800">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                      {categoryCards.map((card, index) => {
+                        const imageUrl = getCardImageUrl(card.file_id)
+                        return (
+                          <div
+                            key={`${card.category}-${card.name}-${index}`}
+                            className={`relative bg-dark-700 rounded-lg overflow-hidden border-2 transition-colors ${
+                              card.is_full
+                                ? 'border-yellow-500/50 shadow-lg shadow-yellow-500/20'
+                                : 'border-dark-600 hover:border-primary/50'
+                            }`}
+                          >
+                            {/* Image de la carte */}
+                            {imageUrl ? (
+                              <img
+                                src={imageUrl}
+                                alt={card.name}
+                                className="w-full aspect-[3/4] object-cover"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div className="w-full aspect-[3/4] bg-dark-600 flex items-center justify-center">
+                                <span className="text-gray-500 text-xs text-center px-2">
+                                  {card.name}
+                                </span>
+                              </div>
+                            )}
+
+                            {/* Nom et quantité */}
+                            <div className="p-2 bg-dark-800/90">
+                              <p className="text-xs text-white truncate font-medium">
+                                {card.name}
+                              </p>
+                              <div className="flex items-center justify-between mt-1">
+                                <span className="text-xs text-gray-400">
+                                  x{card.count}
+                                </span>
+                                {card.is_full && (
+                                  <span className="text-xs text-yellow-400 font-bold">
+                                    FULL
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Badge de quantité si > 1 */}
+                            {card.count > 1 && (
+                              <div className="absolute top-2 right-2 bg-accent/90 text-white text-xs font-bold px-2 py-1 rounded-full">
+                                x{card.count}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+
+          {/* Catégorie spéciale Full */}
+          {fullCards.length > 0 && (
+            <div className="border border-yellow-500/50 rounded-lg overflow-hidden">
+              <button
+                onClick={() => toggleCategory('full')}
+                className="w-full px-4 py-3 flex items-center justify-between bg-gradient-to-r from-yellow-900/30 to-amber-900/30 hover:from-yellow-900/40 hover:to-amber-900/40 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <span className={`font-bold ${FULL_CATEGORY_COLOR.text}`}>
+                    ⭐ Cartes Full
+                  </span>
+                  <span className="text-sm text-yellow-200/70">
+                    {fullCards.length} carte{fullCards.length > 1 ? 's' : ''} Full
+                  </span>
+                </div>
+                {expandedCategories['full'] ? (
+                  <ChevronUp className="w-5 h-5 text-yellow-400" />
+                ) : (
+                  <ChevronDown className="w-5 h-5 text-yellow-400" />
+                )}
+              </button>
+
+              {expandedCategories['full'] && (
+                <div className="p-4 bg-dark-800">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                    {fullCards.map((card, index) => {
+                      const imageUrl = getCardImageUrl(card.file_id)
+                      return (
+                        <div
+                          key={`full-${card.category}-${card.name}-${index}`}
+                          className="relative bg-dark-700 rounded-lg overflow-hidden border-2 border-yellow-500/50 shadow-lg shadow-yellow-500/20"
+                        >
+                          {imageUrl ? (
+                            <img
+                              src={imageUrl}
+                              alt={card.name}
+                              className="w-full aspect-[3/4] object-cover"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="w-full aspect-[3/4] bg-gradient-to-br from-yellow-900/30 to-amber-900/30 flex items-center justify-center">
+                              <span className="text-yellow-400 text-xs text-center px-2">
+                                {card.name}
+                              </span>
+                            </div>
+                          )}
+
+                          <div className="p-2 bg-dark-800/90">
+                            <p className="text-xs text-yellow-400 truncate font-bold">
+                              {card.name}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-1">
+                              {card.category}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="card text-center py-12">
+          <Package className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+          <p className="text-gray-400">Votre collection est vide</p>
+          <p className="text-sm text-gray-500 mt-2">
+            Effectuez des tirages pour obtenir des cartes !
+          </p>
         </div>
       )}
     </div>

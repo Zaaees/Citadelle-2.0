@@ -11,7 +11,7 @@ import logging
 import asyncio
 
 from ..core.dependencies import get_current_user
-from ..models.card import Card, CardPair
+from ..models.card import Card, CardPair, CardBase, DrawResult, UpgradedCard
 from ..services.cards_service import card_system
 
 router = APIRouter()
@@ -117,7 +117,7 @@ async def get_daily_draw_status(current_user: dict = Depends(get_current_user)):
         )
 
 
-@router.post("/daily", response_model=List[Card])
+@router.post("/daily", response_model=DrawResult)
 async def perform_daily_draw(current_user: dict = Depends(get_current_user)):
     """
     Effectue le tirage journalier de l'utilisateur (3 cartes).
@@ -184,7 +184,24 @@ async def perform_daily_draw(current_user: dict = Depends(get_current_user)):
 
         logger.info(f"Tirage journalier reussi pour {user_id}: {len(result_cards)} cartes")
 
-        return result_cards
+        # Vérifier les upgrades automatiques (5 cartes normales → 1 Full)
+        upgraded = await asyncio.to_thread(
+            card_system.check_and_upgrade_cards,
+            user_id
+        )
+        
+        upgraded_cards = [
+            UpgradedCard(
+                category=u["category"],
+                name=u["name"],
+                file_id=u.get("file_id"),
+                original_name=u["original_name"],
+                sacrificed_count=u["sacrificed_count"]
+            )
+            for u in upgraded
+        ]
+
+        return DrawResult(drawn_cards=result_cards, upgraded_cards=upgraded_cards)
 
     except HTTPException:
         raise
@@ -198,7 +215,7 @@ async def perform_daily_draw(current_user: dict = Depends(get_current_user)):
         )
 
 
-@router.post("/bonus", response_model=List[Card])
+@router.post("/bonus", response_model=DrawResult)
 async def perform_bonus_draw(current_user: dict = Depends(get_current_user)):
     """
     Effectue un tirage bonus (3 cartes).
@@ -271,7 +288,24 @@ async def perform_bonus_draw(current_user: dict = Depends(get_current_user)):
 
         logger.info(f"Tirage bonus reussi pour {user_id}: {len(result_cards)} cartes")
 
-        return result_cards
+        # Vérifier les upgrades automatiques (5 cartes normales → 1 Full)
+        upgraded = await asyncio.to_thread(
+            card_system.check_and_upgrade_cards,
+            user_id
+        )
+        
+        upgraded_cards = [
+            UpgradedCard(
+                category=u["category"],
+                name=u["name"],
+                file_id=u.get("file_id"),
+                original_name=u["original_name"],
+                sacrificed_count=u["sacrificed_count"]
+            )
+            for u in upgraded
+        ]
+
+        return DrawResult(drawn_cards=result_cards, upgraded_cards=upgraded_cards)
 
     except HTTPException:
         raise
@@ -335,14 +369,14 @@ async def get_sacrificial_draw_status(current_user: dict = Depends(get_current_u
         )
 
 
-@router.get("/sacrificial/preview", response_model=List[CardPair])
+@router.get("/sacrificial/preview", response_model=List[CardBase])
 async def get_sacrificial_preview(current_user: dict = Depends(get_current_user)):
     """
     Recupere les 5 cartes qui seront sacrifiees pour le tirage.
     Cette selection est deterministe et reste la meme toute la journee.
 
     Returns:
-        Liste de 5 cartes qui seront sacrifiees
+        Liste de 5 cartes qui seront sacrifiees (avec file_id pour affichage)
     """
     user_id = current_user["user_id"]
 
@@ -372,10 +406,17 @@ async def get_sacrificial_preview(current_user: dict = Depends(get_current_user)
             eligible_tuples
         )
 
-        return [
-            CardPair(category=cat, name=name)
-            for cat, name in selected_cards
-        ]
+        # Trouver le file_id pour chaque carte
+        result = []
+        for cat, name in selected_cards:
+            file_id = None
+            for card in card_system.cards_by_category.get(cat, []):
+                if card["name"] == name:
+                    file_id = card.get("file_id")
+                    break
+            result.append(CardBase(category=cat, name=name, file_id=file_id, is_full=False))
+
+        return result
 
     except HTTPException:
         raise
@@ -389,7 +430,7 @@ async def get_sacrificial_preview(current_user: dict = Depends(get_current_user)
         )
 
 
-@router.post("/sacrificial", response_model=List[Card])
+@router.post("/sacrificial", response_model=DrawResult)
 async def perform_sacrificial_draw(current_user: dict = Depends(get_current_user)):
     """
     Effectue le tirage sacrificiel: sacrifice 5 cartes pour en obtenir 3 nouvelles.
@@ -512,7 +553,24 @@ async def perform_sacrificial_draw(current_user: dict = Depends(get_current_user
 
         logger.info(f"Tirage sacrificiel reussi pour {user_id}: 5 cartes sacrifiees, 3 obtenues")
 
-        return result_cards
+        # Vérifier les upgrades automatiques (5 cartes normales → 1 Full)
+        upgraded = await asyncio.to_thread(
+            card_system.check_and_upgrade_cards,
+            user_id
+        )
+        
+        upgraded_cards = [
+            UpgradedCard(
+                category=u["category"],
+                name=u["name"],
+                file_id=u.get("file_id"),
+                original_name=u["original_name"],
+                sacrificed_count=u["sacrificed_count"]
+            )
+            for u in upgraded
+        ]
+
+        return DrawResult(drawn_cards=result_cards, upgraded_cards=upgraded_cards)
 
     except HTTPException:
         raise

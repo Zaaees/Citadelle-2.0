@@ -15,8 +15,39 @@ from ..services.cards_service import card_system
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Cache simple en mémoire pour les images
-_image_cache = {}
+# Cache LRU pour les images (max 500 images, ~250MB si 500KB par image)
+from collections import OrderedDict
+
+class LRUImageCache:
+    """Cache LRU pour les images avec limite de taille."""
+
+    def __init__(self, max_size: int = 500):
+        self.cache = OrderedDict()
+        self.max_size = max_size
+
+    def get(self, key: str) -> bytes | None:
+        if key in self.cache:
+            # Déplacer en fin (most recently used)
+            self.cache.move_to_end(key)
+            return self.cache[key]
+        return None
+
+    def set(self, key: str, value: bytes):
+        if key in self.cache:
+            self.cache.move_to_end(key)
+        else:
+            if len(self.cache) >= self.max_size:
+                # Supprimer le plus ancien (least recently used)
+                self.cache.popitem(last=False)
+            self.cache[key] = value
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.cache
+
+    def __len__(self) -> int:
+        return len(self.cache)
+
+_image_cache = LRUImageCache(max_size=500)
 
 
 @router.get("/", response_model=List[Card])
@@ -108,7 +139,7 @@ async def get_recent_discoveries(
 @router.get("/image/{file_id}")
 async def get_card_image(file_id: str):
     """
-    Récupère l'image d'une carte depuis Google Drive avec cache.
+    Récupère l'image d'une carte depuis Google Drive avec cache LRU.
 
     Args:
         file_id: ID du fichier Google Drive
@@ -117,31 +148,31 @@ async def get_card_image(file_id: str):
         Image au format PNG
     """
     try:
-        # Vérifier le cache
-        if file_id in _image_cache:
-            logger.debug(f"📦 Image {file_id} depuis le cache")
+        # Vérifier le cache LRU
+        cached_image = _image_cache.get(file_id)
+        if cached_image is not None:
+            logger.debug(f"📦 Image {file_id} depuis le cache ({len(_image_cache)} en cache)")
             return Response(
-                content=_image_cache[file_id],
+                content=cached_image,
                 media_type="image/png",
                 headers={
-                    "Cache-Control": "public, max-age=86400",
+                    "Cache-Control": "public, max-age=604800",  # 7 jours
                     "Access-Control-Allow-Origin": "*"
                 }
             )
 
         logger.info(f"🖼️  Téléchargement de l'image {file_id}")
 
-        # Utiliser l'URL publique de Google Drive
         import httpx
 
-        # Essayer plusieurs URLs en fallback
+        # Essayer plusieurs URLs en fallback (URL la plus rapide en premier)
         urls = [
+            f"https://lh3.googleusercontent.com/d/{file_id}",
             f"https://drive.google.com/uc?export=view&id={file_id}",
             f"https://drive.google.com/uc?export=download&id={file_id}",
-            f"https://lh3.googleusercontent.com/d/{file_id}",
         ]
 
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             for i, url in enumerate(urls):
                 try:
                     response = await client.get(url)
@@ -149,17 +180,16 @@ async def get_card_image(file_id: str):
                     if response.status_code == 200 and len(response.content) > 500:
                         file_bytes = response.content
 
-                        # Mettre en cache (limiter à 100 images)
-                        if len(_image_cache) < 100:
-                            _image_cache[file_id] = file_bytes
+                        # Mettre en cache LRU (gère automatiquement la limite)
+                        _image_cache.set(file_id, file_bytes)
 
-                        logger.info(f"✅ Image {file_id} téléchargée avec URL {i+1} ({len(file_bytes)} bytes)")
+                        logger.info(f"✅ Image {file_id} téléchargée avec URL {i+1} ({len(file_bytes)} bytes, cache: {len(_image_cache)})")
 
                         return Response(
                             content=file_bytes,
                             media_type="image/png",
                             headers={
-                                "Cache-Control": "public, max-age=86400",
+                                "Cache-Control": "public, max-age=604800",  # 7 jours
                                 "Access-Control-Allow-Origin": "*"
                             }
                         )

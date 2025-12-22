@@ -23,7 +23,8 @@ async def get_user_collection(current_user: dict = Depends(get_current_user)):
     Returns:
         Collection de cartes avec nombre d'exemplaires et statistiques
     """
-    user_id = current_user["user_id"]
+    user_id = current_user["user_id"]  # int pour les services
+    user_id_str = current_user["user_id_str"]  # string pour la réponse API
 
     logger.info(f"Recuperation de la collection pour l'utilisateur {user_id}")
 
@@ -31,7 +32,7 @@ async def get_user_collection(current_user: dict = Depends(get_current_user)):
         collection_data = await card_system.get_user_collection(user_id)
 
         return UserCollection(
-            user_id=user_id,
+            user_id=user_id_str,
             cards=collection_data["cards"],
             total_cards=collection_data["total_cards"],
             unique_cards=collection_data["unique_cards"],
@@ -54,16 +55,17 @@ async def get_user_stats(current_user: dict = Depends(get_current_user)) -> Dict
     Returns:
         Statistiques detaillees (collection, tirages, echanges, etc.)
     """
-    user_id = current_user["user_id"]
+    user_id = current_user["user_id"]  # int pour les services
+    user_id_str = current_user["user_id_str"]  # string pour la réponse API
 
     logger.info(f"Recuperation des stats pour l'utilisateur {user_id}")
 
     try:
         stats = await card_system.get_user_stats(user_id)
 
-        # Ajouter les infos utilisateur
+        # Ajouter les infos utilisateur (user_id_str pour éviter perte de précision JS)
         stats["user"] = {
-            "user_id": user_id,
+            "user_id": user_id_str,
             "username": current_user.get("username", ""),
             "avatar": current_user.get("avatar"),
             "global_name": current_user.get("global_name")
@@ -89,12 +91,12 @@ async def get_user_discoveries(current_user: dict = Depends(get_current_user)):
     Returns:
         Liste des decouvertes de l'utilisateur
     """
-    user_id = current_user["user_id"]
+    user_id = current_user["user_id"]  # int
+    user_id_str = current_user["user_id_str"]  # string pour comparaison avec sheet
 
     logger.info(f"Recuperation des decouvertes pour l'utilisateur {user_id}")
 
     try:
-        user_id_str = str(user_id)
         discoveries_data = card_system.storage.sheet_discoveries.get_all_values()[1:]
 
         discoveries = []
@@ -125,7 +127,7 @@ async def get_user_vault(current_user: dict = Depends(get_current_user)):
     Returns:
         Liste des cartes dans le vault
     """
-    user_id = current_user["user_id"]
+    user_id = current_user["user_id"]  # int pour les services
 
     logger.info(f"Recuperation du vault pour l'utilisateur {user_id}")
 

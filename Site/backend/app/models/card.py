@@ -74,3 +74,21 @@ class RarityInfo(BaseModel):
     weight: float = Field(..., description="Poids de rareté (probabilité)")
     total_cards: int = Field(..., description="Nombre total de cartes dans cette catégorie")
     percentage: float = Field(..., description="Pourcentage de cette catégorie", ge=0, le=100)
+
+class UpgradedCard(BaseModel):
+    """Carte Full obtenue par upgrade (5 cartes normales → 1 Full)."""
+    category: str
+    name: str = Field(..., description="Nom de la carte Full (avec '(Full)')")
+    file_id: Optional[str] = None
+    original_name: str = Field(..., description="Nom de la carte normale d'origine")
+    sacrificed_count: int = Field(5, description="Nombre de cartes sacrifiées")
+
+
+class DrawResult(BaseModel):
+    """Résultat d'un tirage avec les cartes obtenues et les upgrades éventuels."""
+    drawn_cards: List[Card] = Field(..., description="Cartes obtenues par le tirage")
+    upgraded_cards: List[UpgradedCard] = Field(
+        default_factory=list,
+        description="Cartes Full obtenues par conversion automatique (5 normales → 1 Full)"
+    )
+

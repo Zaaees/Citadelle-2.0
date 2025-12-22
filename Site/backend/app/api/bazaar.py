@@ -30,6 +30,54 @@ async def ping_bazaar():
     return {"status": "ok", "message": "Bazaar router is working"}
 
 
+@router.get("/debug-open")
+async def debug_bazaar_open() -> Dict[str, Any]:
+    """
+    Endpoint de debug SANS authentification pour diagnostiquer rapidement.
+    """
+    try:
+        discovered_cards = await asyncio.to_thread(_get_discovered_cards)
+        all_owned = await asyncio.to_thread(_get_all_owned_cards)
+
+        # Exemples de cartes decouvertes
+        discovered_sample = list(discovered_cards)[:10]
+
+        # Exemples de cartes possedees
+        owned_sample = [(k, v) for k, v in list(all_owned.items())[:10]]
+
+        # Verifier les correspondances
+        matches = []
+        non_matches_discovered = []
+        non_matches_owned = []
+
+        for (cat, name), owners in list(all_owned.items())[:50]:
+            if (cat, name) in discovered_cards:
+                matches.append({"category": cat, "name": name, "owners_count": len(owners)})
+            else:
+                non_matches_owned.append({"category": cat, "name": name, "in_discovered": False})
+
+        # Cartes decouvertes qui ne sont pas possedees
+        for (cat, name) in list(discovered_cards)[:50]:
+            if (cat, name) not in all_owned:
+                non_matches_discovered.append({"category": cat, "name": name, "in_owned": False})
+
+        return {
+            "discovered_count": len(discovered_cards),
+            "owned_count": len(all_owned),
+            "matches_count": len([1 for (cat, name) in discovered_cards if (cat, name) in all_owned]),
+            "discovered_sample": [{"category": c, "name": n} for c, n in discovered_sample],
+            "owned_sample": [{"category": k[0], "name": k[1], "owners": v} for k, v in owned_sample],
+            "matches": matches[:10],
+            "non_matches_owned": non_matches_owned[:10],
+            "non_matches_discovered": non_matches_discovered[:10]
+        }
+
+    except Exception as e:
+        logger.error(f"Erreur debug-open: {e}")
+        import traceback
+        return {"error": str(e), "traceback": traceback.format_exc()}
+
+
 def _get_or_create_trade_requests_sheet():
     """Recupere ou cree la sheet des demandes d'echange."""
     try:

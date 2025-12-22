@@ -74,20 +74,22 @@ async def discord_callback(code: str):
     logger.info(f"✅ Données Discord reçues: {discord_user}")
 
     # Extraire les données Discord
+    # IMPORTANT: user_id doit rester une string pour eviter la perte de precision en JavaScript
+    # (les IDs Discord depassent 2^53, limite des nombres JS)
     user_data = {
-        "user_id": int(discord_user["id"]),
+        "user_id": discord_user["id"],  # Garder comme string!
         "username": discord_user["username"],
         "discriminator": discord_user.get("discriminator", "0"),
         "global_name": discord_user.get("global_name"),
         "avatar": discord_user.get("avatar"),
     }
 
-    logger.info(f"✅ Utilisateur connecté: {user_data['username']} (ID: {user_data['user_id']}) - Avatar: {user_data['avatar']}")
+    logger.info(f"Utilisateur connecte: {user_data['username']} (ID: {user_data['user_id']}) - Avatar: {user_data['avatar']}")
 
     # Mettre a jour le cache des utilisateurs pour afficher les pseudos dans les echanges
     try:
         card_system.update_user_cache(
-            user_data['user_id'],
+            int(user_data['user_id']),  # Convertir en int pour le cache
             user_data['username'],
             user_data.get('global_name')
         )

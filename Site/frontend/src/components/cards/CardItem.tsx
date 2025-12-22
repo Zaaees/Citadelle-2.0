@@ -1,5 +1,5 @@
-import { Sparkles } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { Sparkles, RefreshCw } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
 import type { Card } from '../../types/card'
 import { CATEGORY_COLORS } from '../../types/card'
 
@@ -10,26 +10,47 @@ interface CardItemProps {
 }
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-const IMAGE_TIMEOUT = 8000 // 8 secondes
+const IMAGE_TIMEOUT = 30000 // 30 secondes (augmenté car le backend peut être lent)
+const MAX_RETRIES = 2
 
 export default function CardItem({ card, count, onClick }: CardItemProps) {
   const colors = CATEGORY_COLORS[card.category]
   const [imageLoaded, setImageLoaded] = useState(false)
   const [imageError, setImageError] = useState(false)
-  const [showPlaceholder, setShowPlaceholder] = useState(false)
+  const [retryCount, setRetryCount] = useState(0)
+  const [imageKey, setImageKey] = useState(0) // Pour forcer le rechargement
+
+  // Fonction de retry manuel (reset complet)
+  const manualRetry = useCallback(() => {
+    setImageError(false)
+    setImageLoaded(false)
+    setRetryCount(0)
+    setImageKey(prev => prev + 1)
+  }, [])
+
+  // Fonction de retry automatique (incrémente le compteur)
+  const autoRetry = useCallback(() => {
+    setImageError(false)
+    setImageLoaded(false)
+    setRetryCount(prev => prev + 1)
+    setImageKey(prev => prev + 1)
+  }, [])
 
   // Timeout pour afficher le placeholder si l'image ne charge pas
   useEffect(() => {
     const timer = setTimeout(() => {
       if (!imageLoaded && !imageError) {
-        console.warn(`Image timeout for ${card.name} (${card.file_id})`)
-        setShowPlaceholder(true)
-        setImageError(true)
+        console.warn(`Image timeout for ${card.name} (${card.file_id}), retry ${retryCount}/${MAX_RETRIES}`)
+        if (retryCount < MAX_RETRIES) {
+          autoRetry()
+        } else {
+          setImageError(true)
+        }
       }
     }, IMAGE_TIMEOUT)
 
     return () => clearTimeout(timer)
-  }, [imageLoaded, imageError, card.name, card.file_id])
+  }, [imageLoaded, imageError, card.name, card.file_id, retryCount, autoRetry])
 
   return (
     <div
@@ -74,8 +95,9 @@ export default function CardItem({ card, count, onClick }: CardItemProps) {
               </div>
             )}
 
-            {/* Image */}
+            {/* Image avec key pour forcer le rechargement */}
             <img
+              key={imageKey}
               src={`${API_URL}/api/cards/image/${card.file_id}`}
               alt={card.name}
               className={`w-full h-full object-cover group-hover:scale-110 transition-all duration-300 ${
@@ -83,15 +105,19 @@ export default function CardItem({ card, count, onClick }: CardItemProps) {
               }`}
               loading="lazy"
               onLoad={() => setImageLoaded(true)}
-              onError={(e) => {
-                // Fallback si l'image ne charge pas
-                console.error(`Failed to load image for ${card.name} (${card.file_id})`)
-                setImageError(true)
-                setImageLoaded(true)
+              onError={() => {
+                console.error(`Failed to load image for ${card.name} (${card.file_id}), retry ${retryCount}/${MAX_RETRIES}`)
+                if (retryCount < MAX_RETRIES) {
+                  // Retry automatique après un délai
+                  setTimeout(() => autoRetry(), 1000 * (retryCount + 1))
+                } else {
+                  setImageError(true)
+                  setImageLoaded(true)
+                }
               }}
             />
 
-            {/* Error state */}
+            {/* Error state avec bouton retry */}
             {imageError && (
               <div className="absolute inset-0 bg-gradient-to-br from-dark-800 to-dark-900 flex items-center justify-center p-4">
                 <div className="text-center">
@@ -100,6 +126,16 @@ export default function CardItem({ card, count, onClick }: CardItemProps) {
                   </div>
                   <p className="text-xs text-gray-400 font-medium">{card.name}</p>
                   <p className="text-xs text-gray-600 mt-1">{card.category}</p>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      manualRetry()
+                    }}
+                    className="mt-2 p-1.5 rounded-full bg-dark-700 hover:bg-dark-600 transition-colors"
+                    title="Réessayer"
+                  >
+                    <RefreshCw className="w-4 h-4 text-gray-400" />
+                  </button>
                 </div>
               </div>
             )}

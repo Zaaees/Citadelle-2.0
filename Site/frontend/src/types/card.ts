@@ -74,10 +74,17 @@ export const CATEGORY_COLORS: Record<CardCategory, { bg: string; border: string;
     text: 'text-orange-300',
   },
   Élèves: {
-    bg: 'from-slate-800 via-gray-800 to-slate-800',
-    border: 'border-slate-500',
-    text: 'text-slate-300',
+    bg: 'from-stone-600 via-stone-500 to-stone-600',
+    border: 'border-stone-400',
+    text: 'text-stone-300',
   },
+}
+
+// Couleur spéciale pour les cartes Full (utilisée dans les stats)
+export const FULL_CATEGORY_COLOR = {
+  bg: 'from-yellow-600 via-amber-500 to-yellow-600',
+  border: 'border-yellow-500',
+  text: 'text-yellow-400',
 }
 
 // Interface pour une carte

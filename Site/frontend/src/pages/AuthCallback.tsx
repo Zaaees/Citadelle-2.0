@@ -39,6 +39,11 @@ export default function AuthCallback() {
       try {
         const authResponse = await authService.login(code)
 
+        // Debug: voir ce que le backend retourne
+        console.log('🔍 AuthCallback - authResponse:', authResponse)
+        console.log('🔍 AuthCallback - user:', authResponse.user)
+        console.log('🔍 AuthCallback - avatar:', authResponse.user.avatar)
+
         // Sauvegarder l'auth dans le store
         setAuth(authResponse.user, authResponse.access_token)
 

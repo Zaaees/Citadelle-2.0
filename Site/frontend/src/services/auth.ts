@@ -1,7 +1,9 @@
 import api from './api'
 
 export interface User {
-  user_id: number
+  // user_id est une string pour éviter la perte de précision en JavaScript
+  // (les IDs Discord dépassent 2^53, limite des nombres JS safe)
+  user_id: string
   username: string
   discriminator: string
   global_name?: string
@@ -62,7 +64,7 @@ export const authService = {
   /**
    * Vérifie si l'utilisateur est authentifié
    */
-  async checkAuthStatus(): Promise<{ authenticated: boolean; user_id?: number; username?: string }> {
+  async checkAuthStatus(): Promise<{ authenticated: boolean; user_id?: string; username?: string }> {
     try {
       const response = await api.get('/api/auth/status')
       return response.data
@@ -76,15 +78,17 @@ export const authService = {
    */
   getAvatarUrl(user: User): string {
     if (user.avatar) {
-      // S'assurer que l'ID est une string pour l'URL
-      return `https://cdn.discordapp.com/avatars/${String(user.user_id)}/${user.avatar}.png?size=128`
+      // Les avatars animés commencent par 'a_' - utiliser gif dans ce cas
+      const extension = user.avatar.startsWith('a_') ? 'gif' : 'png'
+      return `https://cdn.discordapp.com/avatars/${user.user_id}/${user.avatar}.${extension}?size=128`
     }
 
     // Avatar par défaut Discord basé sur le discriminator
     // Si pas de discriminator (nouveau système), utiliser l'ID
+    // user_id est maintenant une string, on utilise BigInt pour les calculs précis
     const defaultAvatarIndex = user.discriminator && user.discriminator !== '0'
       ? parseInt(user.discriminator) % 5
-      : (Number(user.user_id) >> 22) % 6
+      : Number((BigInt(user.user_id) >> BigInt(22)) % BigInt(6))
 
     return `https://cdn.discordapp.com/embed/avatars/${defaultAvatarIndex}.png`
   },

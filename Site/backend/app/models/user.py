@@ -9,7 +9,8 @@ from datetime import datetime
 
 class UserBase(BaseModel):
     """Modèle de base pour un utilisateur Discord."""
-    user_id: int = Field(..., description="Discord User ID")
+    # user_id est une string pour eviter la perte de precision en JavaScript (IDs > 2^53)
+    user_id: str = Field(..., description="Discord User ID")
     username: str = Field(..., description="Discord username")
     discriminator: str = Field(default="0", description="Discord discriminator")
     global_name: Optional[str] = Field(None, description="Discord display name")
