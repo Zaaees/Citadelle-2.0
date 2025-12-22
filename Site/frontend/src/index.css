@@ -36,6 +36,10 @@
   .btn-discord {
     @apply bg-[#5865F2] hover:bg-[#4752C4] text-white shadow-lg hover:shadow-xl transform hover:-translate-y-0.5;
   }
+
+  .input {
+    @apply w-full bg-dark-700 border border-dark-600 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all duration-200;
+  }
 }
 
 /* Animations personnalisées */

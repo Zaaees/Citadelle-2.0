@@ -22,6 +22,7 @@ from .cards.vault import VaultManager
 from .cards.drawing import DrawingManager
 from .cards.trading import TradingManager
 from .cards.forum import ForumManager
+from .cards.bazaar_notifier import BazaarNotifier, TradeExpirationChecker
 from .cards.config import *
 from .cards.utils import *
 from .cards.models import *
@@ -125,6 +126,12 @@ class Cards(commands.Cog):
                 # Initialiser le système de vérification automatique des upgrades
                 self._users_needing_upgrade_check = set()
 
+                # Initialiser le système de notifications Bazaar
+                self.bazaar_notifier = BazaarNotifier(self)
+                self.trade_expiration_checker = TradeExpirationChecker(self)
+                self.bazaar_notifier.start()
+                self.trade_expiration_checker.start()
+
                 logger.info("[CARDS] ✅ Tous les gestionnaires initialisés avec succès")
 
             except Exception as e:
@@ -138,6 +145,8 @@ class Cards(commands.Cog):
                 self.drawing_manager = None
                 self.trading_manager = None
                 self.forum_manager = None
+                self.bazaar_notifier = None
+                self.trade_expiration_checker = None
                 self._users_needing_upgrade_check = set()
         else:
             logger.warning("[CARDS] ⚠️ Gestionnaires non initialisés (storage indisponible)")
@@ -147,7 +156,18 @@ class Cards(commands.Cog):
             self.drawing_manager = None
             self.trading_manager = None
             self.forum_manager = None
+            self.bazaar_notifier = None
+            self.trade_expiration_checker = None
             self._users_needing_upgrade_check = set()
+
+    async def cog_unload(self):
+        """Arrete proprement les taches de fond lors du dechargement du cog."""
+        logger.info("[CARDS] Arret des taches de fond...")
+        if self.bazaar_notifier:
+            self.bazaar_notifier.stop()
+        if self.trade_expiration_checker:
+            self.trade_expiration_checker.stop()
+        logger.info("[CARDS] Taches de fond arretees")
 
     def _normalize_category_for_env_var(self, category: str) -> str:
         """

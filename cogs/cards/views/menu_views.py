@@ -408,34 +408,41 @@ class CardsMenuView(discord.ui.View):
                 ephemeral=True
             )
     
-    @discord.ui.button(label="Échanges", style=discord.ButtonStyle.secondary, row=1)
-    async def trading_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Bouton pour accéder au menu des échanges."""
+    @discord.ui.button(label="🏪 Bazaar", style=discord.ButtonStyle.secondary, row=1)
+    async def bazaar_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Bouton pour accéder au Bazaar (système d'échanges sur le site)."""
         if interaction.user.id != self.user.id:
             await interaction.response.send_message("Vous ne pouvez pas utiliser ce bouton.", ephemeral=True)
             return
-        
-        await interaction.response.defer(ephemeral=True)
 
-        try:
-            from .trade_views import ExchangeBoardView
+        # URL du Bazaar sur le site
+        BAZAAR_URL = "https://citadelle-2.onrender.com/trade"
 
-            board_view = await ExchangeBoardView.create(self.cog, self.user, interaction.guild)
+        embed = discord.Embed(
+            title="🏪 Bazaar - Système d'échanges",
+            description=(
+                "**Échangez vos cartes avec les autres joueurs !**\n\n"
+                "Le Bazaar vous permet de :\n"
+                "• 🔍 Rechercher des cartes par nom ou catégorie\n"
+                "• 👥 Voir qui possède la carte que vous cherchez\n"
+                "• 💱 Proposer un échange direct\n"
+                "• ⏰ Les demandes expirent après 24h\n\n"
+                f"**➡️ [Accéder au Bazaar]({BAZAAR_URL})**"
+            ),
+            color=0xF59E0B  # Couleur accent/or
+        )
+        embed.set_footer(text="Vous recevrez une notification Discord quand quelqu'un vous propose un échange !")
 
-            embed = discord.Embed(
-                title="🔄 Tableau d'échanges",
-                description="Déposez une carte ou échangez-en une avec un autre joueur.",
-                color=0x3498db
-            )
+        # Créer un bouton link vers le site
+        view = discord.ui.View()
+        view.add_item(discord.ui.Button(
+            label="Ouvrir le Bazaar",
+            url=BAZAAR_URL,
+            style=discord.ButtonStyle.link,
+            emoji="🏪"
+        ))
 
-            await interaction.followup.send(embed=embed, view=board_view, ephemeral=True)
-
-        except Exception as e:
-            logging.error(f"[MENU] Erreur lors de l'affichage du menu d'échange: {e}")
-            await interaction.followup.send(
-                "❌ Une erreur est survenue lors de l'affichage du menu d'échange.",
-                ephemeral=True
-            )
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
     
 # Ancien bouton tirage sacrificiel supprimé - maintenant placé après le tirage journalier
 
