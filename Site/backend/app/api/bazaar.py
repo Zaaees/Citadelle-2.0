@@ -53,9 +53,12 @@ def _get_discovered_cards() -> set:
     """Retourne l'ensemble des cartes decouvertes (category, name)."""
     try:
         discoveries = card_system.storage.sheet_discoveries.get_all_values()[1:]
-        return {(row[0], row[1]) for row in discoveries if len(row) >= 2}
+        # Normaliser les noms (strip espaces)
+        return {(row[0].strip(), row[1].strip()) for row in discoveries if len(row) >= 2 and row[0] and row[1]}
     except Exception as e:
         logger.error(f"Erreur lors de la lecture des decouvertes: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return set()
 
 
@@ -69,14 +72,22 @@ def _get_all_owned_cards() -> Dict[tuple, List[dict]]:
     try:
         cards_cache = card_system.storage.get_cards_cache()
         if not cards_cache:
+            logger.warning("[BAZAAR] Cache des cartes vide ou None")
             return result
+
+        logger.info(f"[BAZAAR] Cache des cartes: {len(cards_cache)} lignes")
 
         for row in cards_cache[1:]:  # Skip header
             if len(row) < 3:
                 continue
 
-            category = row[0]
-            name = row[1]
+            # Normaliser les noms (strip espaces)
+            category = row[0].strip() if row[0] else ""
+            name = row[1].strip() if row[1] else ""
+
+            if not category or not name:
+                continue
+
             key = (category, name)
 
             owners = []
@@ -97,6 +108,8 @@ def _get_all_owned_cards() -> Dict[tuple, List[dict]]:
 
     except Exception as e:
         logger.error(f"Erreur lors de la lecture des cartes: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
 
     return result
 
