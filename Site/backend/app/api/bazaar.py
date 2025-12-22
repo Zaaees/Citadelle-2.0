@@ -24,6 +24,12 @@ logger = logging.getLogger(__name__)
 TRADE_REQUESTS_SHEET = "TradeRequests"
 
 
+@router.get("/ping")
+async def ping_bazaar():
+    """Endpoint simple pour tester si le router fonctionne."""
+    return {"status": "ok", "message": "Bazaar router is working"}
+
+
 def _get_or_create_trade_requests_sheet():
     """Recupere ou cree la sheet des demandes d'echange."""
     try:
