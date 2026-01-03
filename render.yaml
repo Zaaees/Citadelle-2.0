@@ -24,12 +24,15 @@ services:
   # SERVICE 2: FRONTEND (Static Site) - Free
   - type: static
     name: citadelle-site
-    env: static
     buildCommand: cd Site/frontend && npm install && npm run build
-    publishDir: Site/frontend/dist
+    staticPublishPath: Site/frontend/dist
     envVars:
       - key: VITE_API_URL
         fromService:
           type: web
           name: citadelle-bot
           property: url
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
