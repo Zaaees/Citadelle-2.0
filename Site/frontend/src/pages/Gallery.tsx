@@ -30,7 +30,7 @@ export default function Gallery() {
   const { data: collection, isLoading, error } = useQuery({
     queryKey: ['user', 'collection'],
     queryFn: async () => {
-      const response = await api.get<UserCollection>('/api/user/collection')
+      const response = await api.get<UserCollection>('/api/cards/inventory')
       return response.data
     },
     enabled: isAuthenticated,
@@ -174,11 +174,10 @@ export default function Gallery() {
                         return (
                           <div
                             key={`${card.category}-${card.name}-${index}`}
-                            className={`relative bg-dark-700 rounded-lg overflow-hidden border-2 transition-colors ${
-                              card.is_full
+                            className={`relative bg-dark-700 rounded-lg overflow-hidden border-2 transition-colors ${card.is_full
                                 ? 'border-yellow-500/50 shadow-lg shadow-yellow-500/20'
                                 : 'border-dark-600 hover:border-primary/50'
-                            }`}
+                              }`}
                           >
                             {/* Image de la carte */}
                             {imageUrl ? (

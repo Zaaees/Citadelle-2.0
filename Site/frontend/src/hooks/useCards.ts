@@ -13,7 +13,7 @@ export function useCards(category?: CardCategory) {
       console.log('[useCards] Fetching cards...', { category })
       try {
         const params = category ? { category } : {}
-        const response = await api.get<Card[]>('/api/cards/', { params })
+        const response = await api.get<Card[]>('/api/cards/catalog', { params })
         console.log('[useCards] Cards fetched successfully:', response.data?.length, 'cards')
         return response.data
       } catch (error) {
@@ -64,7 +64,7 @@ export function useUserCollection() {
         total_cards: number
         unique_cards: number
         completion_percentage: number
-      }>('/api/user/collection')
+      }>('/api/cards/inventory')
       return response.data
     },
     enabled: isAuthenticated, // N'exécuter que si l'utilisateur est authentifié

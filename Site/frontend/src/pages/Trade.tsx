@@ -118,7 +118,7 @@ export default function Trade() {
   const { data: myCollection } = useQuery({
     queryKey: ['user', 'collection'],
     queryFn: async () => {
-      const response = await api.get<{ cards: MyCard[] }>('/api/user/collection')
+      const response = await api.get<{ cards: MyCard[] }>('/api/cards/inventory')
       return response.data
     },
   })
@@ -245,22 +245,20 @@ export default function Trade() {
       <div className="flex gap-2 mb-6 flex-wrap">
         <button
           onClick={() => setActiveTab('bazaar')}
-          className={`btn flex items-center gap-2 ${
-            activeTab === 'bazaar'
+          className={`btn flex items-center gap-2 ${activeTab === 'bazaar'
               ? 'bg-gradient-to-r from-primary to-secondary text-white'
               : 'bg-dark-700 text-gray-300 hover:bg-dark-600'
-          }`}
+            }`}
         >
           <Search className="w-4 h-4" />
           Rechercher
         </button>
         <button
           onClick={() => setActiveTab('requests')}
-          className={`btn flex items-center gap-2 relative ${
-            activeTab === 'requests'
+          className={`btn flex items-center gap-2 relative ${activeTab === 'requests'
               ? 'bg-gradient-to-r from-primary to-secondary text-white'
               : 'bg-dark-700 text-gray-300 hover:bg-dark-600'
-          }`}
+            }`}
         >
           <Inbox className="w-4 h-4" />
           Mes demandes
@@ -315,9 +313,8 @@ export default function Trade() {
                           setSelectedCategory('')
                           setShowCategoryDropdown(false)
                         }}
-                        className={`w-full px-4 py-2 text-left hover:bg-dark-700 ${
-                          !selectedCategory ? 'bg-primary/20 text-primary' : 'text-gray-300'
-                        }`}
+                        className={`w-full px-4 py-2 text-left hover:bg-dark-700 ${!selectedCategory ? 'bg-primary/20 text-primary' : 'text-gray-300'
+                          }`}
                       >
                         Toutes categories
                       </button>
@@ -328,9 +325,8 @@ export default function Trade() {
                             setSelectedCategory(cat)
                             setShowCategoryDropdown(false)
                           }}
-                          className={`w-full px-4 py-2 text-left hover:bg-dark-700 ${
-                            selectedCategory === cat ? 'bg-primary/20 text-primary' : 'text-gray-300'
-                          }`}
+                          className={`w-full px-4 py-2 text-left hover:bg-dark-700 ${selectedCategory === cat ? 'bg-primary/20 text-primary' : 'text-gray-300'
+                            }`}
                         >
                           {cat}
                         </button>
@@ -725,17 +721,16 @@ export default function Trade() {
                     {eligibleCards.map((card, index) => {
                       const colors = CATEGORY_COLORS[card.category as keyof typeof CATEGORY_COLORS]
                       const isSelected = myCardToOffer?.category === card.category &&
-                                        myCardToOffer?.name === card.name
+                        myCardToOffer?.name === card.name
 
                       return (
                         <button
                           key={`${card.category}-${card.name}-${index}`}
                           onClick={() => setMyCardToOffer(card)}
-                          className={`p-3 rounded-lg text-left transition-all ${
-                            isSelected
+                          className={`p-3 rounded-lg text-left transition-all ${isSelected
                               ? 'bg-accent/30 border-2 border-accent'
                               : 'bg-dark-700 border-2 border-transparent hover:border-primary/50'
-                          }`}
+                            }`}
                         >
                           <p className={`text-xs font-bold ${colors?.text || 'text-gray-400'}`}>
                             {card.category}
