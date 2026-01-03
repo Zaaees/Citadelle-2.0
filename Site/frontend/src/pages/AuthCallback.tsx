@@ -17,6 +17,8 @@ export default function AuthCallback() {
     if (hasAttempted.current) return
     hasAttempted.current = true
 
+    // Le backend renvoie directement un token JWT après OAuth
+    const token = searchParams.get('token')
     const code = searchParams.get('code')
     const errorParam = searchParams.get('error')
 
@@ -27,40 +29,54 @@ export default function AuthCallback() {
       return
     }
 
-    if (!code) {
-      setError('Code d\'authentification manquant')
-      toast.error('Erreur d\'authentification')
-      setTimeout(() => navigate('/'), 3000)
+    // Flow 1: Token reçu directement du backend (nouveau flow)
+    if (token) {
+      const handleToken = async () => {
+        try {
+          // Stocker le token
+          localStorage.setItem('auth_token', token)
+
+          // Récupérer les infos utilisateur
+          const user = await authService.getMe()
+          setAuth(user, token)
+
+          toast.success(`Bienvenue, ${user.global_name || user.username} !`)
+          setTimeout(() => navigate('/'), 1000)
+        } catch (err) {
+          console.error('Erreur lors de la récupération du profil:', err)
+          setError('Erreur lors de l\'authentification')
+          toast.error('Erreur d\'authentification')
+          setTimeout(() => navigate('/'), 3000)
+        }
+      }
+      handleToken()
       return
     }
 
-    // Échanger le code contre un token
-    const authenticate = async () => {
-      try {
-        const authResponse = await authService.login(code)
-
-        // Debug: voir ce que le backend retourne
-        console.log('🔍 AuthCallback - authResponse:', authResponse)
-        console.log('🔍 AuthCallback - user:', authResponse.user)
-        console.log('🔍 AuthCallback - avatar:', authResponse.user.avatar)
-
-        // Sauvegarder l'auth dans le store
-        setAuth(authResponse.user, authResponse.access_token)
-
-        // Afficher un message de succès
-        toast.success(`Bienvenue, ${authResponse.user.global_name || authResponse.user.username} !`)
-
-        // Rediriger vers la page d'accueil
-        setTimeout(() => navigate('/'), 1000)
-      } catch (err) {
-        console.error('Erreur d\'authentification:', err)
-        setError('Erreur lors de l\'authentification avec Discord')
-        toast.error('Erreur d\'authentification')
-        setTimeout(() => navigate('/'), 3000)
+    // Flow 2: Code reçu (ancien flow, fallback)
+    if (code) {
+      const authenticate = async () => {
+        try {
+          const authResponse = await authService.login(code)
+          console.log('🔍 AuthCallback - authResponse:', authResponse)
+          setAuth(authResponse.user, authResponse.access_token)
+          toast.success(`Bienvenue, ${authResponse.user.global_name || authResponse.user.username} !`)
+          setTimeout(() => navigate('/'), 1000)
+        } catch (err) {
+          console.error('Erreur d\'authentification:', err)
+          setError('Erreur lors de l\'authentification avec Discord')
+          toast.error('Erreur d\'authentification')
+          setTimeout(() => navigate('/'), 3000)
+        }
       }
+      authenticate()
+      return
     }
 
-    authenticate()
+    // Ni token ni code
+    setError('Code d\'authentification manquant')
+    toast.error('Erreur d\'authentification')
+    setTimeout(() => navigate('/'), 3000)
   }, [searchParams, navigate, setAuth])
 
   if (error) {
