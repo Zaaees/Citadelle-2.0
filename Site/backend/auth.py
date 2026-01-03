@@ -38,19 +38,29 @@ def get_oauth_url(state: str = "") -> str:
 
 async def exchange_code(code: str) -> Optional[dict]:
     """Échange le code d'autorisation contre un token d'accès Discord"""
+    # DEBUG: Afficher l'URL de callback utilisée
+    print(f"[DEBUG] exchange_code - redirect_uri: '{settings.discord_redirect_uri}'")
+    print(f"[DEBUG] exchange_code - client_id: '{settings.discord_client_id}'")
+    
     async with httpx.AsyncClient() as client:
         try:
+            request_data = {
+                "client_id": settings.discord_client_id,
+                "client_secret": settings.discord_client_secret,
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": settings.discord_redirect_uri,
+            }
+            print(f"[DEBUG] Request data (sans secret): {dict(request_data, client_secret='***')}")
+            
             response = await client.post(
                 f"{DISCORD_OAUTH_URL}/token",
-                data={
-                    "client_id": settings.discord_client_id,
-                    "client_secret": settings.discord_client_secret,
-                    "grant_type": "authorization_code",
-                    "code": code,
-                    "redirect_uri": settings.discord_redirect_uri,
-                },
+                data=request_data,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
+
+            print(f"[DEBUG] Discord response status: {response.status_code}")
+            print(f"[DEBUG] Discord response body: {response.text}")
 
             if response.status_code == 200:
                 return response.json()
