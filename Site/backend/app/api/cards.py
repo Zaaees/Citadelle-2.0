@@ -207,6 +207,23 @@ async def get_card_image(file_id: str):
         )
 
 
+
+@router.get("/inventory", response_model=dict)
+async def get_user_inventory(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Récupère l'inventaire de cartes de l'utilisateur connecté.
+    """
+    logger.info(f"Récupération inventaire pour {current_user.get('username')} ({current_user.get('id')})")
+    try:
+        inventory = await card_system.get_user_collection(int(current_user["id"]))
+        return inventory
+    except Exception as e:
+        logger.error(f"Erreur lors de la récupération de l'inventaire: {e}")
+        raise HTTPException(status_code=500, detail="Erreur lors de la récupération de l'inventaire")
+
+
 @router.get("/{category}/{name}", response_model=Card)
 async def get_card_details(
     category: str,
@@ -215,14 +232,15 @@ async def get_card_details(
 ):
     """
     Récupère les détails d'une carte spécifique.
-
+    
     Args:
         category: Catégorie de la carte
         name: Nom de la carte
-
+        
     Returns:
         Détails complets de la carte avec découvreur, etc.
     """
     # TODO: Implémenter la récupération depuis Google Sheets
     logger.info(f"Récupération de la carte: {category}/{name}")
     raise HTTPException(status_code=404, detail="Carte non trouvée")
+

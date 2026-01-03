@@ -35,6 +35,14 @@ async def discord_login():
     return {"authorization_url": oauth_url}
 
 
+@router.get("/login")
+async def login():
+    """
+    Alias pour /discord.
+    """
+    return await discord_login()
+
+
 @router.get("/discord/callback")
 async def discord_callback(code: str):
     """
