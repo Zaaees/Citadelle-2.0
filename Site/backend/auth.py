@@ -23,14 +23,16 @@ DISCORD_OAUTH_URL = "https://discord.com/api/oauth2"
 
 def get_oauth_url(state: str = "") -> str:
     """Génère l'URL d'autorisation Discord"""
+    import urllib.parse
     params = {
         "client_id": settings.discord_client_id,
         "redirect_uri": settings.discord_redirect_uri,
         "response_type": "code",
         "scope": "identify",
-        "state": state,
     }
-    query = "&".join(f"{k}={v}" for k, v in params.items())
+    if state:
+        params["state"] = state
+    query = urllib.parse.urlencode(params)
     return f"{DISCORD_OAUTH_URL}/authorize?{query}"
 
 
