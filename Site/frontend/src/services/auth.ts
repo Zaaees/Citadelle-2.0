@@ -19,16 +19,12 @@ export interface AuthResponse {
 
 export const authService = {
   /**
-   * Obtient l'URL d'autorisation Discord
+   * Obtient l'URL d'autorisation Discord (via le backend)
    */
   getDiscordAuthUrl(): string {
-    const clientId = import.meta.env.VITE_DISCORD_CLIENT_ID
-    const redirectUri = import.meta.env.VITE_DISCORD_REDIRECT_URI
-    const scope = 'identify'
-
-    return `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(
-      redirectUri
-    )}&response_type=code&scope=${scope}`
+    // On redirige vers le backend qui gère l'OAuth complet
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+    return `${apiUrl}/api/auth/login`
   },
 
   /**
