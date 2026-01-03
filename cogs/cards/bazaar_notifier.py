@@ -15,7 +15,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger("bazaar_notifier")
 
 # URL du Bazaar sur le site
-BAZAAR_URL = "https://citadelle-2.onrender.com/trade"
+import os
+
+# URL du Bazaar sur le site
+# Utilise la variable d'environnement FRONTEND_URL définie sur Render
+# Par défaut : localhost pour le dev, ou l'URL du site Render
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+BAZAAR_URL = f"{FRONTEND_URL}/trade"
 
 
 class BazaarNotifier:

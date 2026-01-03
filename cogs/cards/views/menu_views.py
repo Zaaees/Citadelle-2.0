@@ -416,7 +416,10 @@ class CardsMenuView(discord.ui.View):
             return
 
         # URL du Bazaar sur le site
-        BAZAAR_URL = "https://citadelle-2.onrender.com/trade"
+        # URL du Bazaar sur le site
+        import os
+        FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+        BAZAAR_URL = f"{FRONTEND_URL}/trade"
 
         embed = discord.Embed(
             title="🏪 Bazaar - Système d'échanges",
