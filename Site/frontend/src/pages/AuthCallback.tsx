@@ -33,11 +33,14 @@ export default function AuthCallback() {
     if (token) {
       const handleToken = async () => {
         try {
-          // Stocker le token
-          localStorage.setItem('auth_token', token)
+          // IMPORTANT: D'abord mettre le token dans le store pour que l'intercepteur API puisse l'utiliser
+          // On utilise un user temporaire, puis on le remplace par le vrai
+          useAuthStore.setState({ token })
 
-          // Récupérer les infos utilisateur
+          // Maintenant qu'on a le token dans le store, on peut appeler getMe
           const user = await authService.getMe()
+
+          // Mettre à jour le store avec le vrai user
           setAuth(user, token)
 
           toast.success(`Bienvenue, ${user.global_name || user.username} !`)
@@ -46,7 +49,7 @@ export default function AuthCallback() {
           console.error('Erreur lors de la récupération du profil:', err)
           setError('Erreur lors de l\'authentification')
           toast.error('Erreur d\'authentification')
-          setTimeout(() => navigate('/'), 3000)
+          setTimeout(() => navigate('/'), 5000) // Plus de temps pour voir l'erreur
         }
       }
       handleToken()
