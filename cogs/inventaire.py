@@ -63,9 +63,13 @@ class Inventory(commands.Cog):
             
         for attempt in range(max_retries):
             try:
+                creds_dict = json.loads(os.getenv('SERVICE_ACCOUNT_JSON'))
+                if 'private_key' in creds_dict:
+                    creds_dict['private_key'] = creds_dict['private_key'].replace('\\n', '\n')
+                
                 creds = await asyncio.to_thread(
                     ServiceAccountCredentials.from_service_account_info,
-                    json.loads(os.getenv('SERVICE_ACCOUNT_JSON')),
+                    creds_dict,
                     scopes=self.SCOPES
                 )
                 self.client = await asyncio.to_thread(gspread.authorize, creds)

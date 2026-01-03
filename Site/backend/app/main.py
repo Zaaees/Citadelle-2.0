@@ -54,6 +54,15 @@ async def startup_event():
     logger.info(f"📝 Environment: {settings.ENVIRONMENT}")
     logger.info(f"🔗 Frontend URL: {settings.FRONTEND_URL}")
 
+    # Initialiser le service de cartes au demarrage pour eviter le lag/timeout a la premiere requete
+    from .services.cards_service import CardSystemService, card_system
+    try:
+        # card_system est deja instancie par le module, mais on doit appeler initialize explicitly
+        card_system.initialize()
+        logger.info("✅ CardSystemService pre-initialized")
+    except Exception as e:
+        logger.error(f"❌ Failed to pre-initialize CardSystemService: {e}")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():

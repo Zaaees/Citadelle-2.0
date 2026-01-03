@@ -62,8 +62,12 @@ class Bump(commands.Cog):
             # Créer le service Google Sheets avec timeout
             def _build_service():
                 self.logger.info("🔧 Création du service Google Sheets...")
+                credentials_info = self.SERVICE_ACCOUNT_JSON.copy()
+                if 'private_key' in credentials_info:
+                    credentials_info['private_key'] = credentials_info['private_key'].replace('\\n', '\n')
+                
                 credentials = service_account.Credentials.from_service_account_info(
-                    self.SERVICE_ACCOUNT_JSON,
+                    credentials_info,
                     scopes=['https://www.googleapis.com/auth/spreadsheets']
                 )
                 service = build('sheets', 'v4', credentials=credentials)

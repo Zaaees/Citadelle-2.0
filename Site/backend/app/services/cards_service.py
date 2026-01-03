@@ -47,76 +47,102 @@ class CardSystemService:
 
     def __init__(self):
         """Initialise le service (une seule fois grâce au singleton)."""
+        # Ne pas initialiser automatiquement a l'instanciation pour eviter de bloquer les imports
+        pass
+
+    def initialize(self):
+        """Initialise la connexion Google Sheets et les managers."""
         if not CardSystemService._initialized:
-            self._initialize()
+            self._initialize_internal()
             CardSystemService._initialized = True
 
-    def _initialize(self):
+    def _initialize_internal(self):
         """Initialise la connexion Google Sheets et les managers."""
-        try:
-            logger.info("🔄 Initialisation du CardSystemService...")
+        import time
+        max_retries = 5
+        base_delay = 2
 
-            # Connexion à Google Sheets
-            scope = [
-                'https://spreadsheets.google.com/feeds',
-                'https://www.googleapis.com/auth/drive'
-            ]
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    logger.info(f"🔄 Tentative d'initialisation {attempt + 1}/{max_retries}...")
+                else:
+                    logger.info("🔄 Initialisation du CardSystemService...")
 
-            creds = ServiceAccountCredentials.from_json_keyfile_dict(
-                settings.SERVICE_ACCOUNT_INFO,
-                scope
-            )
-
-            self.gspread_client = gspread.authorize(creds)
-
-            # Initialiser Google Drive service
-            from google.oauth2.service_account import Credentials as GoogleCredentials
-            from googleapiclient.discovery import build
-
-            google_creds = GoogleCredentials.from_service_account_info(
-                settings.SERVICE_ACCOUNT_INFO,
-                scopes=[
-                    'https://www.googleapis.com/auth/spreadsheets',
+                # Connexion à Google Sheets
+                scope = [
+                    'https://spreadsheets.google.com/feeds',
                     'https://www.googleapis.com/auth/drive'
                 ]
-            )
-            self.drive_service = build('drive', 'v3', credentials=google_creds)
 
-            # Initialiser le storage
-            self.storage = CardsStorage(
-                self.gspread_client,
-                settings.GOOGLE_SHEET_ID
-            )
+                creds = ServiceAccountCredentials.from_json_keyfile_dict(
+                    settings.SERVICE_ACCOUNT_INFO,
+                    scope
+                )
 
-            # Charger les cartes depuis Google Drive
-            self.cards_by_category, self.upgrade_cards_by_category = self._load_cards_from_drive()
+                self.gspread_client = gspread.authorize(creds)
 
-            # Initialiser les managers
-            self.drawing_manager = DrawingManager(
-                self.storage,
-                self.cards_by_category,
-                self.upgrade_cards_by_category
-            )
+                # Initialiser Google Drive service
+                from google.oauth2.service_account import Credentials as GoogleCredentials
+                from googleapiclient.discovery import build
 
-            self.vault_manager = VaultManager(self.storage)
+                google_creds = GoogleCredentials.from_service_account_info(
+                    settings.SERVICE_ACCOUNT_INFO,
+                    scopes=[
+                        'https://www.googleapis.com/auth/spreadsheets',
+                        'https://www.googleapis.com/auth/drive'
+                    ]
+                )
+                self.drive_service = build('drive', 'v3', credentials=google_creds)
 
-            self.trading_manager = TradingManager(
-                self.storage,
-                self.vault_manager
-            )
+                # Initialiser le storage
+                self.storage = CardsStorage(
+                    self.gspread_client,
+                    settings.GOOGLE_SHEET_ID
+                )
 
-            # Injecter les méthodes nécessaires dans le trading manager
-            self.trading_manager._user_has_card = self._user_has_card
-            self.trading_manager._add_card_to_user = self._add_card_to_user
-            self.trading_manager._remove_card_from_user = self._remove_card_from_user
+                # Charger les cartes depuis Google Drive
+                self.cards_by_category, self.upgrade_cards_by_category = self._load_cards_from_drive()
 
-            logger.info("✅ CardSystemService initialisé avec succès")
+                # Initialiser les managers
+                self.drawing_manager = DrawingManager(
+                    self.storage,
+                    self.cards_by_category,
+                    self.upgrade_cards_by_category
+                )
 
-        except Exception as e:
-            logger.error(f"❌ Erreur lors de l'initialisation du CardSystemService: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            raise
+                # Charger le cache utilisateurs en memoire
+                self._reload_user_cache()
+
+                self.vault_manager = VaultManager(self.storage)
+
+                self.trading_manager = TradingManager(
+                    self.storage,
+                    self.vault_manager
+                )
+
+                # Injecter les méthodes nécessaires dans le trading manager
+                self.trading_manager._user_has_card = self._user_has_card
+                self.trading_manager._add_card_to_user = self._add_card_to_user
+                self.trading_manager._remove_card_from_user = self._remove_card_from_user
+
+                logger.info("✅ CardSystemService initialisé avec succès")
+                return # Succès, on sort de la boucle
+
+            except Exception as e:
+                # Vérifier si c'est une erreur de quota
+                error_str = str(e)
+                is_quota = "429" in error_str or "Quota exceeded" in error_str or "RESOURCE_EXHAUSTED" in error_str
+                
+                if is_quota and attempt < max_retries - 1:
+                    wait_time = base_delay * (2 ** attempt) # Backoff exponentiel: 2, 4, 8, 16s...
+                    logger.warning(f"⚠️ Erreur de quota Google (429). Nouvelle tentative dans {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"❌ Erreur critique lors de l'initialisation du CardSystemService: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                    raise e
 
     def _load_cards_from_drive(self) -> Tuple[Dict[str, List[Dict]], Dict[str, List[Dict]]]:
         """
@@ -165,10 +191,12 @@ class CardSystemService:
 
                 try:
                     # Cartes normales
+                    logger.info(f"  > Listing files for {category} (Folder ID: {folder_id})...")
                     results = self.drive_service.files().list(
                         q=f"'{folder_id}' in parents",
                         fields="files(id, name, mimeType)"
                     ).execute()
+                    logger.info(f"  < Done listing {category}")
 
                     files = [
                         f for f in results.get('files', [])
@@ -190,10 +218,12 @@ class CardSystemService:
                     full_folder_id = FULL_FOLDER_IDS.get(category)
                     if full_folder_id:
                         try:
+                            logger.info(f"  > Listing FULL files for {category} (Folder ID: {full_folder_id})...")
                             full_results = self.drive_service.files().list(
                                 q=f"'{full_folder_id}' in parents",
                                 fields="files(id, name, mimeType)"
                             ).execute()
+                            logger.info(f"  < Done listing FULL for {category}")
 
                             full_files = [
                                 f for f in full_results.get('files', [])
@@ -827,14 +857,54 @@ class CardSystemService:
     # Cache des utilisateurs (pour afficher les pseudos Discord)
     # ----------------------------------------------------------------
 
+    # ----------------------------------------------------------------
+    # Cache des utilisateurs (pour afficher les pseudos Discord)
+    # ----------------------------------------------------------------
+
+    def _reload_user_cache(self):
+        """Charge le cache des utilisateurs en mémoire depuis la Sheet."""
+        try:
+            try:
+                sheet_users = self.storage.spreadsheet.worksheet("UserCache")
+            except Exception:
+                sheet_users = self.storage.spreadsheet.add_worksheet(
+                    title="UserCache", rows="1000", cols="4"
+                )
+                sheet_users.append_row(["user_id", "username", "global_name", "last_seen"])
+                return
+
+            rows = sheet_users.get_all_values()
+            self.local_user_cache = {}
+            
+            for row in rows[1:]:  # Skip header
+                if len(row) >= 2:
+                    uid = row[0].strip()
+                    username = row[1]
+                    global_name = row[2] if len(row) >= 3 else ""
+                    self.local_user_cache[uid] = global_name or username
+            
+            logger.info(f"✅ Cache utilisateurs chargé en mémoire ({len(self.local_user_cache)} utilisateurs)")
+
+        except Exception as e:
+            logger.error(f"Erreur chargement cache utilisateurs: {e}")
+            self.local_user_cache = {}
+
     def update_user_cache(self, user_id: int, username: str, global_name: Optional[str] = None) -> None:
         """
         Met a jour le cache des utilisateurs avec le pseudo Discord.
-        Cree ou met a jour une feuille 'UserCache' dans Google Sheets.
-        Format: user_id | username | global_name | last_seen
+        Met à jour la mémoire ET Google Sheets.
         """
         try:
-            # Obtenir ou creer la feuille UserCache
+            user_id_str = str(user_id)
+            display_name = global_name or username
+            
+            # Mise à jour mémoire
+            if not hasattr(self, 'local_user_cache'):
+                self.local_user_cache = {}
+            self.local_user_cache[user_id_str] = display_name
+
+            # Mise à jour Sheets (Async/Fire-and-forget via asyncio.to_thread idéalement, mais ici on garde sync pour la sécurité)
+            # On ne fait la mise à jour Sheet que si nécessaire pour éviter les appels trop fréquents
             try:
                 sheet_users = self.storage.spreadsheet.worksheet("UserCache")
             except Exception:
@@ -843,52 +913,33 @@ class CardSystemService:
                 )
                 sheet_users.append_row(["user_id", "username", "global_name", "last_seen"])
 
-            user_id_str = str(user_id)
             from datetime import datetime
             import pytz
             now = datetime.now(pytz.timezone("Europe/Paris")).isoformat()
 
             # Chercher si l'utilisateur existe deja
-            all_rows = sheet_users.get_all_values()
-            for i, row in enumerate(all_rows[1:], start=2):
-                if len(row) >= 1 and row[0] == user_id_str:
-                    # Mettre a jour
-                    sheet_users.update(f"A{i}", [[user_id_str, username, global_name or "", now]])
-                    logger.info(f"Cache utilisateur mis a jour: {username} ({user_id})")
-                    return
-
-            # Ajouter nouvel utilisateur
-            sheet_users.append_row([user_id_str, username, global_name or "", now])
-            logger.info(f"Nouvel utilisateur dans le cache: {username} ({user_id})")
+            cell = sheet_users.find(user_id_str, in_column=1)
+            if cell:
+                # Update row
+                sheet_users.update(f"A{cell.row}:D{cell.row}", [[user_id_str, username, global_name or "", now]])
+            else:
+                # Append
+                sheet_users.append_row([user_id_str, username, global_name or "", now])
+            
+            logger.info(f"Cache utilisateur mis a jour: {username} ({user_id})")
 
         except Exception as e:
             logger.error(f"Erreur lors de la mise a jour du cache utilisateur: {e}")
 
     def get_username(self, user_id: int) -> Optional[str]:
         """
-        Recupere le pseudo Discord d'un utilisateur depuis le cache.
-
-        Returns:
-            Le global_name si disponible, sinon le username, sinon None
+        Recupere le pseudo Discord d'un utilisateur depuis le cache mémoire.
         """
         try:
-            try:
-                sheet_users = self.storage.spreadsheet.worksheet("UserCache")
-            except Exception:
-                return None
-
-            user_id_str = str(user_id)
-            all_rows = sheet_users.get_all_values()
-
-            for row in all_rows[1:]:
-                if len(row) >= 2 and row[0] == user_id_str:
-                    # Retourner global_name si present, sinon username
-                    if len(row) >= 3 and row[2]:
-                        return row[2]
-                    return row[1]
-
-            return None
-
+            if not hasattr(self, 'local_user_cache') or self.local_user_cache is None:
+                self._reload_user_cache()
+            
+            return self.local_user_cache.get(str(user_id))
         except Exception as e:
             logger.error(f"Erreur lors de la recuperation du pseudo: {e}")
             return None

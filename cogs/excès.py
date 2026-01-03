@@ -31,6 +31,8 @@ class Exces(commands.Cog):
             raise RuntimeError("L'ENV SERVICE_ACCOUNT_JSON n'est pas défini ou vide.")
         try:
             info = json.loads(sa_json)
+            if 'private_key' in info:
+                info['private_key'] = info['private_key'].replace('\\n', '\n')
         except json.JSONDecodeError as e:
             raise RuntimeError("SERVICE_ACCOUNT_JSON contient un JSON invalide.") from e
         creds = Credentials.from_service_account_info(info, scopes=scope)

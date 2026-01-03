@@ -196,8 +196,12 @@ class Vocabulaire(commands.Cog):
         scope = ['https://spreadsheets.google.com/feeds',
                  'https://www.googleapis.com/auth/drive']
         
+        creds_dict = json.loads(os.getenv('SERVICE_ACCOUNT_JSON'))
+        if 'private_key' in creds_dict:
+            creds_dict['private_key'] = creds_dict['private_key'].replace('\\n', '\n')
+            
         credentials = ServiceAccountCredentials.from_json_keyfile_dict(
-            json.loads(os.getenv('SERVICE_ACCOUNT_JSON')), 
+            creds_dict, 
             scope
         )
         

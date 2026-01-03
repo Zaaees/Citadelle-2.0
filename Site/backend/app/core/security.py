@@ -93,7 +93,10 @@ async def exchange_discord_code(code: str) -> Optional[Dict[str, Any]]:
             )
             response.raise_for_status()
             return response.json()
-        except httpx.HTTPError:
+        except httpx.HTTPError as e:
+            print(f"❌ Discord OAuth Error: {e}")
+            if hasattr(e, 'response') and e.response:
+                print(f"Response: {e.response.text}")
             return None
 
 
