@@ -8,7 +8,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
-from typing import List, Tuple, Dict, Optional, Set
+from typing import List, Tuple, Dict, Optional, Set, Any
 from datetime import datetime, timedelta
 from threading import RLock
 import hashlib
@@ -35,9 +35,38 @@ class CardsStorageService:
     def __init__(self):
         self.settings = get_settings()
         self._init_google_clients()
+        self._init_sheets()
         self._init_locks()
         self._init_cache()
         self._load_card_files()
+
+    def _init_sheets(self):
+        """Initialise les feuilles de calcul pour un accès public (requis par Bazaar)"""
+        try:
+            # Sheets principales
+            self.sheet_cards = self.spreadsheet.sheet1
+            
+            # Helper pour safely get worksheet
+            def get_or_create(title, rows="1000", cols="10"):
+                try:
+                    return self.spreadsheet.worksheet(title)
+                except gspread.exceptions.WorksheetNotFound:
+                    return self.spreadsheet.add_worksheet(title=title, rows=rows, cols=cols)
+
+            self.sheet_lancement = get_or_create("Lancement")
+            self.sheet_daily_draw = get_or_create("Tirages Journaliers")
+            self.sheet_sacrificial_draw = get_or_create("Tirages Sacrificiels")
+            self.sheet_discoveries = get_or_create("Découvertes")
+            self.sheet_vault = get_or_create("Vault")
+            self.sheet_weekly_exchanges = get_or_create("Échanges Hebdomadaires")
+            self.sheet_bonus = get_or_create("Bonus")
+            self.sheet_notifications = get_or_create("Notifications")
+            
+            self._init_exchange_sheet()
+            
+        except Exception as e:
+            logger.error(f"Error initializing sheets: {e}")
+            raise
 
     def _init_google_clients(self):
         """Initialise les clients Google API"""
@@ -57,6 +86,7 @@ class CardsStorageService:
         self._cards_lock = RLock()
         self._vault_lock = RLock()
         self._cache_lock = RLock()
+        self._board_lock = RLock()
 
     def _init_cache(self):
         """Initialise le cache"""
@@ -316,7 +346,7 @@ class CardsStorageService:
     def can_perform_daily_draw(self, user_id: str) -> bool:
         """Vérifie si l'utilisateur peut faire son tirage journalier"""
         try:
-            sheet = self.spreadsheet.worksheet("Lancement")
+            sheet = self.sheet_lancement
             all_data = sheet.get_all_values()
 
             today = datetime.now().strftime("%Y-%m-%d")
@@ -333,7 +363,7 @@ class CardsStorageService:
     def record_daily_draw(self, user_id: str) -> bool:
         """Enregistre un tirage journalier"""
         try:
-            sheet = self.spreadsheet.worksheet("Lancement")
+            sheet = self.sheet_lancement
             today = datetime.now().strftime("%Y-%m-%d")
             sheet.append_row([str(user_id), today])
             return True
@@ -346,7 +376,7 @@ class CardsStorageService:
     def can_perform_sacrificial_draw(self, user_id: str) -> bool:
         """Vérifie si l'utilisateur peut faire un tirage sacrificiel"""
         try:
-            sheet = self.spreadsheet.worksheet("Tirages Sacrificiels")
+            sheet = self.sheet_sacrificial_draw
             all_data = sheet.get_all_values()
 
             today = datetime.now().strftime("%Y-%m-%d")
@@ -363,7 +393,7 @@ class CardsStorageService:
     def record_sacrificial_draw(self, user_id: str) -> bool:
         """Enregistre un tirage sacrificiel"""
         try:
-            sheet = self.spreadsheet.worksheet("Tirages Sacrificiels")
+            sheet = self.sheet_sacrificial_draw
             today = datetime.now().strftime("%Y-%m-%d")
             sheet.append_row([str(user_id), today])
             return True
@@ -413,7 +443,7 @@ class CardsStorageService:
     def get_user_bonus_count(self, user_id: str) -> int:
         """Retourne le nombre de tirages bonus disponibles"""
         try:
-            sheet = self.spreadsheet.worksheet("Bonus")
+            sheet = self.sheet_bonus
             all_data = sheet.get_all_values()
 
             total = 0
@@ -432,7 +462,7 @@ class CardsStorageService:
     def use_bonus_draw(self, user_id: str) -> bool:
         """Utilise un tirage bonus"""
         try:
-            sheet = self.spreadsheet.worksheet("Bonus")
+            sheet = self.sheet_bonus
             all_data = sheet.get_all_values()
 
             for idx, row in enumerate(all_data, start=1):
@@ -460,7 +490,7 @@ class CardsStorageService:
             return cached
 
         try:
-            sheet = self.spreadsheet.worksheet("Découvertes")
+            sheet = self.sheet_discoveries
             all_data = sheet.get_all_values()
 
             discovered = set()
@@ -477,7 +507,7 @@ class CardsStorageService:
     def log_discovery(self, category: str, name: str, user_id: str, user_name: str) -> int:
         """Enregistre une nouvelle découverte"""
         try:
-            sheet = self.spreadsheet.worksheet("Découvertes")
+            sheet = self.sheet_discoveries
             all_data = sheet.get_all_values()
 
             # Calculer l'index de découverte
@@ -502,7 +532,7 @@ class CardsStorageService:
     def get_discovery_info(self, category: str, name: str) -> Optional[dict]:
         """Retourne les informations de découverte d'une carte"""
         try:
-            sheet = self.spreadsheet.worksheet("Découvertes")
+            sheet = self.sheet_discoveries
             all_data = sheet.get_all_values()
 
             for row in all_data[1:]:
@@ -532,7 +562,7 @@ class CardsStorageService:
 
         with self._vault_lock:
             try:
-                sheet = self.spreadsheet.worksheet("Vault")
+                sheet = self.sheet_vault
                 all_data = sheet.get_all_values()
 
                 if not all_data:
@@ -585,7 +615,7 @@ class CardsStorageService:
 
             # Ajouter au coffre (logique similaire à add_card_to_user mais sur Vault sheet)
             try:
-                sheet = self.spreadsheet.worksheet("Vault")
+                sheet = self.sheet_vault
                 all_data = sheet.get_all_values()
 
                 if not all_data:
@@ -641,12 +671,110 @@ class CardsStorageService:
         # Implémentation similaire à add_to_vault mais inversée
         pass  # TODO: implémenter
 
+    # ============== Tableau d'échanges (Bazaar) ==============
+
+    def _init_exchange_sheet(self):
+        """Initialise la feuille du tableau d'échanges."""
+        try:
+            self.sheet_exchange = self.spreadsheet.worksheet("Tableau Echanges")
+        except gspread.exceptions.WorksheetNotFound:
+            self.sheet_exchange = self.spreadsheet.add_worksheet(
+                title="Tableau Echanges", rows="1000", cols="6"
+            )
+            self.sheet_exchange.append_row([
+                "id", "owner", "cat", "name", "timestamp", "comment"
+            ])
+            return
+
+        # Gérer les anciennes feuilles sans la colonne comment
+        try:
+            all_values = self.sheet_exchange.get_all_values()
+            header = all_values[0] if all_values else []
+            if "comment" not in header:
+                current_cols = len(header)
+                if current_cols < 6:
+                    self.sheet_exchange.add_cols(6 - current_cols)
+                self.sheet_exchange.update_cell(1, current_cols + 1, "comment")
+        except Exception as e:
+            logger.error(f"Erreur lors de la mise à niveau de la feuille d'échanges: {e}")
+
+    def create_exchange_entry(self, owner: int, cat: str, name: str,
+                              timestamp: str, comment: Optional[str] = None) -> Optional[int]:
+        """Crée une entrée sur le tableau d'échanges."""
+        try:
+            with self._board_lock:
+                all_values = self.sheet_exchange.get_all_values()
+                next_id = 1
+                if len(all_values) > 1:
+                    ids = [int(r[0]) for r in all_values[1:] if r and r[0].isdigit()]
+                    if ids:
+                        next_id = max(ids) + 1
+                self.sheet_exchange.append_row([
+                    str(next_id), str(owner), cat, name, timestamp, comment or ""
+                ])
+                return next_id
+        except Exception as e:
+            logger.error(f"Erreur lors de la création d'une entrée d'échange: {e}")
+            return None
+
+    def get_exchange_entries(self) -> List[Dict[str, Any]]:
+        """Retourne toutes les entrées du tableau d'échanges."""
+        try:
+            with self._board_lock:
+                records = self.sheet_exchange.get_all_records()
+                for r in records:
+                    if "comment" not in r:
+                        r["comment"] = None
+                    elif r["comment"] == "":
+                        r["comment"] = None
+                return records
+        except Exception as e:
+            logger.error(f"Erreur lors de la lecture du tableau d'échanges: {e}")
+            return []
+
+    def get_exchange_entry(self, entry_id: int) -> Optional[Dict[str, Any]]:
+        """Récupère une entrée spécifique par son ID."""
+        entries = self.get_exchange_entries()
+        for entry in entries:
+            if str(entry.get("id")) == str(entry_id):
+                return entry
+        return None
+
+    def update_exchange_entry(self, entry_id: int, **fields) -> bool:
+        """Met à jour une entrée existante."""
+        col_map = {"id": 1, "owner": 2, "cat": 3, "name": 4, "timestamp": 5, "comment": 6}
+        try:
+            with self._board_lock:
+                cell = self.sheet_exchange.find(str(entry_id))
+                if not cell:
+                    return False
+                for key, value in fields.items():
+                    if key in col_map:
+                        self.sheet_exchange.update_cell(cell.row, col_map[key], str(value))
+                return True
+        except Exception as e:
+            logger.error(f"Erreur lors de la mise à jour d'une entrée d'échange: {e}")
+            return False
+
+    def delete_exchange_entry(self, entry_id: int) -> bool:
+        """Supprime une entrée du tableau d'échanges."""
+        try:
+            with self._board_lock:
+                cell = self.sheet_exchange.find(str(entry_id))
+                if not cell:
+                    return False
+                self.sheet_exchange.delete_rows(cell.row)
+                return True
+        except Exception as e:
+            logger.error(f"Erreur lors de la suppression d'une entrée d'échange: {e}")
+            return False
+
     # ============== Échanges hebdomadaires ==============
 
     def get_weekly_trades_count(self, user_id: str) -> int:
         """Retourne le nombre d'échanges effectués cette semaine"""
         try:
-            sheet = self.spreadsheet.worksheet("Échanges Hebdomadaires")
+            sheet = self.sheet_weekly_exchanges
             all_data = sheet.get_all_values()
 
             # Calculer la clé de semaine actuelle
@@ -672,7 +800,7 @@ class CardsStorageService:
     def record_weekly_trade(self, user_id: str) -> bool:
         """Enregistre un échange hebdomadaire"""
         try:
-            sheet = self.spreadsheet.worksheet("Échanges Hebdomadaires")
+            sheet = self.sheet_weekly_exchanges
             all_data = sheet.get_all_values()
 
             now = datetime.now()

@@ -14,6 +14,17 @@ backend_path = os.path.join(current_dir, 'Site', 'backend')
 if backend_path not in sys.path:
     sys.path.append(backend_path)
 
+# Charger les variables d'environnement AVANT d'importer le backend
+try:
+    from dotenv import load_dotenv
+    env_path = os.path.join(backend_path, '.env')
+    print(f"🔄 [UnifiedServer] Loading .env from {env_path}")
+    load_dotenv(env_path)
+except ImportError:
+    print("⚠️ [UnifiedServer] python-dotenv not installed, assuming env vars are set")
+except Exception as e:
+    print(f"⚠️ [UnifiedServer] Error loading .env: {e}")
+
 try:
     # Utilisation de importlib pour éviter le conflit de nom avec 'main.py' racine
     import importlib.util
