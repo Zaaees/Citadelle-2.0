@@ -8,7 +8,12 @@ from dotenv import load_dotenv
 import time
 import asyncio
 from datetime import datetime
-from server_minimal import start_server_thread, update_bot_health
+from server_unified import start_unified_server, backend_path
+# Assurer que le backend est accessible pour tout le processus
+import sys
+if backend_path not in sys.path:
+    sys.path.append(backend_path)
+from server_minimal import update_bot_health
 from watchdog_discord import create_watchdog, get_watchdog
 
 # Configuration des logs - moins verbose
@@ -236,9 +241,9 @@ class BotManagerStable:
 
     def start_support_threads(self):
         """Démarrer les threads de support."""
-        # Serveur HTTP pour health checks
-        server_thread = start_server_thread()
-        logger.info("📡 Serveur HTTP démarré")
+        # Serveur HTTP pour health checks ET API Backend
+        server_thread = start_unified_server()
+        logger.info("📡 Serveur Unifié (Bot + API) démarré")
 
         # Thread de log périodique pour vérifier que le bot tourne
         def periodic_status_log():

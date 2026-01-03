@@ -1,16 +1,35 @@
 services:
+  # SERVICE 1: BOT + API (Hybrid) - Count as 1 Web Service
   - type: web
     name: citadelle-bot
     env: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && pip install -r Site/backend/requirements.txt
     startCommand: python main.py
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
-    healthCheckPath: /ping
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: citadelle-bot
+          property: url
+    healthCheckPath: /health
     autoDeploy: true
     disk:
       name: citadelle-data
       mountPath: /opt/render/project/data
       sizeGB: 1
+
+  # SERVICE 2: FRONTEND (Static Site) - Free
+  - type: static
+    name: citadelle-site
+    env: static
+    buildCommand: cd Site/frontend && npm install && npm run build
+    publishDir: Site/frontend/dist
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: citadelle-bot
+          property: url

@@ -84,3 +84,42 @@ google.auth.exceptions.MalformedError: No key could be detected.
     raise exceptions.MalformedError("No key could be detected.")
 google.auth.exceptions.MalformedError: No key could be detected.
 
+2026-01-03 15:58:28,917 - ERROR - Traceback: Traceback (most recent call last):
+  File "F:\Dossiers Utilisateur\Desktop\Citadelle 2.0\Citadelle-2.0\cogs\bump.py", line 74, in _async_setup
+    self.sheet = await asyncio.wait_for(
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python311\Lib\asyncio\tasks.py", line 489, in wait_for
+    return fut.result()
+           ^^^^^^^^^^^^
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python311\Lib\asyncio\threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python311\Lib\concurrent\futures\thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "F:\Dossiers Utilisateur\Desktop\Citadelle 2.0\Citadelle-2.0\cogs\bump.py", line 65, in _build_service
+    credentials = service_account.Credentials.from_service_account_info(
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python311\Lib\site-packages\google\oauth2\service_account.py", line 243, in from_service_account_info
+    signer = _service_account_info.from_dict(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python311\Lib\site-packages\google\auth\_service_account_info.py", line 57, in from_dict
+    signer = crypt.RSASigner.from_service_account_info(data)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python311\Lib\site-packages\google\auth\crypt\base.py", line 109, in from_service_account_info
+    return cls.from_string(
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\freed\AppData\Local\Programs\Python\Python311\Lib\site-packages\google\auth\crypt\_python_rsa.py", line 173, in from_string
+    raise exceptions.MalformedError("No key could be detected.")
+google.auth.exceptions.MalformedError: No key could be detected.
+
+2026-01-03 15:59:29,000 - INFO - Checking bump - Last bump: 739618 days, 15:59:29.000343, Last reminder: 739618 days, 15:59:29.000343
+2026-01-03 15:59:29,000 - INFO - Next check in 1 minutes
+2026-01-03 15:59:29,000 - INFO - Checking bump - Last bump: 739618 days, 15:59:29.000343, Last reminder: 739618 days, 15:59:29.000343
+2026-01-03 15:59:29,000 - INFO - Next check in 1 minutes
+2026-01-03 16:01:53,438 - INFO - Checking bump - Last bump: 3 days, 6:56:09.644283, Last reminder: 3 days, 4:56:08.895186
+2026-01-03 16:01:53,438 - INFO - Next check in 1 minutes
+2026-01-03 16:01:53,439 - INFO - Checking bump - Last bump: 3 days, 6:56:09.644782, Last reminder: 3 days, 4:56:08.895685
+2026-01-03 16:01:53,439 - INFO - Next check in 1 minutes
+2026-01-03 16:02:53,432 - INFO - Checking bump - Last bump: 3 days, 6:57:09.637825, Last reminder: 3 days, 4:57:08.888728
+2026-01-03 16:02:53,432 - INFO - Next check in 1 minutes

@@ -443,6 +443,15 @@ async def health():
     }
 
 
+@app.get("/")
+async def root():
+    """Root endpoint for basic connectivity checks"""
+    return {
+        "message": "Citadelle Backend is running",
+        "docs_url": "/docs"
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=settings.port)
