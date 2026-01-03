@@ -427,13 +427,13 @@ async def get_rarities():
     }
 
 
-@app.get("/ping")
+@app.api_route("/ping", methods=["GET", "HEAD"])
 async def ping():
     """Health check"""
     return {"status": "ok"}
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health():
     """Health check détaillé"""
     return {
@@ -443,7 +443,7 @@ async def health():
     }
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 async def root():
     """Root endpoint for basic connectivity checks"""
     return {
