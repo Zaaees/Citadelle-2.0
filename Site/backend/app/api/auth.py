@@ -17,6 +17,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+
 @router.get("/discord")
 async def discord_login():
     """
@@ -32,7 +33,7 @@ async def discord_login():
         f"&scope=identify"
     )
 
-    return {"authorization_url": oauth_url}
+    return RedirectResponse(url=oauth_url)
 
 
 @router.get("/login")
@@ -41,6 +42,7 @@ async def login():
     Alias pour /discord.
     """
     return await discord_login()
+
 
 
 @router.get("/discord/callback")
