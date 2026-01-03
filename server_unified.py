@@ -35,25 +35,34 @@ class UnifiedServerThread(threading.Thread):
             logger.error("🛑 API non chargée, serveur web annulé")
             return
 
-        logger.info(f"🚀 Démarrage du serveur unifié (Bot + API) sur le port {self.port}")
+        logger.info(f"🚀 [UnifiedServer] Tentative de démarrage sur {self.host}:{self.port}")
         
         try:
+            # Vérifier que le port est libre (optionnel mais utile pour debug)
+            import socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            result = sock.connect_ex((self.host, self.port))
+            if result == 0:
+                logger.warning(f"⚠️ [UnifiedServer] Le port {self.port} semble déjà utilisé !")
+            sock.close()
+
             # Configuration Uvicorn
-            config = uvicorn.Config(
-                app=fastapi_app,
+            # On utilise uvicorn.run directement qui est plus simple pour un thread dédié
+            # plutôt que Server(config).run()
+            logger.info(f"🚀 [UnifiedServer] Lancement de uvicorn.run()...")
+            uvicorn.run(
+                fastapi_app,
                 host=self.host,
                 port=self.port,
                 log_level="info",
-                loop="asyncio"
+                use_colors=False
             )
-            self.server = uvicorn.Server(config)
-            
-            # Forcer l'utilisation de la boucle d'événements existante si nécessaire
-            # Mais ici on est dans un thread séparé, donc on peut laisser uvicorn gérer sa boucle
-            self.server.run()
+            logger.info(f"✅ [UnifiedServer] uvicorn.run() terminé (ceci ne devrait pas arriver tout de suite)")
             
         except Exception as e:
-            logger.error(f"❌ Erreur critique serveur Web: {e}")
+            logger.error(f"❌ [UnifiedServer] Erreur critique lors du lancement: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
 def start_unified_server():
     """Démarre le serveur FastAPI dans un thread séparé"""
