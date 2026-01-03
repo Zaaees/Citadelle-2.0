@@ -8,18 +8,36 @@ from datetime import datetime
 # Configuration du logging
 logger = logging.getLogger('bot')
 
-# Ajouter le chemin du backend pour l'import
+# Ajouter le chemin du backend pour l'import des dépendances
 current_dir = os.path.dirname(os.path.abspath(__file__))
 backend_path = os.path.join(current_dir, 'Site', 'backend')
 if backend_path not in sys.path:
     sys.path.append(backend_path)
 
 try:
-    # Importer l'app FastAPI depuis le backend
-    # Note: On suppose que Site/backend/main.py expose 'app'
-    from main import app as fastapi_app
-except ImportError as e:
-    logger.critical(f"❌ Impossible d'importer l'API FastAPI: {e}")
+    # Utilisation de importlib pour éviter le conflit de nom avec 'main.py' racine
+    import importlib.util
+    
+    print(f"🔄 [UnifiedServer] Loading backend from {backend_path}...")
+    
+    # On doit charger le module principal du backend avec un nom différent
+    spec = importlib.util.spec_from_file_location("backend_app", os.path.join(backend_path, "main.py"))
+    if spec and spec.loader:
+        backend_module = importlib.util.module_from_spec(spec)
+        sys.modules["backend_app"] = backend_module
+        spec.loader.exec_module(backend_module)
+        fastapi_app = backend_module.app
+        print("✅ [UnifiedServer] Backend app loaded successfully")
+    else:
+        print("❌ [UnifiedServer] Failed to load spec (file not found?)")
+        fastapi_app = None
+
+except Exception as e:
+    logger.critical(f"❌ [UnifiedServer] Erreur CRITIQUE import API: {e}")
+    # Fallback debug print
+    print(f"❌ [UnifiedServer] Erreur CRITIQUE import API: {e}")
+    import traceback
+    traceback.print_exc()
     fastapi_app = None
 
 class UnifiedServerThread(threading.Thread):
