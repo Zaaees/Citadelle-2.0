@@ -82,12 +82,12 @@ export default function Profile() {
             <div className="flex flex-wrap gap-2 mt-4 justify-center md:justify-start">
               {(stats?.full_cards || 0) > 0 && (
                 <span className="px-3 py-1 bg-yellow-500/20 text-yellow-400 rounded-full text-sm font-medium">
-                  Collectionneur Full ({stats.full_cards})
+                  Collectionneur Full ({stats?.full_cards})
                 </span>
               )}
               {(stats?.discoveries_count || 0) > 0 && (
                 <span className="px-3 py-1 bg-purple-500/20 text-purple-400 rounded-full text-sm font-medium">
-                  Decouvreur ({stats.discoveries_count})
+                  Decouvreur ({stats?.discoveries_count})
                 </span>
               )}
               {(stats?.completion_percentage || 0) >= 50 && (
@@ -211,9 +211,8 @@ export default function Profile() {
                     {stats?.can_daily_draw ? 'Disponible !' : 'Deja effectue aujourd\'hui'}
                   </p>
                 </div>
-                <div className={`w-3 h-3 rounded-full ${
-                  stats?.can_daily_draw ? 'bg-green-500' : 'bg-red-500'
-                }`} />
+                <div className={`w-3 h-3 rounded-full ${stats?.can_daily_draw ? 'bg-green-500' : 'bg-red-500'
+                  }`} />
               </div>
             </div>
 
@@ -256,9 +255,8 @@ export default function Profile() {
                     {stats?.can_sacrificial_draw ? 'Disponible !' : 'Deja effectue aujourd\'hui'}
                   </p>
                 </div>
-                <div className={`w-3 h-3 rounded-full ${
-                  stats?.can_sacrificial_draw ? 'bg-green-500' : 'bg-red-500'
-                }`} />
+                <div className={`w-3 h-3 rounded-full ${stats?.can_sacrificial_draw ? 'bg-green-500' : 'bg-red-500'
+                  }`} />
               </div>
             </div>
           </div>
