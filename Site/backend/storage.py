@@ -185,6 +185,8 @@ class CardsStorageService:
                 except Exception as e:
                     logger.error(f"Error loading cards for {category}: {e}")
                     self.cards_by_category[category] = []
+            else:
+                logger.warning(f"⚠️ Missing Folder ID for category: {category}")
 
         for category, folder_id in full_folder_mapping.items():
             if folder_id:
