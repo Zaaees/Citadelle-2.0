@@ -23,15 +23,24 @@ class Settings(BaseSettings):
     @property
     def CORS_ORIGINS(self) -> List[str]:
         """Liste des origines autorisées pour CORS."""
-        if self.ENVIRONMENT == "production":
-            return [self.FRONTEND_URL]
-        return [
-            self.FRONTEND_URL,
+        origins = [
             "http://localhost:5173",
             "http://localhost:5174",
             "http://127.0.0.1:5173",
             "http://127.0.0.1:5174"
         ]
+
+        if self.FRONTEND_URL:
+            # Nettoyer l'URL (enlever le trailing slash qui peut casser CORS)
+            clean_url = self.FRONTEND_URL.rstrip('/')
+            origins.append(clean_url)
+            
+            # Ajouter la version avec/sans www si nécessaire (optionnel mais robuste)
+            if "://" in clean_url:
+                protocol, domain = clean_url.split("://", 1)
+                # origins.append(f"{protocol}://www.{domain}") 
+
+        return origins
 
     # Discord OAuth2
     DISCORD_CLIENT_ID: str
