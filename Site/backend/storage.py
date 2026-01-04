@@ -71,7 +71,8 @@ class CardsStorageService:
     def _init_google_clients(self):
         """Initialise les clients Google API"""
         try:
-            creds_data = json.loads(self.settings.service_account_json)
+            # Use the pre-processed SERVICE_ACCOUNT_INFO from settings which handles newline replacement
+            creds_data = self.settings.SERVICE_ACCOUNT_INFO
             self.credentials = Credentials.from_service_account_info(creds_data, scopes=SCOPES)
             self.gc = gspread.authorize(self.credentials)
             self.spreadsheet = self.gc.open_by_key(self.settings.google_sheet_id_cartes)
@@ -113,6 +114,35 @@ class CardsStorageService:
         with self._cache_lock:
             self._cache[key] = value
             self._cache_timestamps[key] = datetime.now()
+
+    def get_cards_cache(self) -> List[List[str]]:
+        """
+        Récupère le cache complet des cartes (contenu de sheet1).
+        Utilisé par le système de Bazaar pour scanner toutes les cartes.
+        """
+        cache_key = "all_cards_sheet_values"
+        cached = self._get_cached(cache_key)
+        if cached is not None:
+            return cached
+
+        with self._cards_lock:
+            try:
+                sheet = self.spreadsheet.sheet1
+                all_data = sheet.get_all_values()
+                self._set_cached(cache_key, all_data)
+                return all_data
+            except Exception as e:
+                logger.error(f"Error refreshing cards cache: {e}")
+                return []
+
+    def refresh_cards_cache(self):
+        """Force le rafraîchissement du cache des cartes."""
+        with self._cards_lock:
+            self._cache.pop("all_cards_sheet_values", None)
+            # Invalide aussi les caches user spécifiques car ils dépendent de sheet1
+            keys_to_remove = [k for k in self._cache.keys() if k.startswith("user_cards_")]
+            for k in keys_to_remove:
+                self._cache.pop(k, None)
 
     def _load_card_files(self):
         """Charge la liste des fichiers de cartes depuis Google Drive"""

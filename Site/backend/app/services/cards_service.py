@@ -384,6 +384,18 @@ class CardSystemService:
 
     def consume_user_bonus(self, user_id: int) -> bool:
         return self.storage.use_bonus_draw(str(user_id))
+        
+    def get_user_bonus_count(self, user_id: int) -> int:
+        """Retourne le nombre de bonus disponibles pour un utilisateur."""
+        return self.storage.get_user_bonus_count(str(user_id))
+
+    def get_username(self, user_id: int) -> Optional[str]:
+        """
+        Tente de récupérer le nom d'utilisateur.
+        """
+        # Pour l'instant on retourne None, le front utilisera User_ID
+        # On pourrait implémenter un cache ou lookup si on avait accès à la DB discord ou user cache
+        return None
 
 # Instance globale pour l'API
 card_system = CardSystemService()

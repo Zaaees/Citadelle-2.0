@@ -217,7 +217,7 @@ async def get_user_inventory(
     """
     logger.info(f"Récupération inventaire pour {current_user.get('username')} ({current_user.get('id')})")
     try:
-        inventory = await card_system.get_user_collection(int(current_user["id"]))
+        inventory = await card_system.get_user_collection(int(current_user["user_id"]))
         return inventory
     except Exception as e:
         logger.error(f"Erreur lors de la récupération de l'inventaire: {e}")

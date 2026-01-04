@@ -57,6 +57,31 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
         extra = "ignore"
 
+    @property
+    def SERVICE_ACCOUNT_INFO(self) -> dict:
+        """Parse le JSON du service account."""
+        if not self.service_account_json:
+            return {}
+
+        try:
+            # Nettoyage
+            cleaned_json = self.service_account_json.strip()
+            if cleaned_json.startswith("'") and cleaned_json.endswith("'"):
+                cleaned_json = cleaned_json[1:-1]
+            elif cleaned_json.startswith('"') and cleaned_json.endswith('"'):
+                cleaned_json = cleaned_json[1:-1]
+            
+            account_info = json.loads(cleaned_json)
+
+            # Fix: Convertir les \n échappés
+            if 'private_key' in account_info:
+                account_info['private_key'] = account_info['private_key'].replace('\\n', '\n')
+
+            return account_info
+        except Exception as e:
+            print(f"Error parsing SERVICE_ACCOUNT_JSON: {e}")
+            return {}
+
 
 @lru_cache()
 def get_settings() -> Settings:
