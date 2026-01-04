@@ -86,13 +86,31 @@ class Settings(BaseSettings):
     @property
     def SERVICE_ACCOUNT_INFO(self) -> dict:
         """Parse le JSON du service account."""
-        account_info = json.loads(self.SERVICE_ACCOUNT_JSON)
+        if not self.SERVICE_ACCOUNT_JSON:
+            return {}
 
-        # Fix: Convertir les \n échappés en vraies nouvelles lignes dans la clé privée
-        if 'private_key' in account_info:
-            account_info['private_key'] = account_info['private_key'].replace('\\n', '\n')
+        try:
+            # Nettoyage: retirer les quotes simples ou doubles qui pourraient entourer le JSON
+            cleaned_json = self.SERVICE_ACCOUNT_JSON.strip()
+            if cleaned_json.startswith("'") and cleaned_json.endswith("'"):
+                cleaned_json = cleaned_json[1:-1]
+            elif cleaned_json.startswith('"') and cleaned_json.endswith('"'):
+                cleaned_json = cleaned_json[1:-1]
+            
+            account_info = json.loads(cleaned_json)
 
-        return account_info
+            # Fix: Convertir les \n échappés en vraies nouvelles lignes dans la clé privée
+            if 'private_key' in account_info:
+                account_info['private_key'] = account_info['private_key'].replace('\\n', '\n')
+
+            return account_info
+        except json.JSONDecodeError as e:
+            # En cas d'erreur, retourner un dict vide mais logger l'erreur (dans une vraie app)
+            print(f"❌ Erreur de parsing SERVICE_ACCOUNT_JSON: {e}")
+            return {}
+        except Exception as e:
+            print(f"❌ Erreur inattendue SERVICE_ACCOUNT_JSON: {e}")
+            return {}
 
     # Logging
     LOG_LEVEL: str = "INFO"
