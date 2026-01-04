@@ -174,6 +174,20 @@ class CardsStorageService:
         }
 
         for category, folder_id in folder_mapping.items():
+            # Fallback: check env var directly if setting is empty
+            if not folder_id:
+                env_var_name = f"FOLDER_{category.upper()}_ID".replace("É", "E").replace("Ê", "E").replace("È", "E")
+                if category == "Personnage Historique": env_var_name = "FOLDER_PERSONNAGE_HISTORIQUE_ID"
+                if category == "Black Hole": env_var_name = "FOLDER_BLACKHOLE_ID"
+                # Handle specific mappings if names don't match exactly
+                if category == "Élèves": env_var_name = "FOLDER_ELEVES_ID"
+                if category == "Maître": env_var_name = "FOLDER_MAITRE_ID"
+                if category == "Secrète": env_var_name = "FOLDER_SECRETE_ID"
+                
+                folder_id = os.getenv(env_var_name)
+                if folder_id:
+                    logger.info(f"🔹 Resolved Folder ID for {category} from Env Var: {env_var_name}")
+
             if folder_id:
                 try:
                     results = self.drive_service.files().list(
