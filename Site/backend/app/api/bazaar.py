@@ -572,42 +572,55 @@ async def get_my_trade_requests(
         now = datetime.utcnow()
 
         for record in records:
-            # Ignorer les demandes non-pending
-            if record.get("status") != TradeRequestStatus.PENDING.value:
-                continue
-
-            # Verifier l'expiration
             try:
-                expires_at = datetime.fromisoformat(record.get("expires_at", ""))
-                if expires_at < now:
-                    continue  # Expiree
-            except (ValueError, TypeError):
+                # Ignorer les demandes non-pending
+                if record.get("status") != TradeRequestStatus.PENDING.value:
+                    continue
+
+                # Verifier l'expiration
+                try:
+                    expires_at = datetime.fromisoformat(record.get("expires_at", ""))
+                    if expires_at < now:
+                        continue  # Expiree
+                except (ValueError, TypeError):
+                    logger.warning(f"Date d'expiration invalide pour la demande {record.get('id')}")
+                    continue
+
+                # Validation de la date de création pour éviter crash
+                created_at_str = record.get("created_at", "")
+                try:
+                    created_at = datetime.fromisoformat(created_at_str)
+                except (ValueError, TypeError):
+                    created_at = now
+
+                trade_request = TradeRequest(
+                    id=str(record.get("id", "")),
+                    requester_id=str(record.get("requester_id", "")),
+                    requester_name=record.get("requester_name", "") or "Unknown",
+                    target_id=str(record.get("target_id", "")),
+                    target_name=record.get("target_name", "") or "Unknown",
+                    offered_card=CardInfo(
+                        category=record.get("offered_category", ""),
+                        name=record.get("offered_name", "")
+                    ),
+                    requested_card=CardInfo(
+                        category=record.get("requested_category", ""),
+                        name=record.get("requested_name", "")
+                    ),
+                    status=TradeRequestStatus(record.get("status", "pending")),
+                    created_at=created_at,
+                    expires_at=expires_at
+                )
+
+                # Classer par type
+                if str(record.get("target_id")) == user_id_str:
+                    received.append(trade_request)
+                elif str(record.get("requester_id")) == user_id_str:
+                    sent.append(trade_request)
+            
+            except Exception as e:
+                logger.error(f"Erreur lors du parsing de la demande {record.get('id', 'unknown')}: {e}")
                 continue
-
-            trade_request = TradeRequest(
-                id=record.get("id", ""),
-                requester_id=str(record.get("requester_id", "")),
-                requester_name=record.get("requester_name", ""),
-                target_id=str(record.get("target_id", "")),
-                target_name=record.get("target_name", ""),
-                offered_card=CardInfo(
-                    category=record.get("offered_category", ""),
-                    name=record.get("offered_name", "")
-                ),
-                requested_card=CardInfo(
-                    category=record.get("requested_category", ""),
-                    name=record.get("requested_name", "")
-                ),
-                status=TradeRequestStatus(record.get("status", "pending")),
-                created_at=datetime.fromisoformat(record.get("created_at", now.isoformat())),
-                expires_at=expires_at
-            )
-
-            # Classer par type
-            if str(record.get("target_id")) == user_id_str:
-                received.append(trade_request)
-            elif str(record.get("requester_id")) == user_id_str:
-                sent.append(trade_request)
 
         return UserTradeRequests(received=received, sent=sent)
 
