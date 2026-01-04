@@ -142,7 +142,13 @@ async def get_me(current_user: dict = Depends(get_current_user)):
     Returns:
         Informations de l'utilisateur (depuis le JWT token)
     """
-    return UserBase(**current_user)
+    # Conversion explicite pour éviter l'erreur de validation Pydantic
+    # user_id est recu comme int depuis get_current_user, mais UserBase attend str
+    user_data = current_user.copy()
+    if 'user_id' in user_data:
+        user_data['user_id'] = str(user_data['user_id'])
+        
+    return UserBase(**user_data)
 
 
 @router.post("/logout")

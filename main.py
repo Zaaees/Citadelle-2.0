@@ -1,10 +1,12 @@
+# Charger les variables d'environnement
+load_dotenv()
+
 import os
 import threading
 import traceback
 import logging
 import discord
 from discord.ext import commands
-from dotenv import load_dotenv
 import time
 import asyncio
 from datetime import datetime
@@ -26,9 +28,6 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger('bot')
-
-# Charger les variables d'environnement
-load_dotenv()
 
 
 class StableBot(commands.Bot):
