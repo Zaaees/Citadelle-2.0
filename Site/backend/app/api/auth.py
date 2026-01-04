@@ -106,20 +106,30 @@ async def discord_callback(code: str):
     except Exception as e:
         logger.warning(f"Impossible de mettre a jour le cache utilisateur: {e}")
 
-    # Créer un JWT token pour notre API
+    # Create JWT token
     access_token_expires = timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data=user_data,
         expires_delta=access_token_expires
     )
 
-    # Retourner le token et les infos utilisateur
-    return AuthResponse(
-        access_token=access_token,
-        token_type="bearer",
-        user=UserBase(**user_data),
-        expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60
-    )
+    # ERROR HANDLING: Ensure we have a valid Frontend URL
+    frontend_url = settings.FRONTEND_URL
+    if not frontend_url:
+        logger.error("FRONTEND_URL not set in settings!")
+        # Fallback to a sensible default or error
+        return JSONResponse(status_code=500, content={"detail": "Configuration Error: FRONTEND_URL missing"})
+
+    # Normalize URL (remove trailing slash if present)
+    if frontend_url.endswith('/'):
+        frontend_url = frontend_url[:-1]
+
+    # Redirect to Frontend with Token
+    # The frontend AuthCallback will read this token and log the user in
+    redirect_url = f"{frontend_url}/auth/callback?token={access_token}"
+    logger.info(f"Redirecting user to: {redirect_url}")
+    
+    return RedirectResponse(url=redirect_url)
 
 
 @router.get("/me")
