@@ -37,38 +37,56 @@ async def get_draw_status(current_user: dict = Depends(get_current_user)):
 
     try:
         # Verifier tirage journalier
-        can_daily = await asyncio.to_thread(
-            card_system.drawing_manager.can_perform_daily_draw,
-            user_id,
-            check_only=True
-        )
+        try:
+            can_daily = await asyncio.to_thread(
+                card_system.drawing_manager.can_perform_daily_draw,
+                user_id,
+                check_only=True
+            )
+        except Exception as e:
+            logger.error(f"Erreur check daily draw: {e}")
+            can_daily = False
 
         # Verifier tirage sacrificiel (pas de parametre check_only)
-        can_sacrificial = await asyncio.to_thread(
-            card_system.drawing_manager.can_perform_sacrificial_draw,
-            user_id
-        )
+        try:
+            can_sacrificial = await asyncio.to_thread(
+                card_system.drawing_manager.can_perform_sacrificial_draw,
+                user_id
+            )
+        except Exception as e:
+            logger.error(f"Erreur check sacrificial draw: {e}")
+            can_sacrificial = False
 
         # Recuperer les bonus disponibles
-        bonus_count = await asyncio.to_thread(
-            card_system.get_user_bonus_count,
-            user_id
-        )
+        try:
+            bonus_count = await asyncio.to_thread(
+                card_system.get_user_bonus_count,
+                user_id
+            )
+        except Exception as e:
+            logger.error(f"Erreur check bonus count: {e}")
+            bonus_count = 0
 
         # Recuperer les cartes eligibles au sacrifice (non-Full)
-        collection_data = await card_system.get_user_collection(user_id)
-        eligible_cards = [
-            {"category": card["category"], "name": card["name"]}
-            for card in collection_data["cards"]
-            if not card.get("is_full", False)
-        ]
+        try:
+            collection_data = await card_system.get_user_collection(user_id)
+            eligible_cards = [
+                {"category": card["category"], "name": card["name"]}
+                for card in collection_data["cards"]
+                if not card.get("is_full", False)
+            ]
+            total_cards_count = collection_data["total_cards"]
+        except Exception as e:
+            logger.error(f"Erreur check collection for sacrificial: {e}")
+            eligible_cards = []
+            total_cards_count = 0
 
         return {
             "can_daily_draw": can_daily,
             "can_sacrificial_draw": can_sacrificial and len(eligible_cards) >= 5,
             "bonus_available": bonus_count,
             "sacrificial_cards": eligible_cards,
-            "total_cards": collection_data["total_cards"]
+            "total_cards": total_cards_count
         }
 
     except Exception as e:

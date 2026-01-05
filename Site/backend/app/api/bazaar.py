@@ -30,6 +30,30 @@ async def ping_bazaar():
     return {"status": "ok", "message": "Bazaar router is working"}
 
 
+@router.get("/check_sheet")
+async def check_sheet_structure():
+    """Debug: Check the structure of the TradeRequests sheet."""
+    try:
+        sheet = await asyncio.to_thread(_get_or_create_trade_requests_sheet)
+        headers = await asyncio.to_thread(sheet.row_values, 1)
+        all_values = await asyncio.to_thread(sheet.get_all_values)
+        
+        return {
+            "status": "ok",
+            "sheet_title": sheet.title,
+            "headers": headers,
+            "row_count": len(all_values),
+            "first_few_rows": all_values[:5] if len(all_values) > 0 else []
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+
 @router.get("/debug-open")
 async def debug_bazaar_open() -> Dict[str, Any]:
     """
